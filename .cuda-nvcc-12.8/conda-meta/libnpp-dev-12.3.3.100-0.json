@@ -1,0 +1,579 @@
+{
+  "name": "libnpp-dev",
+  "version": "12.3.3.100",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libnpp-dev-12.3.3.100-0.conda",
+  "md5": "7ea954e166346d7a530ea2d1bacacfc3",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libnpp-dev-12.3.3.100-0.conda",
+  "sha256": "f7ea20ba53ab78268bc0ab7610cf829ff88ed7c5af9ae3d65aba0657ca6f3c77",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libnpp 12.3.3.100 0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "libnpp-static >=12.3.3.100"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739448373681,
+  "size": 450203,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libnpp-dev-12.3.3.100-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libnpp-dev-12.3.3.100-0",
+  "files": [
+    "lib/libnppc.so",
+    "lib/libnppial.so",
+    "lib/libnppicc.so",
+    "lib/libnppidei.so",
+    "lib/libnppif.so",
+    "lib/libnppig.so",
+    "lib/libnppim.so",
+    "lib/libnppist.so",
+    "lib/libnppisu.so",
+    "lib/libnppitc.so",
+    "lib/libnpps.so",
+    "lib/pkgconfig/nppc-12.8.pc",
+    "lib/pkgconfig/nppi-12.8.pc",
+    "lib/pkgconfig/nppial-12.8.pc",
+    "lib/pkgconfig/nppicc-12.8.pc",
+    "lib/pkgconfig/nppicom-12.8.pc",
+    "lib/pkgconfig/nppidei-12.8.pc",
+    "lib/pkgconfig/nppif-12.8.pc",
+    "lib/pkgconfig/nppig-12.8.pc",
+    "lib/pkgconfig/nppim-12.8.pc",
+    "lib/pkgconfig/nppist-12.8.pc",
+    "lib/pkgconfig/nppisu-12.8.pc",
+    "lib/pkgconfig/nppitc-12.8.pc",
+    "lib/pkgconfig/npps-12.8.pc",
+    "targets/x86_64-linux/include/npp.h",
+    "targets/x86_64-linux/include/nppcore.h",
+    "targets/x86_64-linux/include/nppdefs.h",
+    "targets/x86_64-linux/include/nppi.h",
+    "targets/x86_64-linux/include/nppi_arithmetic_and_logical_operations.h",
+    "targets/x86_64-linux/include/nppi_color_conversion.h",
+    "targets/x86_64-linux/include/nppi_data_exchange_and_initialization.h",
+    "targets/x86_64-linux/include/nppi_filtering_functions.h",
+    "targets/x86_64-linux/include/nppi_geometry_transforms.h",
+    "targets/x86_64-linux/include/nppi_linear_transforms.h",
+    "targets/x86_64-linux/include/nppi_morphological_operations.h",
+    "targets/x86_64-linux/include/nppi_statistics_functions.h",
+    "targets/x86_64-linux/include/nppi_support_functions.h",
+    "targets/x86_64-linux/include/nppi_threshold_and_compare_operations.h",
+    "targets/x86_64-linux/include/npps.h",
+    "targets/x86_64-linux/include/npps_arithmetic_and_logical_operations.h",
+    "targets/x86_64-linux/include/npps_conversion_functions.h",
+    "targets/x86_64-linux/include/npps_filtering_functions.h",
+    "targets/x86_64-linux/include/npps_initialization.h",
+    "targets/x86_64-linux/include/npps_statistics_functions.h",
+    "targets/x86_64-linux/include/npps_support_functions.h",
+    "targets/x86_64-linux/lib/libnppc.so",
+    "targets/x86_64-linux/lib/libnppial.so",
+    "targets/x86_64-linux/lib/libnppicc.so",
+    "targets/x86_64-linux/lib/libnppidei.so",
+    "targets/x86_64-linux/lib/libnppif.so",
+    "targets/x86_64-linux/lib/libnppig.so",
+    "targets/x86_64-linux/lib/libnppim.so",
+    "targets/x86_64-linux/lib/libnppist.so",
+    "targets/x86_64-linux/lib/libnppisu.so",
+    "targets/x86_64-linux/lib/libnppitc.so",
+    "targets/x86_64-linux/lib/libnpps.so",
+    "targets/x86_64-linux/lib/stubs/libnppc.so",
+    "targets/x86_64-linux/lib/stubs/libnppial.so",
+    "targets/x86_64-linux/lib/stubs/libnppicc.so",
+    "targets/x86_64-linux/lib/stubs/libnppidei.so",
+    "targets/x86_64-linux/lib/stubs/libnppif.so",
+    "targets/x86_64-linux/lib/stubs/libnppig.so",
+    "targets/x86_64-linux/lib/stubs/libnppim.so",
+    "targets/x86_64-linux/lib/stubs/libnppist.so",
+    "targets/x86_64-linux/lib/stubs/libnppisu.so",
+    "targets/x86_64-linux/lib/stubs/libnppitc.so",
+    "targets/x86_64-linux/lib/stubs/libnpps.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libnppc.so",
+        "path_type": "softlink",
+        "sha256": "4d45a7eb73ad30a2cde370917c78cd89a5619d3cad8d8246816a052c89b24982",
+        "size_in_bytes": 1656080
+      },
+      {
+        "_path": "lib/libnppial.so",
+        "path_type": "softlink",
+        "sha256": "9b8349b35582da3ac67c15746c20da7bb596a5a78fe1c55ba3ea961f21204bf2",
+        "size_in_bytes": 22046288
+      },
+      {
+        "_path": "lib/libnppicc.so",
+        "path_type": "softlink",
+        "sha256": "a2f3ec0b63d05abb882e2ec18753c7e3e98ec8c8e18d47d960539d446f19decc",
+        "size_in_bytes": 9373288
+      },
+      {
+        "_path": "lib/libnppidei.so",
+        "path_type": "softlink",
+        "sha256": "65f4d7af15e940e7e86fd3aef614a363dfb5437452945a6d050e3112709805ca",
+        "size_in_bytes": 13633464
+      },
+      {
+        "_path": "lib/libnppif.so",
+        "path_type": "softlink",
+        "sha256": "8a3ffcef60910ced14c40f223ead06c5819a5f24e565050240062b21fd3ba7a9",
+        "size_in_bytes": 128498536
+      },
+      {
+        "_path": "lib/libnppig.so",
+        "path_type": "softlink",
+        "sha256": "f7142d836d82c66b2474c453a38ae3c4bdc5e633be1289b4d7032656a096c65a",
+        "size_in_bytes": 55871152
+      },
+      {
+        "_path": "lib/libnppim.so",
+        "path_type": "softlink",
+        "sha256": "0f2d88d71d8c643fc4edbddf167a32bc9d1ca81910a77a3a6edad30a80874739",
+        "size_in_bytes": 13248104
+      },
+      {
+        "_path": "lib/libnppist.so",
+        "path_type": "softlink",
+        "sha256": "a81c17b7d0a73fcf10f5f0862f2c918792cc9cd5c6b5b97702ff9b07fc1b5b4c",
+        "size_in_bytes": 49739688
+      },
+      {
+        "_path": "lib/libnppisu.so",
+        "path_type": "softlink",
+        "sha256": "cef4696fef1457d67b391417cad2d62f5a1165939a520139d6d8d6b931fd4ae2",
+        "size_in_bytes": 1647840
+      },
+      {
+        "_path": "lib/libnppitc.so",
+        "path_type": "softlink",
+        "sha256": "c0ac1c6cf0450691d5e60038977285f6d469285e3c5a943786668d598efecdaf",
+        "size_in_bytes": 6686096
+      },
+      {
+        "_path": "lib/libnpps.so",
+        "path_type": "softlink",
+        "sha256": "15d5bbb79eb232a2728723cda4357d175f98382688ae4519c3a07fff827e0fcf",
+        "size_in_bytes": 17745944
+      },
+      {
+        "_path": "lib/pkgconfig/nppc-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "8bd92cf49a6e65dbf254c13ff8efe1c4b0c6cb53ef85043db0b69572f2ac33e6",
+        "size_in_bytes": 486,
+        "sha256_in_prefix": "e970f0a26d6f64db42a718ad830ea81a1a6321d0b57ec0afda66e23a3174bc3b"
+      },
+      {
+        "_path": "lib/pkgconfig/nppi-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "32ad2e056b61425cdeb97eadd766b219935039bd840373a0e95006a08a8d8826",
+        "size_in_bytes": 498,
+        "sha256_in_prefix": "c23088791ccbf3a722b3e43135852d3c4e36dcd01a74485de699f3f7822d01fc"
+      },
+      {
+        "_path": "lib/pkgconfig/nppial-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "504c238ce14bc28b1b11953d4ca9aac5c1ad92e68e253030bac7975c1972eb20",
+        "size_in_bytes": 525,
+        "sha256_in_prefix": "f18120786a1f1069245d14d197162083ca04c0485aedf8211b7b5ff5ea9e50bf"
+      },
+      {
+        "_path": "lib/pkgconfig/nppicc-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "29663b3fdc8aca9bee0f1ba5b2dbea338b1a1c48a3f2b53f4f83ac23679f6011",
+        "size_in_bytes": 521,
+        "sha256_in_prefix": "21c45e6ede42e3630fa9c55a653f8c2495f5d39c037c9c22b1c9868e36b952c9"
+      },
+      {
+        "_path": "lib/pkgconfig/nppicom-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "425adf9765e561af5fa6a455189392092dc877a39941962ba0b02379ba8dba54",
+        "size_in_bytes": 518,
+        "sha256_in_prefix": "abd72d7c97a12d8060a520fa439cf46f02c8ae60629677e430d1b05c68233858"
+      },
+      {
+        "_path": "lib/pkgconfig/nppidei-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "590995fc0ac4e63bf0341a603f42e30967ce543b8b9dbcbbdef7d48c68f66491",
+        "size_in_bytes": 510,
+        "sha256_in_prefix": "48931aa8deb3196e39bf654e6c3ad645abf059af71ca7c8d75ebf8e64de0128c"
+      },
+      {
+        "_path": "lib/pkgconfig/nppif-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "901b7b0edc8e1c01b7139e23fff567a74b219dff19afd4aafc0341c7522c5bec",
+        "size_in_bytes": 510,
+        "sha256_in_prefix": "048f9ee95b0abd85a5494d32137fcf20c3b0e6e584aeea975c8386f1a018b52f"
+      },
+      {
+        "_path": "lib/pkgconfig/nppig-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "9bdb06d8978539f4d513a75459fdaa54554c0c12f170703a7b7469a921f5655b",
+        "size_in_bytes": 511,
+        "sha256_in_prefix": "872d448dec835739e887d28da81ccba049950d8338809a8061688b81fdd8b418"
+      },
+      {
+        "_path": "lib/pkgconfig/nppim-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "2b5aa889189b0fe76a0a76737e5bf45c12f47ceda69c5ec5c896b964b99a4d4e",
+        "size_in_bytes": 516,
+        "sha256_in_prefix": "f70f6bb2afb1ffe7025c9e05339ab0767e7bbaccead66085708e28ce474002d7"
+      },
+      {
+        "_path": "lib/pkgconfig/nppist-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "011d2a9f09f909a7ed1c2aeba610eccbc91ef12a495ebd38419e46ffd4709aa5",
+        "size_in_bytes": 525,
+        "sha256_in_prefix": "27ca75f0b53ac0971c34273d43ed302e649acf3767c897be4dbc1ff25e385c22"
+      },
+      {
+        "_path": "lib/pkgconfig/nppisu-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "5eff33f16f3b1e0365f808f353c077bef3889ee3f332b98c48ec4f975dc3ab5d",
+        "size_in_bytes": 530,
+        "sha256_in_prefix": "b8718bf44598ddb23cd687a30d2ebd19e186f5b301935d3add09acccf7dbc30c"
+      },
+      {
+        "_path": "lib/pkgconfig/nppitc-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "b021aef7a717a65b5599a2dc8cf494047d02086d12ae6ac985a90033bd9d6994",
+        "size_in_bytes": 526,
+        "sha256_in_prefix": "2fc69d9ac3b311ff268e63b58ba6fabaadfc1e0964c81f0951215bdd29de8ebf"
+      },
+      {
+        "_path": "lib/pkgconfig/npps-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnpp_1739448108638/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "82edd40bf8277a12788437de228ca77fb3491a335a6d75c96714d0cbc758cc42",
+        "size_in_bytes": 499,
+        "sha256_in_prefix": "44dafde7525c8db62e80c9d12a102d3353fec57a142a8a35919c6d62838337a8"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/npp.h",
+        "path_type": "hardlink",
+        "sha256": "b0fde255a63d5b639a93c2d06dc5f75216a4a86a8e1ba9119ff9edd15a689bba",
+        "size_in_bytes": 3429,
+        "sha256_in_prefix": "b0fde255a63d5b639a93c2d06dc5f75216a4a86a8e1ba9119ff9edd15a689bba"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppcore.h",
+        "path_type": "hardlink",
+        "sha256": "28a0da9004f93df2c719660483eef1effd7fa764888efe33b3253ad404c62c49",
+        "size_in_bytes": 8335,
+        "sha256_in_prefix": "28a0da9004f93df2c719660483eef1effd7fa764888efe33b3253ad404c62c49"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppdefs.h",
+        "path_type": "hardlink",
+        "sha256": "51b4f9e9ca4c58e14fbfa9dd14ca79cb9ff13b49c1793c4132704166f8b57335",
+        "size_in_bytes": 41820,
+        "sha256_in_prefix": "51b4f9e9ca4c58e14fbfa9dd14ca79cb9ff13b49c1793c4132704166f8b57335"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi.h",
+        "path_type": "hardlink",
+        "sha256": "bda6515f9e2c847dd32083df67d1dda54d12a6f548d5e42131164820c50cd70b",
+        "size_in_bytes": 4075,
+        "sha256_in_prefix": "bda6515f9e2c847dd32083df67d1dda54d12a6f548d5e42131164820c50cd70b"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_arithmetic_and_logical_operations.h",
+        "path_type": "hardlink",
+        "sha256": "6e0449d38230fc780aa6a038bdec0f7c1ddd175db903eb596b6068e9f16c8139",
+        "size_in_bytes": 1463588,
+        "sha256_in_prefix": "6e0449d38230fc780aa6a038bdec0f7c1ddd175db903eb596b6068e9f16c8139"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_color_conversion.h",
+        "path_type": "hardlink",
+        "sha256": "9903af14d9111252ffcc5637233ce53c33cbce86510384e9c9d17a530d66b101",
+        "size_in_bytes": 969224,
+        "sha256_in_prefix": "9903af14d9111252ffcc5637233ce53c33cbce86510384e9c9d17a530d66b101"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_data_exchange_and_initialization.h",
+        "path_type": "hardlink",
+        "sha256": "3c67181110e77b845caad7c5144279e4eafb0fb3c4195a1d215b217fa7d258e6",
+        "size_in_bytes": 405869,
+        "sha256_in_prefix": "3c67181110e77b845caad7c5144279e4eafb0fb3c4195a1d215b217fa7d258e6"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_filtering_functions.h",
+        "path_type": "hardlink",
+        "sha256": "93f4a71b8ee048c4f0ca8446daaa29b29efbd37f78be6ce2c47d3e778dc4a050",
+        "size_in_bytes": 1191849,
+        "sha256_in_prefix": "93f4a71b8ee048c4f0ca8446daaa29b29efbd37f78be6ce2c47d3e778dc4a050"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_geometry_transforms.h",
+        "path_type": "hardlink",
+        "sha256": "0ba60b58a90e441063c07c5431a3e963ba963b6b71567c8d37c3152f0f451785",
+        "size_in_bytes": 363487,
+        "sha256_in_prefix": "0ba60b58a90e441063c07c5431a3e963ba963b6b71567c8d37c3152f0f451785"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_linear_transforms.h",
+        "path_type": "hardlink",
+        "sha256": "cb1ae0b8eb4577b97563638200ce3c4bb2a848304b656b8357f882cfe49af50c",
+        "size_in_bytes": 7389,
+        "sha256_in_prefix": "cb1ae0b8eb4577b97563638200ce3c4bb2a848304b656b8357f882cfe49af50c"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_morphological_operations.h",
+        "path_type": "hardlink",
+        "sha256": "06172a2503cae92f720b26c79cc95865361e48280b277d8dbe12c12d6fdd1b49",
+        "size_in_bytes": 145657,
+        "sha256_in_prefix": "06172a2503cae92f720b26c79cc95865361e48280b277d8dbe12c12d6fdd1b49"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_statistics_functions.h",
+        "path_type": "hardlink",
+        "sha256": "271d30cd2b00113bcc1e60771d7c23142c787319c1b6b1a31aef2da92f1f314a",
+        "size_in_bytes": 1269738,
+        "sha256_in_prefix": "271d30cd2b00113bcc1e60771d7c23142c787319c1b6b1a31aef2da92f1f314a"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_support_functions.h",
+        "path_type": "hardlink",
+        "sha256": "dad6bed79723382505389ca68bdd76acdc39095a3e7c513f0ab19537321d5b14",
+        "size_in_bytes": 13631,
+        "sha256_in_prefix": "dad6bed79723382505389ca68bdd76acdc39095a3e7c513f0ab19537321d5b14"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nppi_threshold_and_compare_operations.h",
+        "path_type": "hardlink",
+        "sha256": "0c3497e01c2ba2124eb25afd6c0ba21ccd28b94668427ccb5d37efe313bb3d5e",
+        "size_in_bytes": 271090,
+        "sha256_in_prefix": "0c3497e01c2ba2124eb25afd6c0ba21ccd28b94668427ccb5d37efe313bb3d5e"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/npps.h",
+        "path_type": "hardlink",
+        "sha256": "c8845916fceddccfa576130b678acf50a34d15f60aa42833f9c150c1764e174b",
+        "size_in_bytes": 3672,
+        "sha256_in_prefix": "c8845916fceddccfa576130b678acf50a34d15f60aa42833f9c150c1764e174b"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/npps_arithmetic_and_logical_operations.h",
+        "path_type": "hardlink",
+        "sha256": "e15808d569fcf36d367c74d91ff201fe5dd4be8d0487d157430495b5fbcb8985",
+        "size_in_bytes": 387271,
+        "sha256_in_prefix": "e15808d569fcf36d367c74d91ff201fe5dd4be8d0487d157430495b5fbcb8985"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/npps_conversion_functions.h",
+        "path_type": "hardlink",
+        "sha256": "8d5164cbd4b0e1f04c6296039980e2c3d1c75311a8542c02a79faf7bcd44a012",
+        "size_in_bytes": 100518,
+        "sha256_in_prefix": "8d5164cbd4b0e1f04c6296039980e2c3d1c75311a8542c02a79faf7bcd44a012"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/npps_filtering_functions.h",
+        "path_type": "hardlink",
+        "sha256": "428d634285c5339860876d8bf980169439e473c90e60a72896d840c81cec7db9",
+        "size_in_bytes": 4910,
+        "sha256_in_prefix": "428d634285c5339860876d8bf980169439e473c90e60a72896d840c81cec7db9"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/npps_initialization.h",
+        "path_type": "hardlink",
+        "sha256": "1d9e2563320e074bec2bf3a03b06cdc8dd89530ed4eea6a987a0669d9f169707",
+        "size_in_bytes": 30152,
+        "sha256_in_prefix": "1d9e2563320e074bec2bf3a03b06cdc8dd89530ed4eea6a987a0669d9f169707"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/npps_statistics_functions.h",
+        "path_type": "hardlink",
+        "sha256": "2d0a00e1be4711dc2a947e82ebe8c813de5de654c4ebcce5d9290496252173ef",
+        "size_in_bytes": 432519,
+        "sha256_in_prefix": "2d0a00e1be4711dc2a947e82ebe8c813de5de654c4ebcce5d9290496252173ef"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/npps_support_functions.h",
+        "path_type": "hardlink",
+        "sha256": "1ac871f59abfb5fd49190398379b5062c5af93cdb7e82718c7ef540d79d2230d",
+        "size_in_bytes": 8023,
+        "sha256_in_prefix": "1ac871f59abfb5fd49190398379b5062c5af93cdb7e82718c7ef540d79d2230d"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppc.so",
+        "path_type": "softlink",
+        "sha256": "4d45a7eb73ad30a2cde370917c78cd89a5619d3cad8d8246816a052c89b24982",
+        "size_in_bytes": 1656080
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppial.so",
+        "path_type": "softlink",
+        "sha256": "9b8349b35582da3ac67c15746c20da7bb596a5a78fe1c55ba3ea961f21204bf2",
+        "size_in_bytes": 22046288
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppicc.so",
+        "path_type": "softlink",
+        "sha256": "a2f3ec0b63d05abb882e2ec18753c7e3e98ec8c8e18d47d960539d446f19decc",
+        "size_in_bytes": 9373288
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppidei.so",
+        "path_type": "softlink",
+        "sha256": "65f4d7af15e940e7e86fd3aef614a363dfb5437452945a6d050e3112709805ca",
+        "size_in_bytes": 13633464
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppif.so",
+        "path_type": "softlink",
+        "sha256": "8a3ffcef60910ced14c40f223ead06c5819a5f24e565050240062b21fd3ba7a9",
+        "size_in_bytes": 128498536
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppig.so",
+        "path_type": "softlink",
+        "sha256": "f7142d836d82c66b2474c453a38ae3c4bdc5e633be1289b4d7032656a096c65a",
+        "size_in_bytes": 55871152
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppim.so",
+        "path_type": "softlink",
+        "sha256": "0f2d88d71d8c643fc4edbddf167a32bc9d1ca81910a77a3a6edad30a80874739",
+        "size_in_bytes": 13248104
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppist.so",
+        "path_type": "softlink",
+        "sha256": "a81c17b7d0a73fcf10f5f0862f2c918792cc9cd5c6b5b97702ff9b07fc1b5b4c",
+        "size_in_bytes": 49739688
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppisu.so",
+        "path_type": "softlink",
+        "sha256": "cef4696fef1457d67b391417cad2d62f5a1165939a520139d6d8d6b931fd4ae2",
+        "size_in_bytes": 1647840
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnppitc.so",
+        "path_type": "softlink",
+        "sha256": "c0ac1c6cf0450691d5e60038977285f6d469285e3c5a943786668d598efecdaf",
+        "size_in_bytes": 6686096
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnpps.so",
+        "path_type": "softlink",
+        "sha256": "15d5bbb79eb232a2728723cda4357d175f98382688ae4519c3a07fff827e0fcf",
+        "size_in_bytes": 17745944
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppc.so",
+        "path_type": "hardlink",
+        "sha256": "b00cb727c92250779f739d9d4ef5382ac6bc79a5956951c5e4394073fe3e8a16",
+        "size_in_bytes": 8649,
+        "sha256_in_prefix": "b00cb727c92250779f739d9d4ef5382ac6bc79a5956951c5e4394073fe3e8a16"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppial.so",
+        "path_type": "hardlink",
+        "sha256": "77f1f81e0f4c712c6ef5aa308ea38f5bf28717e611c3de6d0e631fd6dfeb96e7",
+        "size_in_bytes": 330633,
+        "sha256_in_prefix": "77f1f81e0f4c712c6ef5aa308ea38f5bf28717e611c3de6d0e631fd6dfeb96e7"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppicc.so",
+        "path_type": "hardlink",
+        "sha256": "2c8213953deb9f968791ed01b24c3ed849c6bea48626e556041dc8799c1f1661",
+        "size_in_bytes": 179753,
+        "sha256_in_prefix": "2c8213953deb9f968791ed01b24c3ed849c6bea48626e556041dc8799c1f1661"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppidei.so",
+        "path_type": "hardlink",
+        "sha256": "93f1cad9c86646e80b26c852b9972ee12f0ce29625cf75cc8ab13f4330f5ad86",
+        "size_in_bytes": 230497,
+        "sha256_in_prefix": "93f1cad9c86646e80b26c852b9972ee12f0ce29625cf75cc8ab13f4330f5ad86"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppif.so",
+        "path_type": "hardlink",
+        "sha256": "3c7aec6adaa3cc5d1cc7b55a607e05b690683026d115a40a54d942eadbca184b",
+        "size_in_bytes": 353377,
+        "sha256_in_prefix": "3c7aec6adaa3cc5d1cc7b55a607e05b690683026d115a40a54d942eadbca184b"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppig.so",
+        "path_type": "hardlink",
+        "sha256": "8c436b7a5325b054a68c8694bdb66d11285937c073bc30782c1ef566fc3fb2ff",
+        "size_in_bytes": 119617,
+        "sha256_in_prefix": "8c436b7a5325b054a68c8694bdb66d11285937c073bc30782c1ef566fc3fb2ff"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppim.so",
+        "path_type": "hardlink",
+        "sha256": "3c0c86f1a22b1a919eebb425e0c4adbac5d0d48ac24ab8228e8230fb5b5588df",
+        "size_in_bytes": 55929,
+        "sha256_in_prefix": "3c0c86f1a22b1a919eebb425e0c4adbac5d0d48ac24ab8228e8230fb5b5588df"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppist.so",
+        "path_type": "hardlink",
+        "sha256": "f9cb134176d00756f7ca9fc8e69c8c1870ebccafeae930c5b4d0a43122a72974",
+        "size_in_bytes": 573081,
+        "sha256_in_prefix": "f9cb134176d00756f7ca9fc8e69c8c1870ebccafeae930c5b4d0a43122a72974"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppisu.so",
+        "path_type": "hardlink",
+        "sha256": "27a716c9804c0576244469b488f26d829cd0072cd8eee29266bc82bc754db63c",
+        "size_in_bytes": 13201,
+        "sha256_in_prefix": "27a716c9804c0576244469b488f26d829cd0072cd8eee29266bc82bc754db63c"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnppitc.so",
+        "path_type": "hardlink",
+        "sha256": "5e4c81cf166da6b8d8c92c1b3603e321d6c048bdd543a2d5360b47bc51990e69",
+        "size_in_bytes": 73049,
+        "sha256_in_prefix": "5e4c81cf166da6b8d8c92c1b3603e321d6c048bdd543a2d5360b47bc51990e69"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnpps.so",
+        "path_type": "hardlink",
+        "sha256": "877b933c6a16cfbe2166596cf40504ff7703d8919c728232fd8d6e0fb0a22b71",
+        "size_in_bytes": 288817,
+        "sha256_in_prefix": "877b933c6a16cfbe2166596cf40504ff7703d8919c728232fd8d6e0fb0a22b71"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libnpp-dev-12.3.3.100-0",
+    "type": 1
+  }
+}

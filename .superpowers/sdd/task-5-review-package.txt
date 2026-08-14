@@ -1,0 +1,457 @@
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/go2_pvcnn/mdp/m1_panda_wrench.py	2026-08-14 15:10:05.592236977 +0800
+@@ -0,0 +1,55 @@
++"""Mount-wrench observation helpers for the combined M1 and Panda articulation."""
++
++from __future__ import annotations
++
++import torch
++from isaaclab.utils import math as math_utils
++
++
++def shift_rotate_wrench_to_base(
++    force_w: torch.Tensor,
++    torque_w: torch.Tensor,
++    sensor_pos_w: torch.Tensor,
++    base_pos_w: torch.Tensor,
++    base_quat_w: torch.Tensor,
++) -> torch.Tensor:
++    """Express a world-frame sensor wrench at the base-link origin in base coordinates.
++
++    The returned channel order is ``[Fx, Fy, Fz, Mx, My, Mz]``. The moment shift uses
++    ``M_base = M_sensor + (p_sensor - p_base) x F`` before both vectors are rotated
++    from world coordinates into the ``BASE_LINK`` actor frame.
++    """
++    moment_about_base_w = torque_w + torch.linalg.cross(sensor_pos_w - base_pos_w, force_w, dim=-1)
++    force_b = math_utils.quat_rotate_inverse(base_quat_w, force_w)
++    moment_b = math_utils.quat_rotate_inverse(base_quat_w, moment_about_base_w)
++    return torch.cat((force_b, moment_b), dim=-1)
++
++
++def m1_panda_mount_wrench_b(
++    env,
++    asset_cfg,
++    mount_body_name: str = "panda_link0",
++    base_body_name: str = "BASE_LINK",
++) -> torch.Tensor:
++    """Return the incoming mount wrench about the base origin in the base-link frame."""
++    robot = env.scene[asset_cfg.name]
++    mount_ids, mount_names = robot.find_bodies(mount_body_name, preserve_order=True)
++    base_ids, base_names = robot.find_bodies(base_body_name, preserve_order=True)
++    if (
++        len(mount_ids) != 1
++        or len(base_ids) != 1
++        or mount_names != [mount_body_name]
++        or base_names != [base_body_name]
++    ):
++        raise RuntimeError(f"Expected one mount/base body, got {mount_names=} {base_names=}")
++
++    mount_id = mount_ids[0]
++    base_id = base_ids[0]
++    incoming = robot.root_physx_view.get_link_incoming_joint_force()[:, mount_id, :]
++    return shift_rotate_wrench_to_base(
++        incoming[:, :3],
++        incoming[:, 3:6],
++        robot.data.body_pos_w[:, mount_id],
++        robot.data.body_pos_w[:, base_id],
++        robot.data.body_quat_w[:, base_id],
++    )
+--- .superpowers/sdd/task-5-before/Go2Pvcnn/go2_pvcnn/mdp/__init__.py	2026-08-14 15:06:22.716304440 +0800
++++ Go2Pvcnn/go2_pvcnn/mdp/__init__.py	2026-08-14 15:09:40.957362660 +0800
+@@ -6,10 +6,10 @@
+ from .commands import *
+ from .curriculums import *
+ from .observations import *
++from .m1_panda_wrench import *
+ from .rewards import *
+ from .terminations import *
+ from .events import *
+ from .scene_manager import (
+     create_dynamic_objects_collection_cfg,
+ )
+-
+--- .superpowers/sdd/task-5-before/Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py	2026-08-14 15:06:22.717304436 +0800
++++ Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py	2026-08-14 15:09:40.957362660 +0800
+@@ -10,7 +10,7 @@
+ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
+ 
+ from go2_pvcnn.assets import M1_JOINT_NAMES, M1_LEG_JOINT_NAMES, M1_WHEEL_JOINT_NAMES
+-from go2_pvcnn.assets.m1_panda import M1_PANDA_CFG
++from go2_pvcnn.assets.m1_panda import M1_PANDA_BASE_BODY_NAME, M1_PANDA_CFG, M1_PANDA_MOUNT_BODY_NAME
+ import go2_pvcnn.mdp as mdp
+ from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg, M1SmokeSceneCfg
+ 
+@@ -55,6 +55,14 @@
+             noise=Unoise(n_min=-0.0, n_max=0.0),
+         )
+         actions = ObsTerm(func=isaac_mdp.last_action)
++        mount_wrench_b = ObsTerm(
++            func=mdp.m1_panda_mount_wrench_b,
++            params={
++                "asset_cfg": SceneEntityCfg("robot", body_names=M1_PANDA_MOUNT_BODY_NAME),
++                "mount_body_name": M1_PANDA_MOUNT_BODY_NAME,
++                "base_body_name": M1_PANDA_BASE_BODY_NAME,
++            },
++        )
+ 
+         def __post_init__(self):
+             self.enable_corruption = False
+--- .superpowers/sdd/task-5-before/Go2Pvcnn/tests/test_m1_panda_smoke_cfg_static.py	2026-08-14 15:06:22.719304427 +0800
++++ Go2Pvcnn/tests/test_m1_panda_smoke_cfg_static.py	2026-08-14 15:09:07.100532591 +0800
+@@ -226,7 +226,43 @@
+     assert asset.index("M1_PANDA_CFG = M1_CFG.copy()") < asset.index("M1_PANDA_CFG.spawn")
+     assert "usd_path=M1_PANDA_USD_PATH" in asset
+     assert Path(ROOT / "assets/m1_panda/m1_panda.usd").is_file()
+-    assert "wrench" not in env.lower()
++    assert "student" not in env.lower()
++    assert "teacher" not in env.lower()
++    assert "IK" not in env
++    assert "OSC" not in env
++
++
++def test_mount_wrench_observation_has_exact_explicit_body_contract():
++    env = ENV_FILE.read_text()
++    assert 'body_names=M1_PANDA_MOUNT_BODY_NAME' in env
++    tree = ast.parse(env)
++    observations = _class(tree, "M1PandaSmokeObservationsCfg")
++    policy = next(node for node in observations.body if isinstance(node, ast.ClassDef) and node.name == "PolicyCfg")
++    terms = {
++        _assignment_name(node): _assignment_value(node)
++        for node in _assignments(policy.body)
++        if isinstance(_assignment_value(node), ast.Call) and ast.unparse(_assignment_value(node).func) == "ObsTerm"
++    }
++    assert list(terms) == ["base_ang_vel", "projected_gravity", "joint_pos", "joint_vel", "actions", "mount_wrench_b"]
++    wrench = terms["mount_wrench_b"]
++    keywords = _keywords(wrench)
++    assert list(keywords) == ["func", "params"]
++    assert ast.unparse(keywords["func"]) == "mdp.m1_panda_mount_wrench_b"
++    params = keywords["params"]
++    assert isinstance(params, ast.Dict)
++    assert [ast.literal_eval(key) for key in params.keys] == [
++        "asset_cfg",
++        "mount_body_name",
++        "base_body_name",
++    ]
++    selector, mount_name, base_name = params.values
++    assert ast.unparse(selector.func) == "SceneEntityCfg"
++    assert ast.literal_eval(selector.args[0]) == "robot"
++    assert ast.unparse(_keywords(selector)["body_names"]) == "M1_PANDA_MOUNT_BODY_NAME"
++    assert ast.unparse(mount_name) == "M1_PANDA_MOUNT_BODY_NAME"
++    assert ast.unparse(base_name) == "M1_PANDA_BASE_BODY_NAME"
++
++    _assert_action_contract(env)
+ 
+ 
+ def test_registry_is_lazy_and_preserves_all_m1_gym_ids():
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/tests/test_m1_panda_wrench.py	2026-08-14 15:09:57.096280509 +0800
+@@ -0,0 +1,171 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++import types
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++import torch
++
++
++MODULE = Path(__file__).resolve().parents[1] / "go2_pvcnn/mdp/m1_panda_wrench.py"
++
++
++def _quat_rotate_inverse(quat: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
++    quat_vector = quat[..., 1:]
++    return (
++        vector * (2.0 * quat[..., :1].square() - 1.0)
++        - 2.0 * quat[..., :1] * torch.linalg.cross(quat_vector, vector, dim=-1)
++        + 2.0 * quat_vector * torch.sum(quat_vector * vector, dim=-1, keepdim=True)
++    )
++
++
++@pytest.fixture
++def wrench_module(monkeypatch):
++    isaaclab = types.ModuleType("isaaclab")
++    utils = types.ModuleType("isaaclab.utils")
++    math_utils = types.ModuleType("isaaclab.utils.math")
++    math_utils.quat_rotate_inverse = _quat_rotate_inverse
++    utils.math = math_utils
++    isaaclab.utils = utils
++    monkeypatch.setitem(sys.modules, "isaaclab", isaaclab)
++    monkeypatch.setitem(sys.modules, "isaaclab.utils", utils)
++    monkeypatch.setitem(sys.modules, "isaaclab.utils.math", math_utils)
++
++    spec = importlib.util.spec_from_file_location("m1_panda_wrench_under_test", MODULE)
++    assert spec is not None and spec.loader is not None
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def test_identity_frame_keeps_force_and_shifts_moment_to_base_origin(wrench_module):
++    result = wrench_module.shift_rotate_wrench_to_base(
++        force_w=torch.tensor([[0.0, 10.0, 0.0]]),
++        torque_w=torch.tensor([[0.0, 0.0, 2.0]]),
++        sensor_pos_w=torch.tensor([[1.0, 0.0, 0.0]]),
++        base_pos_w=torch.zeros(1, 3),
++        base_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
++    )
++
++    assert torch.allclose(result, torch.tensor([[0.0, 10.0, 0.0, 0.0, 0.0, 12.0]]))
++
++
++def test_base_yaw_rotates_world_force_into_base_frame(wrench_module):
++    half = 2.0**-0.5
++    result = wrench_module.shift_rotate_wrench_to_base(
++        force_w=torch.tensor([[0.0, 1.0, 0.0]]),
++        torque_w=torch.zeros(1, 3),
++        sensor_pos_w=torch.zeros(1, 3),
++        base_pos_w=torch.zeros(1, 3),
++        base_quat_w=torch.tensor([[half, 0.0, 0.0, half]]),
++    )
++
++    assert torch.allclose(result[:, :3], torch.tensor([[1.0, 0.0, 0.0]]), atol=1e-6)
++
++
++def test_batch_combines_nonzero_lever_arm_and_base_rotation(wrench_module):
++    half = 2.0**-0.5
++    result = wrench_module.shift_rotate_wrench_to_base(
++        force_w=torch.tensor([[0.0, 2.0, 0.0], [1.0, 0.0, 0.0]]),
++        torque_w=torch.tensor([[0.0, 0.0, 3.0], [0.0, 0.0, 4.0]]),
++        sensor_pos_w=torch.tensor([[2.0, 0.0, 0.0], [0.0, 2.0, 0.0]]),
++        base_pos_w=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
++        base_quat_w=torch.tensor([[half, 0.0, 0.0, half], [0.0, 0.0, 0.0, 1.0]]),
++    )
++
++    expected = torch.tensor([[2.0, 0.0, 0.0, 0.0, 0.0, 5.0], [-1.0, 0.0, 0.0, 0.0, 0.0, 3.0]])
++    assert result.shape == (2, 6)
++    assert torch.allclose(result, expected, atol=1e-6)
++
++
++class _FakePhysxView:
++    def __init__(self, incoming: torch.Tensor):
++        self.incoming = incoming
++        self.calls = 0
++
++    def get_link_incoming_joint_force(self):
++        self.calls += 1
++        return self.incoming
++
++
++class _FakeRobot:
++    def __init__(self, responses, incoming, body_pos_w, body_quat_w):
++        self.responses = responses
++        self.find_calls = []
++        self.root_physx_view = _FakePhysxView(incoming)
++        self.data = SimpleNamespace(body_pos_w=body_pos_w, body_quat_w=body_quat_w)
++
++    def find_bodies(self, name, preserve_order=False):
++        self.find_calls.append((name, preserve_order))
++        return self.responses[name]
++
++
++def test_adapter_resolves_explicit_names_and_passes_exact_world_channels(wrench_module, monkeypatch):
++    incoming = torch.arange(2 * 3 * 6, dtype=torch.float32).reshape(2, 3, 6)
++    body_pos_w = torch.arange(2 * 3 * 3, dtype=torch.float32).reshape(2, 3, 3)
++    body_quat_w = torch.arange(2 * 3 * 4, dtype=torch.float32).reshape(2, 3, 4)
++    robot = _FakeRobot(
++        responses={"mount": ([2], ["mount"]), "base": ([0], ["base"])},
++        incoming=incoming,
++        body_pos_w=body_pos_w,
++        body_quat_w=body_quat_w,
++    )
++    captured = {}
++    sentinel = torch.full((2, 6), 17.0)
++
++    def fake_transform(force_w, torque_w, sensor_pos_w, base_pos_w, base_quat_w):
++        captured.update(
++            force_w=force_w,
++            torque_w=torque_w,
++            sensor_pos_w=sensor_pos_w,
++            base_pos_w=base_pos_w,
++            base_quat_w=base_quat_w,
++        )
++        return sentinel
++
++    monkeypatch.setattr(wrench_module, "shift_rotate_wrench_to_base", fake_transform)
++    asset_cfg = SimpleNamespace(name="robot", body_ids=[1], body_names=["conflicting_selector"])
++
++    result = wrench_module.m1_panda_mount_wrench_b(
++        SimpleNamespace(scene={"robot": robot}), asset_cfg, mount_body_name="mount", base_body_name="base"
++    )
++
++    assert result is sentinel
++    assert robot.find_calls == [("mount", True), ("base", True)]
++    assert robot.root_physx_view.calls == 1
++    assert torch.equal(captured["force_w"], incoming[:, 2, :3])
++    assert torch.equal(captured["torque_w"], incoming[:, 2, 3:6])
++    assert torch.equal(captured["sensor_pos_w"], body_pos_w[:, 2])
++    assert torch.equal(captured["base_pos_w"], body_pos_w[:, 0])
++    assert torch.equal(captured["base_quat_w"], body_quat_w[:, 0])
++
++
++@pytest.mark.parametrize(
++    "responses",
++    [
++        {"mount": ([], []), "base": ([0], ["base"])},
++        {"mount": ([1, 2], ["mount", "mount"]), "base": ([0], ["base"])},
++        {"mount": ([1, 2], ["mount"]), "base": ([0], ["base"])},
++        {"mount": ([1], ["mount"]), "base": ([], [])},
++        {"mount": ([1], ["mount"]), "base": ([0, 2], ["base", "base"])},
++    ],
++    ids=["missing-mount", "duplicate-mount", "duplicate-mount-ids", "missing-base", "duplicate-base"],
++)
++def test_adapter_rejects_missing_or_duplicate_explicit_body(wrench_module, responses):
++    robot = _FakeRobot(
++        responses=responses,
++        incoming=torch.zeros(1, 3, 6),
++        body_pos_w=torch.zeros(1, 3, 3),
++        body_quat_w=torch.zeros(1, 3, 4),
++    )
++
++    with pytest.raises(RuntimeError, match="Expected one mount/base body"):
++        wrench_module.m1_panda_mount_wrench_b(
++            SimpleNamespace(scene={"robot": robot}),
++            SimpleNamespace(name="robot"),
++            mount_body_name="mount",
++            base_body_name="base",
++        )
+--- .superpowers/sdd/task-5-before/notes/todo/T400-m1-panda-force-aware-teacher-student.md	2026-08-14 15:06:22.720304422 +0800
++++ notes/todo/T400-m1-panda-force-aware-teacher-student.md	2026-08-14 15:15:31.828277954 +0800
+@@ -4,7 +4,7 @@
+ 
+ 用户已确认完整设计：Panda 作为本地离线 USD 与 M1 组成统一 articulation；实机在 Panda 与 M1 安装界面使用六轴力/力矩传感器；Teacher 使用仿真理想安装点总六维反力，Student 使用带噪六轴测量、本体感知和时序估计器，输出对 M1 基础运动策略的受限平衡残差。首个任务是 M1 驻停时完成 0–3 kg 抓取和短距离搬运。
+ 
+-设计文档已完成、自审并由用户批准。Asset/wrench foundation Task 1 的项目自有离线资产输入已完成；Task 2 已将本地 Panda URDF 转换为 USD，并通过 RobotAssembler 生成组合资产。Task 2→3 阻断已修复：生成器会删除 RobotAssembler `_refresh_asset` 的三个错误 list edits、移除 Panda attach root APIs、保留 disabled `root_joint` 与 articulation 内 fixed mount，并将两条项目 reference 相对化。独立审查 Fix Round 1 已补齐 exact root 与完整 mount body0/body1/enabled/exclusion 门，并增加真实 list-op/dependency/root/mount 行为测试。Task 3 轻量测试 `16 passed`、PXR behavior exit `0`；正式资产和完整资产树搬移副本的 CPU verifier 均退出 `0`，得到 exact M1 root、25 DOF、required bodies 唯一、初始化/reset/write/step/update 完成。Task 4 已增加不污染 `M1_CFG` 的 `M1_PANDA_CFG`、只含 12 腿位置加 4 轮速动作及 16 个显式 M1 joint observations 的 smoke cfg，并注册 `Isaac-M1-Panda-Smoke-v0`。Fix Round 1 将 21 个 M1 Gym ID 全部改为 IsaacLab 官方支持的 lazy string cfg entry point，正常 package import + `gym.spec` exit `0`。Fix Round 2 只强化测试：完整 action term 顺序、21 项显式 ID→cfg/manager/checker/kwargs/RSL 映射与 6 类 mutation 均受保护；focused `11 passed`、计划 `30 passed`、旧 smoke `4 passed`。
++设计文档已完成、自审并由用户批准。Asset/wrench foundation Task 1–4 的本地资产、单 articulation、拓扑验证和 isolated smoke 已完成。Task 5 已增加 world-frame incoming mount wrench 到 `BASE_LINK` actor frame/origin 的纯变换与 adapter，按 `[Fx,Fy,Fz,Mx,My,Mz]` 输出未归一化六维 observation；显式唯一 body resolution、batch lever+rotation、12+4 action 不变均有可证伪测试。计划 GREEN `25 passed`，Task 4 expanded `41 passed`，真实 Isaac math/生产函数和 AppLauncher export/cfg 验证 exit `0`。
+ 
+ ## Open Children
+ 
+@@ -20,6 +20,7 @@
+ - [x] T400.2b.2 完成 Task 2：本地 Panda 转换与 M1 + Panda 单 articulation USD 装配。
+ - [x] T400.2b.2r 修复 Task 2→3 持久化 arcs/双 root 阻断，并在 CPU 完成 Task 3 验收；15 个 `OmniPBR.mdl` 明确分类为 Isaac Sim built-in resolver boundary。
+ - [x] T400.2b.4 完成 Task 4：combined asset cfg、isolated M1-only smoke cfg、Gym 注册与静态/导入验证。
++- [x] T400.2b.5 完成 Task 5：base-frame/base-origin mount wrench 纯变换、adapter、导出和 smoke observation。
+ 
+ ## Related Logs
+ 
+@@ -30,6 +31,7 @@
+ - [Task 3 offline/topology verification](../log/2026-08-14-m1-panda-offline-topology-verification.md)
+ - [Task 2→3 asset repair](../log/2026-08-14-m1-panda-task23-asset-repair.md)
+ - [Task 4 combined cfg and isolated smoke](../log/2026-08-14-m1-panda-combined-smoke-cfg.md)
++- [Task 5 base-frame mount wrench](../log/2026-08-14-m1-panda-base-frame-mount-wrench.md)
+ 
+ ## Git Refs
+ 
+@@ -41,10 +43,11 @@
+   - [第一阶段实施计划](../../docs/superpowers/plans/2026-08-14-m1-panda-asset-wrench-foundation.md)
+   - [Task 4 combined asset cfg](../../Go2Pvcnn/go2_pvcnn/assets/m1_panda.py)
+   - [Task 4 isolated smoke cfg](../../Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py)
++  - [Task 5 wrench transform and adapter](../../Go2Pvcnn/go2_pvcnn/mdp/m1_panda_wrench.py)
+ 
+ ## Next Step
+ 
+-Task 4 Fix Round 2 已完成；Task 5 仍未触碰。正常 `go2_pvcnn.tasks` 导入可完成并取得 `Isaac-M1-Panda-Smoke-v0` spec；旧环境仍在真正解析/创建其 cfg 时加载原模块，因此既有失败语义未被吞掉。当前资产验收为 Isaac-Sim-offline：15 个 bare `OmniPBR.mdl` 依赖由兼容 Isaac Sim 的内置 MDL resolver 提供，并不等价于脱离 Isaac Sim 材质库的严格项目自包含。另保留 PhysX 对 disabled Panda `root_joint` 的 disjointed-transform warning；一步内 mount 相对位移 `4.7527e-05 m`，低于 `1e-4 m` 门限，未观察到 snap。
++Task 5 已完成；Task 6 仍未触碰。moment 使用 `+(p_mount-p_base)×F` 平移到 `BASE_LINK` actor origin。真实 Isaac math/公共 export/cfg 已验证，但未创建真实 smoke 物理 env、step 或用已知外载荷校准 incoming wrench。机械验算仍是最大载荷实机测试前置门。
+ 
+ ## Node Details
+ 
+--- .superpowers/sdd/task-5-before/notes/todo.md	2026-08-14 15:06:22.721304418 +0800
++++ notes/todo.md	2026-08-14 15:15:10.654525069 +0800
+@@ -121,7 +121,7 @@
+ 
+ | Front | State | Why It Matters Now | Next Step |
+ | --- | --- | --- | --- |
+-| T400 | active | Task 4 Fix Round 2 已完成：完整 action/21-ID registry AST 与 6 类 mutation focused `11 passed`；计划 `30 passed`、旧 smoke `4 passed`、pycompile exit `0`；生产不变，沿用真实 package import + Gym spec exit `0`。 | Task 5 尚未触碰；机械验算仍是实机前置门，物理 env create/step 未在 Task 4 执行。 |
++| T400 | active | Task 5 已完成：world incoming wrench 平移到 `BASE_LINK` origin 并旋转到 base frame，输出未归一化 `[F,M]`；计划 `25 passed`、expanded `41 passed`、真实 Isaac/AppLauncher checks exit `0`。 | Task 6 尚未触碰；机械验算仍是实机前置门，真实 env step/已知外载荷校准未执行。 |
+ | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
+ | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
+ | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
+@@ -136,7 +136,7 @@
+ 
+ | Root | Status | Stage | Branch | Current | Refs |
+ | --- | --- | --- | --- | --- | --- |
+-| T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | Task 4 combined config and isolated smoke complete; 16 M1-only actions/observations guarded; Task 5+ untouched. | [Task 4 log](log/2026-08-14-m1-panda-combined-smoke-cfg.md); design [2026-08-14](../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md); plan [2026-08-14](../docs/superpowers/plans/2026-08-14-m1-panda-asset-wrench-foundation.md) |
++| T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | Task 5 base-frame/base-origin mount wrench observation complete; 16 M1-only actions preserved; Task 6 untouched. | [Task 5 log](log/2026-08-14-m1-panda-base-frame-mount-wrench.md); design [2026-08-14](../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md); plan [2026-08-14](../docs/superpowers/plans/2026-08-14-m1-panda-asset-wrench-foundation.md) |
+ | T302q | active | flat small-obstacle avoidance RL reward | [T302q](todo/T302q-flat-small-avoidance-reward-plan.md) | Local implementation complete; focused regression, pycompile, fresh IsaacLab train smoke, and old-checkpoint resume smoke pass; small-collision eval smoke remains open. | design [2026-06-10](../docs/superpowers/specs/2026-06-10-flat-small-obstacle-avoidance-reward-design.html); latest log [2026-06-10 20:35](log/2026-06-10-2035-t302q-flat-small-local-implementation-and-smoke.md) |
+ | T302r | active | Go2 geometry clearance reward | [T302r](todo/T302r-go2-geometry-clearance-reward-plan.md) | Local implementation, smoke, and radius/margin probe pass; signal-first params can produce nonzero reward, but TensorBoard sanity is still open. | design [2026-06-11](../docs/superpowers/specs/2026-06-11-go2-body-geometry-clearance-reward-design.html); latest log [2026-06-11 18:10](log/2026-06-11-1810-t302r-clearance-radius-margin-probe.md) |
+ | T302p | active | MPC command-frame alignment | [T302p](todo/T302p-mpc-command-frame-alignment-plan.md) | Implementation local; command-source equality verified; low-small hard gates pass; flat-left root direction fixed (`root lateral 0.0200`), but strict per-leg whole-cache endpoint metric remains open. | design [2026-06-06](../docs/superpowers/specs/2026-06-06-mpc-command-frame-alignment-design.html); latest log [2026-06-07 12:11](log/2026-06-07-1211-t302p-direction-loss-wiring-and-metric-boundary.md) |
+@@ -206,6 +206,7 @@
+ 
+ | Time | Topic | Result | Todo | File |
+ | --- | --- | --- | --- | --- |
++| 2026-08-14 | M1 + Panda base-frame mount wrench | pass: planned `25 passed`; expanded `41 passed`; pycompile and real Isaac/AppLauncher checks exit `0`; 16 actions unchanged; real env step not run | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-base-frame-mount-wrench.md](log/2026-08-14-m1-panda-base-frame-mount-wrench.md) |
+ | 2026-08-14 | M1 + Panda combined cfg and isolated smoke | done with concerns after Fix Round 2: full action/21-ID registry AST plus mutation focused `11 passed`; planned `30 passed`; old smoke `4 passed`; pycompile exit `0`; prior real package import + Gym spec/cfg instance exit `0`; one unrelated full-static baseline failure remains | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-combined-smoke-cfg.md](log/2026-08-14-m1-panda-combined-smoke-cfg.md) |
+ | 2026-08-14 | M1 + Panda Task 2→3 asset repair | done with concerns after review Round 1: lightweight `16 passed`; PXR behavior exit `0`; formal and relocated CPU verifier exit `0`; exact M1 root, full mount contract, 25 DOF, runtime initialized, step `1` | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-task23-asset-repair.md](log/2026-08-14-m1-panda-task23-asset-repair.md) |
+ | 2026-08-14 | M1 + Panda offline/topology verification | historical blocked baseline: verifier static `9 passed`, real CPU/GPU exit `1`; superseded by Task 2→3 repair | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-offline-topology-verification.md](log/2026-08-14-m1-panda-offline-topology-verification.md) |
+--- .superpowers/sdd/task-5-before/notes/log/index.md	2026-08-14 15:06:22.722304413 +0800
++++ notes/log/index.md	2026-08-14 15:15:10.653525129 +0800
+@@ -6,6 +6,7 @@
+ 
+ | Time | Topic | Stage | Result | Key Metrics | Todo | File |
+ | --- | --- | --- | --- | --- | --- | --- |
++| 2026-08-14 | M1 + Panda base-frame mount wrench | foundation Task 5 / wrench transform and smoke observation | pass | RED `1 failed, 11 passed, 8 errors`; uniqueness RED `1 failed, 4 passed`; planned `25 passed`; expanded `41 passed`; pycompile and real Isaac/AppLauncher checks exit `0`; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-base-frame-mount-wrench.md](2026-08-14-m1-panda-base-frame-mount-wrench.md) |
+ | 2026-08-14 | M1 + Panda combined cfg and isolated smoke | foundation Task 4 / asset and environment config | done with concerns after Fix Round 2 | full action/21-ID registry AST plus 6 mutation cases `11 passed`; planned `30 passed`; old smoke `4 passed`; pycompile exit `0`; production unchanged; prior real package import + Gym spec exit `0`, 21 IDs; real cfg copy/actions/obs exit `0`; full M1 static `51 passed, 1` unrelated failure; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-combined-smoke-cfg.md](2026-08-14-m1-panda-combined-smoke-cfg.md) |
+ | 2026-08-14 | M1 + Panda Task 2→3 asset repair | foundation Task 2/3 / serialization and CPU topology | done with concerns after review Round 1 | A/B confirmed; lightweight behavior `16 passed`; PXR list-op/reopen behavior exit `0`; exact root and full mount contract enforced by builder/verifier; formal/relocated CPU exit `0`; checksum `2/2`; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-task23-asset-repair.md](2026-08-14-m1-panda-task23-asset-repair.md) |
+ | 2026-08-14 | M1 + Panda offline/topology verification | foundation Task 3 / dependency closure / articulation runtime | blocked by generated asset | static `9 passed`; real GPU/CPU exit `1`; 8 resolved dependencies inside root, remote empty, 18 unresolved, two articulation roots, FixedJoint valid, physics step not reached; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-offline-topology-verification.md](2026-08-14-m1-panda-offline-topology-verification.md) |
+@@ -320,6 +321,7 @@
+ ## Topic Log Index
+ 
+ - T400 M1 + Panda force-aware Teacher–Student:
++  - [2026-08-14-m1-panda-base-frame-mount-wrench.md](2026-08-14-m1-panda-base-frame-mount-wrench.md)
+   - [2026-08-14-m1-panda-combined-smoke-cfg.md](2026-08-14-m1-panda-combined-smoke-cfg.md)
+   - [2026-08-14-m1-panda-offline-topology-verification.md](2026-08-14-m1-panda-offline-topology-verification.md)
+   - [2026-08-14-m1-panda-offline-asset-inputs.md](2026-08-14-m1-panda-offline-asset-inputs.md)
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ notes/log/2026-08-14-m1-panda-base-frame-mount-wrench.md	2026-08-14 15:14:48.334884176 +0800
+@@ -0,0 +1,49 @@
++# M1 + Panda Base-Frame Mount Wrench
++
++## Purpose And Scope
++
++完成 T400 foundation Task 5：将 `panda_link0` world-frame incoming joint wrench 平移到 `BASE_LINK` actor origin，再旋转到 `BASE_LINK` frame，并接入未归一化 smoke observation。未加入 noise、Student/Teacher、IK、OSC 或 Task 6。
++
++## Stage And Refs
++
++- Stage: T400 / asset-wrench foundation / Task 5
++- Related todo: [T400](../todo/T400-m1-panda-force-aware-teacher-student.md)
++- Baseline Ref: unavailable
++- Candidate Ref: filesystem working copy
++- Git Ref: unavailable
++
++## API And Convention
++
++本地 IsaacLab/Isaac Sim 源码确认 `find_bodies` 返回 `list[int], list[str]`；`body_pos_w`/`body_quat_w` 是 world actor-frame pose，quaternion 为 `(w,x,y,z)`；incoming wrench 是 world frame `[N,B,6]` force+torque。输出顺序固定 `[Fx,Fy,Fz,Mx,My,Mz]`：
++
++```text
++M_base_origin_w = M_mount_w + (p_mount_w - p_base_w) x F_w
++F_b = R_wb F_w
++M_b = R_wb M_base_origin_w
++```
++
++不做归一化、裁剪或噪声。adapter 只用 `asset_cfg.name`，显式 mount/base 名分别以 `preserve_order=True` 唯一解析，避免与已有 `body_ids/body_names` 双重语义冲突；Python integer ID 不引入 CPU index tensor。
++
++## TDD Evidence
++
++- Initial RED: `1 failed, 11 passed, 8 errors in 1.79s`, exit `1`；仅因 wrench 模块和 smoke term 缺失。
++- First GREEN: `20 passed in 0.92s`, exit `0`。
++- Unique-ID falsification RED: 单 name 但重复 IDs，`1 failed, 4 passed in 0.77s`；补 `len(ids)==1` 后通过。
++- 覆盖 identity shift、yaw、batch 非零 lever+rotation、incoming force/torque slices、mount/base pose/quaternion、显式 name 优先、missing/duplicate RuntimeError、smoke exact params 和原 12+4 actions。
++
++## Final Verification
++
++统一命令前缀均为 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/xk/miniconda3/envs/go2/bin/python -m pytest`。
++
++- 计划四文件：`25 passed in 0.84s`，exit `0`。
++- 加 Task 4 Panda asset focused：`41 passed in 0.86s`，exit `0`。
++- 五个相关 Python 文件 `py_compile`：exit `0`。
++- loco/source 真实 `quat_rotate_inverse`：exit `0`，+90° base yaw 将 world +Y 转为 base +X。
++- loco/source 真实 Isaac math 调生产纯函数：exit `0`，非零 lever+yaw 得约 `[2,0,0,0,0,5]`，shape `(1,6)`。
++- loco bootstrap + headless AppLauncher 的公共 `go2_pvcnn.mdp` export、真实 cfg params 与 actions `(12,4)` assertions：exit `0`。
++
++诊断尝试如实保留：未设置 EULA 时 exit `1`；只使用 bootstrap package 时缺 `isaaclab.utils` exit `1`；无 AppLauncher 的完整 manager import 在 `omni.kit` 边界 exit `1`。后续正确 source/AppLauncher 路径均 exit `0`。
++
++## Result
++
++PASS。纯变换、adapter、导出和 smoke observation 完成，16 action contract 不变。尚未创建/step 真实 smoke 物理环境，也未用已知外载荷校准 live PhysX incoming wrench 的数值与符号；Task 6 未触碰。

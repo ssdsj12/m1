@@ -1,0 +1,71 @@
+{
+  "name": "libnvjitlink-dev",
+  "version": "12.8.93",
+  "build": "1",
+  "build_number": 1,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libnvjitlink-dev-12.8.93-1.conda",
+  "md5": "bf9e0b3e17ee6fa348ea45cbc99e7c19",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libnvjitlink-dev-12.8.93-1.conda",
+  "sha256": "cb89f3f269ee6093a916b18e070714700e856b0042d5c4f45e172592bd8eec3e",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libnvjitlink 12.8.93 1",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "libnvjitlink-static >=12.8.93"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1740203233589,
+  "size": 20988,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libnvjitlink-dev-12.8.93-1.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libnvjitlink-dev-12.8.93-1",
+  "files": [
+    "lib/libnvJitLink.so",
+    "lib/pkgconfig/nvjitlink-12.8.pc",
+    "targets/x86_64-linux/include/nvJitLink.h",
+    "targets/x86_64-linux/lib/libnvJitLink.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libnvJitLink.so",
+        "path_type": "softlink",
+        "sha256": "5fa20ad03bc6aefe32743c0f9febc02e39e7e5565e9a5dc228c43d98715faf01",
+        "size_in_bytes": 94111289
+      },
+      {
+        "_path": "lib/pkgconfig/nvjitlink-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnvjitlink_1740203077360/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pla",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "5f32521dc59f2a918c1579259edd2eb127f2f206d1feb788dc84fe9bdab22daf",
+        "size_in_bytes": 505,
+        "sha256_in_prefix": "e814df3473e60116e5fba88cf23df262c77c16e275c4b84afad4793ef5f71474"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nvJitLink.h",
+        "path_type": "hardlink",
+        "sha256": "56fd83865a6ec2cb2ed9e6e3448537edc96c4a081cf7a17b5fe03bed44e377f7",
+        "size_in_bytes": 17081,
+        "sha256_in_prefix": "56fd83865a6ec2cb2ed9e6e3448537edc96c4a081cf7a17b5fe03bed44e377f7"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvJitLink.so",
+        "path_type": "softlink",
+        "sha256": "5fa20ad03bc6aefe32743c0f9febc02e39e7e5565e9a5dc228c43d98715faf01",
+        "size_in_bytes": 94111289
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libnvjitlink-dev-12.8.93-1",
+    "type": 1
+  }
+}

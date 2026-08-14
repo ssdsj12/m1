@@ -1,0 +1,195 @@
+{
+  "name": "libcublas-dev",
+  "version": "12.8.4.1",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcublas-dev-12.8.4.1-0.conda",
+  "md5": "71af4444cec56e497ea523fd3e0cb018",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcublas-dev-12.8.4.1-0.conda",
+  "sha256": "bd10eca0ca52067165cf9f79fc412165a8c6a5e4d9e0f2f4112456bcca010fc9",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libcublas 12.8.4.1 0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "libcublas-static >=12.8.4.1"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1740556217464,
+  "size": 85672,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcublas-dev-12.8.4.1-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcublas-dev-12.8.4.1-0",
+  "files": [
+    "lib/libcublas.so",
+    "lib/libcublasLt.so",
+    "lib/libnvblas.so",
+    "lib/pkgconfig/cublas-12.8.pc",
+    "targets/x86_64-linux/include/cublas.h",
+    "targets/x86_64-linux/include/cublasLt.h",
+    "targets/x86_64-linux/include/cublasXt.h",
+    "targets/x86_64-linux/include/cublas_api.h",
+    "targets/x86_64-linux/include/cublas_v2.h",
+    "targets/x86_64-linux/include/nvblas.h",
+    "targets/x86_64-linux/lib/libcublas.so",
+    "targets/x86_64-linux/lib/libcublasLt.so",
+    "targets/x86_64-linux/lib/libnvblas.so",
+    "targets/x86_64-linux/lib/stubs/libcublas.so",
+    "targets/x86_64-linux/lib/stubs/libcublasLt.so",
+    "targets/x86_64-linux/libcublas/src/fortran.c",
+    "targets/x86_64-linux/libcublas/src/fortran.h",
+    "targets/x86_64-linux/libcublas/src/fortran_common.h",
+    "targets/x86_64-linux/libcublas/src/fortran_thunking.c",
+    "targets/x86_64-linux/libcublas/src/fortran_thunking.h"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcublas.so",
+        "path_type": "softlink",
+        "sha256": "c49ea4d8b40c51687fc4362bd0c15d54af717b6cd7d675a9e5bb2454a72c2de7",
+        "size_in_bytes": 116388640
+      },
+      {
+        "_path": "lib/libcublasLt.so",
+        "path_type": "softlink",
+        "sha256": "79650e326d433b932a6f483df3856ce056f4c718d69f3ee998fdee571b72e241",
+        "size_in_bytes": 751771728
+      },
+      {
+        "_path": "lib/libnvblas.so",
+        "path_type": "softlink",
+        "sha256": "ace65fe1667d9b33e5c41fc5159e780e5f323d1b53e333fc710359774c724686",
+        "size_in_bytes": 753824
+      },
+      {
+        "_path": "lib/pkgconfig/cublas-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libcublas_1740555300611/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeh",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "8db603c4312a3f45a3df21447eb583b12a056a812a8a4219902d378ff381906b",
+        "size_in_bytes": 491,
+        "sha256_in_prefix": "e7c99dede26f303dd290f656ff780693b4bd2484c325cdff0f8106775b09e7c1"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cublas.h",
+        "path_type": "hardlink",
+        "sha256": "6b494bab2fa4e3b36ec320e3bae782dd6d0ca5cf74f0c4d4ee8e6c309a84fb5c",
+        "size_in_bytes": 41246,
+        "sha256_in_prefix": "6b494bab2fa4e3b36ec320e3bae782dd6d0ca5cf74f0c4d4ee8e6c309a84fb5c"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cublasLt.h",
+        "path_type": "hardlink",
+        "sha256": "a07f53474d47e4259f18f223264ebe2e383c7903aed20868ed336df378029b08",
+        "size_in_bytes": 102451,
+        "sha256_in_prefix": "a07f53474d47e4259f18f223264ebe2e383c7903aed20868ed336df378029b08"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cublasXt.h",
+        "path_type": "hardlink",
+        "sha256": "096f5dc976064945b5c045eb555ca153a3b104ad4f52f32861d5469504fb2fd0",
+        "size_in_bytes": 37380,
+        "sha256_in_prefix": "096f5dc976064945b5c045eb555ca153a3b104ad4f52f32861d5469504fb2fd0"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cublas_api.h",
+        "path_type": "hardlink",
+        "sha256": "03826fbfd7a5be82480f0f117943fba819d2c44bddb2573e8215bfc9cabfa805",
+        "size_in_bytes": 374363,
+        "sha256_in_prefix": "03826fbfd7a5be82480f0f117943fba819d2c44bddb2573e8215bfc9cabfa805"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cublas_v2.h",
+        "path_type": "hardlink",
+        "sha256": "ab131d0798dbf7b96e11fc3ad4b10007e5a5afc03d0cb06f3b8ad1ca90c234ac",
+        "size_in_bytes": 15460,
+        "sha256_in_prefix": "ab131d0798dbf7b96e11fc3ad4b10007e5a5afc03d0cb06f3b8ad1ca90c234ac"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nvblas.h",
+        "path_type": "hardlink",
+        "sha256": "75708b47eda8522245ccbb03b4800ad3d9b8d9cb781b41d6758cc152e0cf5e97",
+        "size_in_bytes": 23341,
+        "sha256_in_prefix": "75708b47eda8522245ccbb03b4800ad3d9b8d9cb781b41d6758cc152e0cf5e97"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcublas.so",
+        "path_type": "softlink",
+        "sha256": "c49ea4d8b40c51687fc4362bd0c15d54af717b6cd7d675a9e5bb2454a72c2de7",
+        "size_in_bytes": 116388640
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcublasLt.so",
+        "path_type": "softlink",
+        "sha256": "79650e326d433b932a6f483df3856ce056f4c718d69f3ee998fdee571b72e241",
+        "size_in_bytes": 751771728
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvblas.so",
+        "path_type": "softlink",
+        "sha256": "ace65fe1667d9b33e5c41fc5159e780e5f323d1b53e333fc710359774c724686",
+        "size_in_bytes": 753824
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libcublas.so",
+        "path_type": "hardlink",
+        "sha256": "61e0615a2ce2f150f9b5bc26cb07aff88abdd5eeb8cfd86a68b84d9eebd7ad70",
+        "size_in_bytes": 95777,
+        "sha256_in_prefix": "61e0615a2ce2f150f9b5bc26cb07aff88abdd5eeb8cfd86a68b84d9eebd7ad70"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libcublasLt.so",
+        "path_type": "hardlink",
+        "sha256": "3ffbcae4c3b218e17fc76ddecdd296943ba2aa9b6b806343aacca87a8c714739",
+        "size_in_bytes": 35209,
+        "sha256_in_prefix": "3ffbcae4c3b218e17fc76ddecdd296943ba2aa9b6b806343aacca87a8c714739"
+      },
+      {
+        "_path": "targets/x86_64-linux/libcublas/src/fortran.c",
+        "path_type": "hardlink",
+        "sha256": "fcc3863c8378cd2017de763ca455c5abee7b4ffd11ffec9548c89a23e6e79dcb",
+        "size_in_bytes": 72249,
+        "sha256_in_prefix": "fcc3863c8378cd2017de763ca455c5abee7b4ffd11ffec9548c89a23e6e79dcb"
+      },
+      {
+        "_path": "targets/x86_64-linux/libcublas/src/fortran.h",
+        "path_type": "hardlink",
+        "sha256": "606bdc6432417a5b68745e95fb642e3fb24ecf7651677012f7fb84c1c9f0545e",
+        "size_in_bytes": 47336,
+        "sha256_in_prefix": "606bdc6432417a5b68745e95fb642e3fb24ecf7651677012f7fb84c1c9f0545e"
+      },
+      {
+        "_path": "targets/x86_64-linux/libcublas/src/fortran_common.h",
+        "path_type": "hardlink",
+        "sha256": "5c13042635b7e44956eee8ec9690353562759b24df863239ea34c816e894e004",
+        "size_in_bytes": 14462,
+        "sha256_in_prefix": "5c13042635b7e44956eee8ec9690353562759b24df863239ea34c816e894e004"
+      },
+      {
+        "_path": "targets/x86_64-linux/libcublas/src/fortran_thunking.c",
+        "path_type": "hardlink",
+        "sha256": "6aaad3480c10e03b83ecf0dc264334707971774484a0068312ff3df822e7a00b",
+        "size_in_bytes": 265337,
+        "sha256_in_prefix": "6aaad3480c10e03b83ecf0dc264334707971774484a0068312ff3df822e7a00b"
+      },
+      {
+        "_path": "targets/x86_64-linux/libcublas/src/fortran_thunking.h",
+        "path_type": "hardlink",
+        "sha256": "f35acb2719cd4f4009878fe62c8db8a60abeefaaea1fed7a639ecfe93e719deb",
+        "size_in_bytes": 41977,
+        "sha256_in_prefix": "f35acb2719cd4f4009878fe62c8db8a60abeefaaea1fed7a639ecfe93e719deb"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcublas-dev-12.8.4.1-0",
+    "type": 1
+  }
+}

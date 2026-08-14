@@ -1,0 +1,66 @@
+{
+  "name": "libcusparse",
+  "version": "12.5.8.93",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcusparse-12.5.8.93-0.conda",
+  "md5": "5034092cb6bdbb790da416e63534af24",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcusparse-12.5.8.93-0.conda",
+  "sha256": "64cdd090cecc5fe70a184414f1ca50ff9b248d1611c51e6c955adfd8479b5288",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libnvjitlink",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1740556780419,
+  "size": 170224803,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcusparse-12.5.8.93-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcusparse-12.5.8.93-0",
+  "files": [
+    "lib/libcusparse.so.12",
+    "lib/libcusparse.so.12.5.8.93",
+    "targets/x86_64-linux/lib/libcusparse.so.12",
+    "targets/x86_64-linux/lib/libcusparse.so.12.5.8.93"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcusparse.so.12",
+        "path_type": "softlink",
+        "sha256": "f1f0328372d42d1ed6183f3164d9e6ba44a6e82151b4590c9708eaf4300c3a91",
+        "size_in_bytes": 386594784
+      },
+      {
+        "_path": "lib/libcusparse.so.12.5.8.93",
+        "path_type": "softlink",
+        "sha256": "f1f0328372d42d1ed6183f3164d9e6ba44a6e82151b4590c9708eaf4300c3a91",
+        "size_in_bytes": 386594784
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusparse.so.12",
+        "path_type": "softlink",
+        "sha256": "f1f0328372d42d1ed6183f3164d9e6ba44a6e82151b4590c9708eaf4300c3a91",
+        "size_in_bytes": 386594784
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusparse.so.12.5.8.93",
+        "path_type": "hardlink",
+        "sha256": "f1f0328372d42d1ed6183f3164d9e6ba44a6e82151b4590c9708eaf4300c3a91",
+        "size_in_bytes": 386594784,
+        "sha256_in_prefix": "f1f0328372d42d1ed6183f3164d9e6ba44a6e82151b4590c9708eaf4300c3a91"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcusparse-12.5.8.93-0",
+    "type": 1
+  }
+}

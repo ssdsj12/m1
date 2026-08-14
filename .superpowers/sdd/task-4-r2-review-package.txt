@@ -1,0 +1,775 @@
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/go2_pvcnn/assets/m1_panda.py	2026-08-14 14:39:08.793100987 +0800
+@@ -0,0 +1,53 @@
++"""Configuration for the combined M1 and Panda articulation."""
++
++from pathlib import Path
++
++from isaaclab.actuators import ImplicitActuatorCfg
++
++from go2_pvcnn.assets import M1_CFG
++
++
++M1_PANDA_USD_PATH = str(Path(__file__).resolve().parents[2] / "assets/m1_panda/m1_panda.usd")
++M1_PANDA_BASE_BODY_NAME = "BASE_LINK"
++M1_PANDA_MOUNT_BODY_NAME = "panda_link0"
++M1_PANDA_DOF_COUNT = 25
++
++M1_PANDA_CFG = M1_CFG.copy()
++M1_PANDA_CFG.spawn = M1_PANDA_CFG.spawn.replace(usd_path=M1_PANDA_USD_PATH)
++M1_PANDA_CFG.init_state.joint_pos.update(
++    {
++        "panda_joint1": 0.0,
++        "panda_joint2": -0.569,
++        "panda_joint3": 0.0,
++        "panda_joint4": -2.810,
++        "panda_joint5": 0.0,
++        "panda_joint6": 3.037,
++        "panda_joint7": 0.741,
++        "panda_finger_joint.*": 0.04,
++    }
++)
++M1_PANDA_CFG.actuators.update(
++    {
++        "panda_shoulder": ImplicitActuatorCfg(
++            joint_names_expr=["panda_joint[1-4]"],
++            effort_limit=87.0,
++            velocity_limit=2.175,
++            stiffness=80.0,
++            damping=4.0,
++        ),
++        "panda_forearm": ImplicitActuatorCfg(
++            joint_names_expr=["panda_joint[5-7]"],
++            effort_limit=12.0,
++            velocity_limit=2.61,
++            stiffness=80.0,
++            damping=4.0,
++        ),
++        "panda_hand": ImplicitActuatorCfg(
++            joint_names_expr=["panda_finger_joint.*"],
++            effort_limit=200.0,
++            velocity_limit=0.2,
++            stiffness=2000.0,
++            damping=100.0,
++        ),
++    }
++)
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py	2026-08-14 14:38:55.221303573 +0800
+@@ -0,0 +1,72 @@
++"""Isolated smoke environment for the combined M1 and Panda articulation."""
++
++from __future__ import annotations
++
++from isaaclab.envs import mdp as isaac_mdp
++from isaaclab.managers import ObservationGroupCfg as ObsGroup
++from isaaclab.managers import ObservationTermCfg as ObsTerm
++from isaaclab.managers import SceneEntityCfg
++from isaaclab.utils import configclass
++from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
++
++from go2_pvcnn.assets import M1_JOINT_NAMES, M1_LEG_JOINT_NAMES, M1_WHEEL_JOINT_NAMES
++from go2_pvcnn.assets.m1_panda import M1_PANDA_CFG
++import go2_pvcnn.mdp as mdp
++from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg, M1SmokeSceneCfg
++
++
++@configclass
++class M1PandaSmokeSceneCfg(M1SmokeSceneCfg):
++    """Flat smoke scene using the combined articulation."""
++
++    robot = M1_PANDA_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
++
++
++@configclass
++class M1PandaSmokeActionsCfg:
++    """Exactly 12 M1 leg-position plus four M1 wheel-velocity actions."""
++
++    leg_pos = mdp.JointPositionActionCfg(
++        asset_name="robot", joint_names=list(M1_LEG_JOINT_NAMES),
++        scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)},
++    )
++    wheel_vel = mdp.JointVelocityActionCfg(
++        asset_name="robot", joint_names=list(M1_WHEEL_JOINT_NAMES),
++        scale=8.0, use_default_offset=True, clip={".*": (-8.0, 8.0)},
++    )
++
++
++@configclass
++class M1PandaSmokeObservationsCfg:
++    """M1-only proprioception; Panda joints stay outside policy observations."""
++
++    @configclass
++    class PolicyCfg(ObsGroup):
++        base_ang_vel = ObsTerm(func=isaac_mdp.base_ang_vel, noise=Unoise(n_min=-0.0, n_max=0.0))
++        projected_gravity = ObsTerm(func=isaac_mdp.projected_gravity, noise=Unoise(n_min=-0.0, n_max=0.0))
++        joint_pos = ObsTerm(
++            func=isaac_mdp.joint_pos_rel,
++            params={"asset_cfg": SceneEntityCfg("robot", joint_names=list(M1_JOINT_NAMES))},
++            noise=Unoise(n_min=-0.0, n_max=0.0),
++        )
++        joint_vel = ObsTerm(
++            func=isaac_mdp.joint_vel_rel,
++            params={"asset_cfg": SceneEntityCfg("robot", joint_names=list(M1_JOINT_NAMES))},
++            noise=Unoise(n_min=-0.0, n_max=0.0),
++        )
++        actions = ObsTerm(func=isaac_mdp.last_action)
++
++        def __post_init__(self):
++            self.enable_corruption = False
++            self.concatenate_terms = True
++
++    policy: PolicyCfg = PolicyCfg()
++
++
++@configclass
++class M1PandaSmokeEnvCfg(M1SmokeEnvCfg):
++    """No-planner smoke cfg for the combined 25-DOF articulation."""
++
++    scene: M1PandaSmokeSceneCfg = M1PandaSmokeSceneCfg(num_envs=1, env_spacing=2.5, replicate_physics=True)
++    observations: M1PandaSmokeObservationsCfg = M1PandaSmokeObservationsCfg()
++    actions: M1PandaSmokeActionsCfg = M1PandaSmokeActionsCfg()
+--- .superpowers/sdd/task-4-before/Go2Pvcnn/go2_pvcnn/tasks/register_m1_envs.py	2026-08-14 14:35:49.119075587 +0800
++++ Go2Pvcnn/go2_pvcnn/tasks/register_m1_envs.py	2026-08-14 14:51:44.139081119 +0800
+@@ -2,57 +2,32 @@
+ 
+ import gymnasium as gym
+ 
+-from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg
+-from go2_pvcnn.tasks.m1_roll_env_cfg import M1RollEnvCfg
+-from go2_pvcnn.tasks.m1_walk_env_cfg import M1WalkEnvCfg
+-from go2_pvcnn.tasks.m1_wave_env_cfg import M1WaveFlatEnvCfg
+-from go2_pvcnn.tasks.m1_small_obstacle_env_cfg import (
+-    M1SmallObstacle10mmEnvCfg,
+-    M1SmallObstacle5mmEnvCfg,
+-    M1SmallObstacleEnvCfg,
+-)
+-from go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg import (
+-    M1PvcnnCrossing100mmEnvCfg,
+-    M1PvcnnCrossing60mmEnvCfg,
+-    M1PvcnnCrossing60mmDistilledPlayEnvCfg,
+-    M1PvcnnCrossing60mmContactFreePlayEnvCfg,
+-    M1PvcnnCrossing60mmContactFreeTrainEnvCfg,
+-    M1PvcnnCrossing60mmPairCurriculumEnvCfg,
+-    M1PvcnnCrossing60mmPolicyPlayEnvCfg,
+-    M1PvcnnCrossing60mmGuidedEnvCfg,
+-    M1PvcnnCrossing60mmGuidedFixedEnvCfg,
+-    M1PvcnnCrossing60mmPlayEnvCfg,
+-    M1PvcnnCrossing60mmUnlockedEnvCfg,
+-    M1PvcnnFlatSmallAvoidanceEnvCfg,
+-    M1PvcnnFlatSmallAvoidanceEnvCfg_PLAY,
+-)
+-
+ gym.register(
+     id="Isaac-M1-Pvcnn-Crossing-60mm-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1PvcnnCrossing60mmEnvCfg, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmEnvCfg", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ gym.register(
+     id="Isaac-M1-Pvcnn-Crossing-60mm-Play-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1PvcnnCrossing60mmPlayEnvCfg, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmPlayEnvCfg", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ gym.register(
+     id="Isaac-M1-Pvcnn-Crossing-60mm-Unlocked-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1PvcnnCrossing60mmUnlockedEnvCfg, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmUnlockedEnvCfg", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ gym.register(
+     id="Isaac-M1-Pvcnn-Crossing-60mm-Guided-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1PvcnnCrossing60mmGuidedEnvCfg, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmGuidedEnvCfg", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ gym.register(
+@@ -60,7 +35,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1PvcnnCrossing60mmGuidedFixedEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmGuidedFixedEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -70,7 +45,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1PvcnnCrossing60mmDistilledPlayEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmDistilledPlayEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -80,7 +55,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1PvcnnCrossing60mmContactFreeTrainEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmContactFreeTrainEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -90,7 +65,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1PvcnnCrossing60mmContactFreePlayEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmContactFreePlayEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -100,7 +75,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1PvcnnCrossing60mmPairCurriculumEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmPairCurriculumEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -110,7 +85,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1PvcnnCrossing60mmPolicyPlayEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmPolicyPlayEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -119,7 +94,7 @@
+     id="Isaac-M1-Pvcnn-Crossing-100mm-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1PvcnnCrossing100mmEnvCfg, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing100mmEnvCfg", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ 
+@@ -127,14 +102,14 @@
+     id="Isaac-M1-Pvcnn-Flat-Small-Avoidance-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1PvcnnFlatSmallAvoidanceEnvCfg, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnFlatSmallAvoidanceEnvCfg", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ gym.register(
+     id="Isaac-M1-Pvcnn-Flat-Small-Avoidance-Play-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1PvcnnFlatSmallAvoidanceEnvCfg_PLAY, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnFlatSmallAvoidanceEnvCfg_PLAY", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ gym.register(
+@@ -142,23 +117,30 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1SmokeEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_smoke_env_cfg:M1SmokeEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+ 
+ gym.register(
++    id="Isaac-M1-Panda-Smoke-v0",
++    entry_point="isaaclab.envs:ManagerBasedRLEnv",
++    disable_env_checker=True,
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_panda_smoke_env_cfg:M1PandaSmokeEnvCfg", "rsl_rl_cfg_entry_point": None},
++)
++
++gym.register(
+     id="Isaac-M1-Small-Obstacle-5mm-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1SmallObstacle5mmEnvCfg, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_small_obstacle_env_cfg:M1SmallObstacle5mmEnvCfg", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ gym.register(
+     id="Isaac-M1-Small-Obstacle-10mm-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+-    kwargs={"env_cfg_entry_point": M1SmallObstacle10mmEnvCfg, "rsl_rl_cfg_entry_point": None},
++    kwargs={"env_cfg_entry_point": "go2_pvcnn.tasks.m1_small_obstacle_env_cfg:M1SmallObstacle10mmEnvCfg", "rsl_rl_cfg_entry_point": None},
+ )
+ 
+ gym.register(
+@@ -166,7 +148,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1WalkEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_walk_env_cfg:M1WalkEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -176,7 +158,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1RollEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_roll_env_cfg:M1RollEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -186,7 +168,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1WaveFlatEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_wave_env_cfg:M1WaveFlatEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -196,7 +178,7 @@
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+     kwargs={
+-        "env_cfg_entry_point": M1SmallObstacleEnvCfg,
++        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_small_obstacle_env_cfg:M1SmallObstacleEnvCfg",
+         "rsl_rl_cfg_entry_point": None,
+     },
+ )
+@@ -216,6 +198,7 @@
+ print("[go2_pvcnn]   - Isaac-M1-Pvcnn-Flat-Small-Avoidance-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Pvcnn-Flat-Small-Avoidance-Play-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Smoke-v0")
++print("[go2_pvcnn]   - Isaac-M1-Panda-Smoke-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Walk-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Roll-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Wave-Flat-v0")
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/tests/test_m1_panda_smoke_cfg_static.py	2026-08-14 15:01:17.036408713 +0800
+@@ -0,0 +1,252 @@
++import ast
++from pathlib import Path
++
++import pytest
++
++
++ROOT = Path(__file__).resolve().parents[1]
++ASSET_FILE = ROOT / "go2_pvcnn/assets/m1_panda.py"
++ENV_FILE = ROOT / "go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py"
++REGISTRY_FILE = ROOT / "go2_pvcnn/tasks/register_m1_envs.py"
++
++EXPECTED_REGISTRATIONS = [
++    ("Isaac-M1-Pvcnn-Crossing-60mm-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-Play-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmPlayEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-Unlocked-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmUnlockedEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-Guided-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmGuidedEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-Guided-Fixed-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmGuidedFixedEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-Distilled-Play-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmDistilledPlayEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-ContactFree-Train-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmContactFreeTrainEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-ContactFree-Play-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmContactFreePlayEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-Pair-Curriculum-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmPairCurriculumEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-60mm-Policy-Play-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing60mmPolicyPlayEnvCfg"),
++    ("Isaac-M1-Pvcnn-Crossing-100mm-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnCrossing100mmEnvCfg"),
++    ("Isaac-M1-Pvcnn-Flat-Small-Avoidance-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnFlatSmallAvoidanceEnvCfg"),
++    ("Isaac-M1-Pvcnn-Flat-Small-Avoidance-Play-v0", "go2_pvcnn.tasks.m1_pvcnn_small_obstacle_env_cfg:M1PvcnnFlatSmallAvoidanceEnvCfg_PLAY"),
++    ("Isaac-M1-Smoke-v0", "go2_pvcnn.tasks.m1_smoke_env_cfg:M1SmokeEnvCfg"),
++    ("Isaac-M1-Panda-Smoke-v0", "go2_pvcnn.tasks.m1_panda_smoke_env_cfg:M1PandaSmokeEnvCfg"),
++    ("Isaac-M1-Small-Obstacle-5mm-v0", "go2_pvcnn.tasks.m1_small_obstacle_env_cfg:M1SmallObstacle5mmEnvCfg"),
++    ("Isaac-M1-Small-Obstacle-10mm-v0", "go2_pvcnn.tasks.m1_small_obstacle_env_cfg:M1SmallObstacle10mmEnvCfg"),
++    ("Isaac-M1-Walk-v0", "go2_pvcnn.tasks.m1_walk_env_cfg:M1WalkEnvCfg"),
++    ("Isaac-M1-Roll-v0", "go2_pvcnn.tasks.m1_roll_env_cfg:M1RollEnvCfg"),
++    ("Isaac-M1-Wave-Flat-v0", "go2_pvcnn.tasks.m1_wave_env_cfg:M1WaveFlatEnvCfg"),
++    ("Isaac-M1-Small-Obstacle-v0", "go2_pvcnn.tasks.m1_small_obstacle_env_cfg:M1SmallObstacleEnvCfg"),
++]
++
++
++def _class(tree, name):
++    return next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == name)
++
++
++def _assignments(body):
++    return [node for node in body if isinstance(node, (ast.Assign, ast.AnnAssign))]
++
++
++def _assignment_name(node):
++    target = node.target if isinstance(node, ast.AnnAssign) else node.targets[0]
++    return target.id if isinstance(target, ast.Name) else None
++
++
++def _assignment_value(node):
++    return node.value
++
++
++def _keywords(call):
++    return {keyword.arg: keyword.value for keyword in call.keywords}
++
++
++def _update_dict(tree, receiver):
++    for node in ast.walk(tree):
++        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
++            continue
++        if node.func.attr == "update" and ast.unparse(node.func.value) == receiver:
++            assert len(node.args) == 1 and isinstance(node.args[0], ast.Dict)
++            return node.args[0]
++    raise AssertionError(f"missing {receiver}.update(...)")
++
++
++def _assert_action_contract(source):
++    tree = ast.parse(source)
++    actions = _class(tree, "M1PandaSmokeActionsCfg")
++    terms = [
++        node
++        for node in _assignments(actions.body)
++        if isinstance(_assignment_value(node), ast.Call)
++    ]
++    assert [_assignment_name(node) for node in terms] == ["leg_pos", "wheel_vel"]
++
++    expected = {
++        "leg_pos": ("mdp.JointPositionActionCfg", "list(M1_LEG_JOINT_NAMES)", 0.25, True, {".*": (-100.0, 100.0)}),
++        "wheel_vel": ("mdp.JointVelocityActionCfg", "list(M1_WHEEL_JOINT_NAMES)", 8.0, True, {".*": (-8.0, 8.0)}),
++    }
++    for node in terms:
++        name = _assignment_name(node)
++        call = _assignment_value(node)
++        keywords = _keywords(call)
++        assert ast.unparse(call.func) == expected[name][0]
++        assert ast.literal_eval(keywords["asset_name"]) == "robot"
++        assert ast.unparse(keywords["joint_names"]) == expected[name][1]
++        assert ast.literal_eval(keywords["scale"]) == expected[name][2]
++        assert ast.literal_eval(keywords["use_default_offset"]) is expected[name][3]
++        assert ast.literal_eval(keywords["clip"]) == expected[name][4]
++
++
++def _assert_registry_contract(source):
++    tree = ast.parse(source)
++    assert not any(
++        isinstance(node, ast.ImportFrom) and (node.module or "").startswith("go2_pvcnn.tasks")
++        for node in tree.body
++    )
++    registrations = [
++        node.value
++        for node in tree.body
++        if isinstance(node, ast.Expr)
++        and isinstance(node.value, ast.Call)
++        and ast.unparse(node.value.func) == "gym.register"
++    ]
++    assert len(registrations) == len(EXPECTED_REGISTRATIONS)
++    for call, (expected_id, expected_cfg) in zip(registrations, EXPECTED_REGISTRATIONS, strict=True):
++        assert [keyword.arg for keyword in call.keywords] == [
++            "id",
++            "entry_point",
++            "disable_env_checker",
++            "kwargs",
++        ]
++        keywords = _keywords(call)
++        assert ast.literal_eval(keywords["id"]) == expected_id
++        assert ast.literal_eval(keywords["entry_point"]) == "isaaclab.envs:ManagerBasedRLEnv"
++        assert ast.literal_eval(keywords["disable_env_checker"]) is True
++        kwargs = ast.literal_eval(keywords["kwargs"])
++        assert list(kwargs) == ["env_cfg_entry_point", "rsl_rl_cfg_entry_point"]
++        assert kwargs["env_cfg_entry_point"] == expected_cfg
++        assert kwargs["rsl_rl_cfg_entry_point"] is None
++
++
++def test_combined_cfg_has_exact_home_pose_and_hold_actuators():
++    tree = ast.parse(ASSET_FILE.read_text())
++    simple = {
++        node.targets[0].id: ast.literal_eval(node.value)
++        for node in tree.body
++        if isinstance(node, ast.Assign)
++        and len(node.targets) == 1
++        and isinstance(node.targets[0], ast.Name)
++        and node.targets[0].id in {"M1_PANDA_BASE_BODY_NAME", "M1_PANDA_MOUNT_BODY_NAME", "M1_PANDA_DOF_COUNT"}
++    }
++    assert simple == {
++        "M1_PANDA_BASE_BODY_NAME": "BASE_LINK",
++        "M1_PANDA_MOUNT_BODY_NAME": "panda_link0",
++        "M1_PANDA_DOF_COUNT": 25,
++    }
++
++    home = ast.literal_eval(_update_dict(tree, "M1_PANDA_CFG.init_state.joint_pos"))
++    assert home == {
++        "panda_joint1": 0.0,
++        "panda_joint2": -0.569,
++        "panda_joint3": 0.0,
++        "panda_joint4": -2.810,
++        "panda_joint5": 0.0,
++        "panda_joint6": 3.037,
++        "panda_joint7": 0.741,
++        "panda_finger_joint.*": 0.04,
++    }
++
++    actuator_dict = _update_dict(tree, "M1_PANDA_CFG.actuators")
++    actuator_names = [ast.literal_eval(key) for key in actuator_dict.keys]
++    assert actuator_names == ["panda_shoulder", "panda_forearm", "panda_hand"]
++    expected = {
++        "panda_shoulder": (["panda_joint[1-4]"], 87.0, 2.175, 80.0, 4.0),
++        "panda_forearm": (["panda_joint[5-7]"], 12.0, 2.61, 80.0, 4.0),
++        "panda_hand": (["panda_finger_joint.*"], 200.0, 0.2, 2000.0, 100.0),
++    }
++    for name, call in zip(actuator_names, actuator_dict.values, strict=True):
++        assert ast.unparse(call.func) == "ImplicitActuatorCfg"
++        keywords = _keywords(call)
++        actual = tuple(
++            ast.literal_eval(keywords[key])
++            for key in ("joint_names_expr", "effort_limit", "velocity_limit", "stiffness", "damping")
++        )
++        assert actual == expected[name]
++
++
++def test_action_terms_have_exact_order_types_and_parameters():
++    _assert_action_contract(ENV_FILE.read_text())
++
++
++def test_action_contract_rejects_an_extra_panda_term():
++    mutated = ENV_FILE.read_text().replace(
++        "    wheel_vel = mdp.JointVelocityActionCfg(",
++        "    panda_arm = mdp.JointPositionActionCfg(asset_name=\"robot\")\n"
++        "    wheel_vel = mdp.JointVelocityActionCfg(",
++        1,
++    )
++    with pytest.raises(AssertionError):
++        _assert_action_contract(mutated)
++
++
++def test_each_joint_observation_has_exactly_the_m1_selector():
++    tree = ast.parse(ENV_FILE.read_text())
++    observations = _class(tree, "M1PandaSmokeObservationsCfg")
++    policy = next(node for node in observations.body if isinstance(node, ast.ClassDef) and node.name == "PolicyCfg")
++    obs_terms = {
++        _assignment_name(node): _assignment_value(node)
++        for node in _assignments(policy.body)
++        if isinstance(_assignment_value(node), ast.Call) and ast.unparse(_assignment_value(node).func) == "ObsTerm"
++    }
++    joint_terms = {
++        name: call
++        for name, call in obs_terms.items()
++        if ast.unparse(_keywords(call)["func"]) in {"isaac_mdp.joint_pos_rel", "isaac_mdp.joint_vel_rel"}
++    }
++    assert list(joint_terms) == ["joint_pos", "joint_vel"]
++    assert {ast.unparse(_keywords(call)["func"]) for call in joint_terms.values()} == {
++        "isaac_mdp.joint_pos_rel",
++        "isaac_mdp.joint_vel_rel",
++    }
++    for call in joint_terms.values():
++        params = _keywords(call)["params"]
++        assert isinstance(params, ast.Dict) and len(params.keys) == 1
++        assert ast.literal_eval(params.keys[0]) == "asset_cfg"
++        selector = params.values[0]
++        assert ast.unparse(selector.func) == "SceneEntityCfg"
++        assert ast.literal_eval(selector.args[0]) == "robot"
++        assert ast.unparse(_keywords(selector)["joint_names"]) == "list(M1_JOINT_NAMES)"
++
++    all_joint_functions = [
++        ast.unparse(_keywords(call)["func"])
++        for call in obs_terms.values()
++        if "joint" in ast.unparse(_keywords(call)["func"])
++    ]
++    assert all_joint_functions == ["isaac_mdp.joint_pos_rel", "isaac_mdp.joint_vel_rel"]
++    assert ast.unparse(_keywords(obs_terms["actions"])["func"]) == "isaac_mdp.last_action"
++
++
++def test_combined_cfg_copies_before_mutation_and_keeps_task4_scope():
++    asset = ASSET_FILE.read_text()
++    env = ENV_FILE.read_text()
++    assert asset.index("M1_PANDA_CFG = M1_CFG.copy()") < asset.index("M1_PANDA_CFG.spawn")
++    assert "usd_path=M1_PANDA_USD_PATH" in asset
++    assert Path(ROOT / "assets/m1_panda/m1_panda.usd").is_file()
++    assert "wrench" not in env.lower()
++
++
++def test_registry_is_lazy_and_preserves_all_m1_gym_ids():
++    _assert_registry_contract(REGISTRY_FILE.read_text())
++
++
++@pytest.mark.parametrize(
++    "old,new",
++    [
++        ("go2_pvcnn.tasks.m1_smoke_env_cfg:M1SmokeEnvCfg", "go2_pvcnn.tasks.wrong:WrongCfg"),
++        ("isaaclab.envs:ManagerBasedRLEnv", "wrong.module:WrongEnv"),
++        ("disable_env_checker=True", "disable_env_checker=False"),
++        ('"rsl_rl_cfg_entry_point": None}', '"rsl_rl_cfg_entry_point": None, "extra": 1}'),
++        ('"rsl_rl_cfg_entry_point": None}', '"rsl_rl_cfg_entry_point": "wrong.module:Cfg"}'),
++    ],
++    ids=["old-target", "manager", "checker", "extra-kwarg", "non-none-rsl"],
++)
++def test_registry_contract_rejects_each_mapping_drift(old, new):
++    source = REGISTRY_FILE.read_text()
++    assert old in source
++    mutated = source.replace(old, new, 1)
++    with pytest.raises(AssertionError):
++        _assert_registry_contract(mutated)
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/tests/test_m1_smoke_cfg_static.py	2026-08-14 14:52:12.383220579 +0800
+@@ -0,0 +1,55 @@
++from pathlib import Path
++
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++TASK_FILE = REPO_ROOT / "go2_pvcnn" / "tasks" / "m1_smoke_env_cfg.py"
++REGISTER_FILE = REPO_ROOT / "go2_pvcnn" / "tasks" / "register_envs.py"
++M1_REGISTER_FILE = REPO_ROOT / "go2_pvcnn" / "tasks" / "register_m1_envs.py"
++TASKS_INIT_FILE = REPO_ROOT / "go2_pvcnn" / "tasks" / "__init__.py"
++
++
++def test_m1_smoke_cfg_declares_no_mpc_16_action_contract():
++    source = TASK_FILE.read_text()
++
++    assert "class M1SmokeEnvCfg(ManagerBasedRLEnvCfg)" in source
++    assert "M1_CFG.replace" in source
++    assert "M1_LEG_JOINT_NAMES" in source
++    assert "M1_WHEEL_JOINT_NAMES" in source
++    assert "leg_pos = mdp.JointPositionActionCfg" in source
++    assert "joint_names=list(M1_LEG_JOINT_NAMES)" in source
++    assert "wheel_vel = mdp.JointVelocityActionCfg" in source
++    assert "joint_names=list(M1_WHEEL_JOINT_NAMES)" in source
++    assert "body_names=list(M1_FOOT_BODY_NAMES)" in source
++    assert "body_names=M1_BASE_BODY_NAME" in source
++    assert "control_mode: str = M1_ROLLING_MODE" in source
++    assert "available_control_modes: tuple[str, str] = (M1_ROLLING_MODE, M1_WAVE_MODE)" in source
++    assert "rolling_wheel_velocity: float = 0.5" in source
++    assert "wave_wheel_velocity: float = 1.5" in source
++    assert "wave_amplitude: float = 0.0" in source
++    assert "wave_frequency: float = 1.0" in source
++    assert "wave_phase_offsets: tuple[float, float, float, float]" in source
++    assert 'planner_backend: str = "none"' in source
++    assert "use_batched_reference_trajectory: bool = False" in source
++    assert "planner_owned_reference_cache: bool = False" in source
++    assert "terrain_type=\"plane\"" in source
++
++
++def test_m1_smoke_gym_id_is_registered():
++    source = M1_REGISTER_FILE.read_text()
++
++    assert "M1SmokeEnvCfg" in source
++    assert "M1WalkEnvCfg" in source
++    assert 'id="Isaac-M1-Smoke-v0"' in source
++    assert 'id="Isaac-M1-Walk-v0"' in source
++    assert '"env_cfg_entry_point": "go2_pvcnn.tasks.m1_smoke_env_cfg:M1SmokeEnvCfg"' in source
++    assert '"env_cfg_entry_point": "go2_pvcnn.tasks.m1_walk_env_cfg:M1WalkEnvCfg"' in source
++
++
++def test_m1_task_package_imports_m1_registration_by_default():
++    source = TASKS_INIT_FILE.read_text()
++    legacy_source = REGISTER_FILE.read_text()
++
++    assert "register_m1_envs" in source
++    assert "register_envs" not in source
++    assert "Isaac-M1-Smoke-v0" not in legacy_source
++    assert "Isaac-M1-Walk-v0" not in legacy_source
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/tests/test_m1_walk_cfg_static.py	2026-08-14 14:52:12.383220579 +0800
+@@ -0,0 +1,40 @@
++from pathlib import Path
++
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++WALK_FILE = REPO_ROOT / "go2_pvcnn" / "tasks" / "m1_walk_env_cfg.py"
++REGISTER_FILE = REPO_ROOT / "go2_pvcnn" / "tasks" / "register_m1_envs.py"
++
++
++def test_m1_walk_cfg_declares_trainable_velocity_tracking_task():
++    source = WALK_FILE.read_text()
++
++    assert "class M1WalkEnvCfg(M1SmokeEnvCfg)" in source
++    assert "class M1WalkCommandsCfg" in source
++    assert "base_velocity = mdp.UniformLevelVelocityCommandCfg" in source
++    assert "rel_standing_envs=0.5" in source
++    assert "lin_vel_x=(0.0, 0.08)" in source
++    assert "velocity_commands = ObsTerm" in source
++    assert "track_lin_vel_xy = RewTerm" in source
++    assert "track_ang_vel_z = RewTerm" in source
++    assert "base_height = RewTerm" in source
++    assert '"target_height": 0.60' in source
++    assert "front_rear_joint_speed = RewTerm" in source
++    assert "front_rear_action = RewTerm" in source
++    assert "paired_joint_speed_mismatch" in source
++    assert "paired_action_mismatch" in source
++    assert "weight=-0.20" in source
++    assert "feet_air_time = RewTerm" in source
++    assert "air_time_variance = RewTerm" in source
++    assert "wheel_vel = mdp.JointVelocityActionCfg" in source
++    assert "scale=0.0" in source
++    assert "clip={\".*\": (0.0, 0.0)}" in source
++    assert "self.terminations.base_contact = None" in source
++
++
++def test_m1_walk_gym_id_is_registered():
++    source = REGISTER_FILE.read_text()
++
++    assert "M1WalkEnvCfg" in source
++    assert 'id="Isaac-M1-Walk-v0"' in source
++    assert '"env_cfg_entry_point": "go2_pvcnn.tasks.m1_walk_env_cfg:M1WalkEnvCfg"' in source
+# Task 4 Report
+
+Status: DONE_WITH_CONCERNS
+
+Git Ref: unavailable
+
+## Changes
+
+- Added `Go2Pvcnn/go2_pvcnn/assets/m1_panda.py` with `M1_PANDA_CFG`, combined USD path, body constants, 25-DOF contract, legal Panda home pose, and three Panda hold actuators.
+- Added `Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py`, derived from the old M1 smoke structure but overriding the robot, observations, and actions.
+- Added Gym id `Isaac-M1-Panda-Smoke-v0` to `register_m1_envs.py`.
+- Added static and lightweight behavior coverage in `test_m1_panda_smoke_cfg_static.py`.
+- Updated T400 dashboard, branch, progress, independent log, and log index.
+
+## Contract Evidence
+
+- Actions are exactly 12 M1 leg position actions plus 4 M1 wheel velocity actions.
+- `joint_pos_rel` and `joint_vel_rel` each use `SceneEntityCfg(... joint_names=list(M1_JOINT_NAMES))`; action history comes from the 16-term action manager.
+- Panda joints are not action terms. Panda actuators only hold the configured home pose.
+- Source scan contains no wrench integration; no Task 5 function, IK, OSC, or training was added.
+- Lightweight import behavior proves combined cfg nested state does not share with or mutate the original `M1_CFG`.
+
+## RED / GREEN
+
+- RED: focused new test `3 failed in 0.05s`, exit `1`, because both new modules were absent.
+- GREEN: focused new test `3 passed in 0.01s`, exit `0`.
+- Planned static suite after Fix Round 2: `30 passed in 0.03s`, exit `0`.
+- Fix Round 2 test-file `py_compile`: exit `0`.
+
+## Import / Runtime Evidence
+
+- Bounded loco + headless AppLauncher isolated import: exit `0` and reported `dof=25`, USD match true, original cfg unchanged, actions `(12,4)`, and observation joints `16`.
+- No physical environment creation or simulation step was run for Task 4.
+- After Fix Round 1, normal tasks-package import and `gym.spec("Isaac-M1-Panda-Smoke-v0")` exit `0`; all 21 M1 IDs register without loading their cfg modules eagerly.
+
+## Baseline
+
+- Required three-file static baseline is green (`24 passed`). Old M1 asset/smoke baseline is `4 passed`.
+- Expanded `tests/test_m1*_static.py`: `51 passed, 1 failed`; the failure is the existing wave-wrapper source-token contract and does not involve Task 4 files.
+
+## Self-review And Warnings
+
+- Confirmed all Task 4 outputs named in the brief exist.
+- Confirmed the old `M1_CFG` and old smoke source were not modified.
+- Confirmed no Task 5+ implementation was introduced.
+- Gym registration is verified through the real default tasks-package import and `gym.spec`.
+- Concern: actual physics startup/step of `M1PandaSmokeEnvCfg` remains unverified in this task.
+
+## Fix Round 1
+
+- Root-cause runtime RED: normal package import reliably exited `17` at the eager `m1_small_obstacle_env_cfg` import because installed IsaacLab lacks `MultiMeshRayCasterCfg`.
+- The installed official IsaacLab task pattern uses lazy `module:Class` strings. `register_m1_envs.py` now uses this form for all 21 existing/new M1 IDs and has no task cfg imports. No obstacle implementation was changed, no exception is swallowed, and old cfg modules still load when their environments are actually resolved.
+- Round 1 AST RED/GREEN was `1 failed, 4 passed` -> `5 passed`; it substantially strengthened coverage, but the later review correctly found that its action-name prefilter and non-Panda registry shape-only checks did not yet enforce the complete contracts.
+- Real public import/Gym evidence: exit `0`; Panda spec has the exact manager entry point and lazy cfg string; M1 registry count is `21`; no next import blocker appeared.
+- Real configclass evidence through the normal package path: exit `0`; original `M1_CFG` values unchanged and `spawn`, `init_state`, `actuators` identities are distinct; action types/dims and both observation selectors are exact.
+- Deferred old-environment semantics evidence: explicitly resolving the old small-obstacle spec's unchanged module mapping exits `23` with the original `MultiMeshRayCasterCfg` ImportError; the failure is deferred, not swallowed.
+- Fix Round 1 verification: planned `24 passed`; old M1 smoke baseline `4 passed`; pycompile exit `0`; full M1 static `51 passed, 1` pre-existing unrelated wave failure.
+
+## Fix Round 2
+
+- Production code was not changed. The sole remaining Important was a regression-test bypass.
+- The action validator now inspects every call-valued assignment in `M1PandaSmokeActionsCfg` without prefiltering names, requires the full ordered term list to equal `leg_pos, wheel_vel`, and then checks every required parameter.
+- The registry validator contains an explicit reviewed 21-item ordered `ID -> module:Class` table. Every registration must also have the exact `isaaclab.envs:ManagerBasedRLEnv` entry point, `disable_env_checker=True`, exactly two kwargs in the expected order, and `rsl_rl_cfg_entry_point=None`.
+- Mutation evidence covers six invalid inputs: extra Panda action, wrong old cfg target, wrong manager, disabled checker, extra kwarg, and non-None RSL. Each mutated source is required to raise `AssertionError`; focused suite result is `11 passed in 0.03s`.
+- Verification: planned suite `30 passed in 0.03s`; old M1 asset/smoke baseline `4 passed in 0.01s`; relevant test-file pycompile exit `0`.
+- AppLauncher was not rerun because Fix Round 2 changed no production code; Round 1 runtime evidence remains applicable. Git Ref: unavailable.

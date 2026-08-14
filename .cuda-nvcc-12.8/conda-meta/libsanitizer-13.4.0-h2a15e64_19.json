@@ -1,0 +1,145 @@
+{
+  "name": "libsanitizer",
+  "version": "13.4.0",
+  "build": "h2a15e64_19",
+  "build_number": 19,
+  "channel": "https://conda.anaconda.org/conda-forge/linux-64",
+  "subdir": "linux-64",
+  "fn": "libsanitizer-13.4.0-h2a15e64_19.conda",
+  "md5": "c35385bcbc9c5b95e2b85723092b3f14",
+  "url": "https://conda.anaconda.org/conda-forge/linux-64/libsanitizer-13.4.0-h2a15e64_19.conda",
+  "sha256": "f000bf51242f212b667e73d80f49cf7e577acdf09eea89bf85efc6f9826a85d3",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "libgcc >=13.4.0",
+    "libstdcxx >=13.4.0"
+  ],
+  "constrains": [],
+  "license": "GPL-3.0-only WITH GCC-exception-3.1",
+  "timestamp": 1778268406862,
+  "size": 6488034,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libsanitizer-13.4.0-h2a15e64_19.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libsanitizer-13.4.0-h2a15e64_19",
+  "files": [
+    "lib/libasan.so",
+    "lib/libasan.so.8",
+    "lib/libasan.so.8.0.0",
+    "lib/libhwasan.so",
+    "lib/libhwasan.so.0",
+    "lib/libhwasan.so.0.0.0",
+    "lib/liblsan.so",
+    "lib/liblsan.so.0",
+    "lib/liblsan.so.0.0.0",
+    "lib/libtsan.so",
+    "lib/libtsan.so.2",
+    "lib/libtsan.so.2.0.0",
+    "lib/libubsan.so",
+    "lib/libubsan.so.1",
+    "lib/libubsan.so.1.0.0"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libasan.so",
+        "path_type": "softlink",
+        "sha256": "7a3a6a5886a975c36f60d5c913b460db0c28441b006acca1e580ac267b778c58",
+        "size_in_bytes": 9988984
+      },
+      {
+        "_path": "lib/libasan.so.8",
+        "path_type": "softlink",
+        "sha256": "7a3a6a5886a975c36f60d5c913b460db0c28441b006acca1e580ac267b778c58",
+        "size_in_bytes": 9988984
+      },
+      {
+        "_path": "lib/libasan.so.8.0.0",
+        "path_type": "hardlink",
+        "sha256": "7a3a6a5886a975c36f60d5c913b460db0c28441b006acca1e580ac267b778c58",
+        "size_in_bytes": 9988984,
+        "sha256_in_prefix": "7a3a6a5886a975c36f60d5c913b460db0c28441b006acca1e580ac267b778c58"
+      },
+      {
+        "_path": "lib/libhwasan.so",
+        "path_type": "softlink",
+        "sha256": "2da552faa8c9df7e38fa9fec32dbe708d2eedb8d2350ea95dc6ed8164fdc9690",
+        "size_in_bytes": 3570200
+      },
+      {
+        "_path": "lib/libhwasan.so.0",
+        "path_type": "softlink",
+        "sha256": "2da552faa8c9df7e38fa9fec32dbe708d2eedb8d2350ea95dc6ed8164fdc9690",
+        "size_in_bytes": 3570200
+      },
+      {
+        "_path": "lib/libhwasan.so.0.0.0",
+        "path_type": "hardlink",
+        "sha256": "2da552faa8c9df7e38fa9fec32dbe708d2eedb8d2350ea95dc6ed8164fdc9690",
+        "size_in_bytes": 3570200,
+        "sha256_in_prefix": "2da552faa8c9df7e38fa9fec32dbe708d2eedb8d2350ea95dc6ed8164fdc9690"
+      },
+      {
+        "_path": "lib/liblsan.so",
+        "path_type": "softlink",
+        "sha256": "eb7db2bca258f6c9fc810e60da7a6c4727d9f0d0b27635b37befbf92ef78e8db",
+        "size_in_bytes": 3417176
+      },
+      {
+        "_path": "lib/liblsan.so.0",
+        "path_type": "softlink",
+        "sha256": "eb7db2bca258f6c9fc810e60da7a6c4727d9f0d0b27635b37befbf92ef78e8db",
+        "size_in_bytes": 3417176
+      },
+      {
+        "_path": "lib/liblsan.so.0.0.0",
+        "path_type": "hardlink",
+        "sha256": "eb7db2bca258f6c9fc810e60da7a6c4727d9f0d0b27635b37befbf92ef78e8db",
+        "size_in_bytes": 3417176,
+        "sha256_in_prefix": "eb7db2bca258f6c9fc810e60da7a6c4727d9f0d0b27635b37befbf92ef78e8db"
+      },
+      {
+        "_path": "lib/libtsan.so",
+        "path_type": "softlink",
+        "sha256": "33152e87eeb601ca417e2218576c1ddd8c2b18f626d453969f31a7f1fa6e16c2",
+        "size_in_bytes": 8229224
+      },
+      {
+        "_path": "lib/libtsan.so.2",
+        "path_type": "softlink",
+        "sha256": "33152e87eeb601ca417e2218576c1ddd8c2b18f626d453969f31a7f1fa6e16c2",
+        "size_in_bytes": 8229224
+      },
+      {
+        "_path": "lib/libtsan.so.2.0.0",
+        "path_type": "hardlink",
+        "sha256": "33152e87eeb601ca417e2218576c1ddd8c2b18f626d453969f31a7f1fa6e16c2",
+        "size_in_bytes": 8229224,
+        "sha256_in_prefix": "33152e87eeb601ca417e2218576c1ddd8c2b18f626d453969f31a7f1fa6e16c2"
+      },
+      {
+        "_path": "lib/libubsan.so",
+        "path_type": "softlink",
+        "sha256": "3fe5588a3fdd2415baa75ca43d22968b8a3e45326f441de0cbaa998199e64b23",
+        "size_in_bytes": 3103896
+      },
+      {
+        "_path": "lib/libubsan.so.1",
+        "path_type": "softlink",
+        "sha256": "3fe5588a3fdd2415baa75ca43d22968b8a3e45326f441de0cbaa998199e64b23",
+        "size_in_bytes": 3103896
+      },
+      {
+        "_path": "lib/libubsan.so.1.0.0",
+        "path_type": "hardlink",
+        "sha256": "3fe5588a3fdd2415baa75ca43d22968b8a3e45326f441de0cbaa998199e64b23",
+        "size_in_bytes": 3103896,
+        "sha256_in_prefix": "3fe5588a3fdd2415baa75ca43d22968b8a3e45326f441de0cbaa998199e64b23"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libsanitizer-13.4.0-h2a15e64_19",
+    "type": 1
+  }
+}

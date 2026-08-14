@@ -1,0 +1,65 @@
+{
+  "name": "libnvjpeg",
+  "version": "12.3.5.92",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libnvjpeg-12.3.5.92-0.conda",
+  "md5": "94ceb85d33d5b9c1fd3f98ea38017749",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libnvjpeg-12.3.5.92-0.conda",
+  "sha256": "5b6d5bb81d66b48a49165d630e1fdff0bad40166c274b858fcb659d1a60fee1b",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739446514024,
+  "size": 3110473,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libnvjpeg-12.3.5.92-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libnvjpeg-12.3.5.92-0",
+  "files": [
+    "lib/libnvjpeg.so.12",
+    "lib/libnvjpeg.so.12.3.5.92",
+    "targets/x86_64-linux/lib/libnvjpeg.so.12",
+    "targets/x86_64-linux/lib/libnvjpeg.so.12.3.5.92"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libnvjpeg.so.12",
+        "path_type": "softlink",
+        "sha256": "4f4631f0ef0a491eef27411539ecd62b405e94be943fdf2b81698199ddf43654",
+        "size_in_bytes": 7837264
+      },
+      {
+        "_path": "lib/libnvjpeg.so.12.3.5.92",
+        "path_type": "softlink",
+        "sha256": "4f4631f0ef0a491eef27411539ecd62b405e94be943fdf2b81698199ddf43654",
+        "size_in_bytes": 7837264
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvjpeg.so.12",
+        "path_type": "softlink",
+        "sha256": "4f4631f0ef0a491eef27411539ecd62b405e94be943fdf2b81698199ddf43654",
+        "size_in_bytes": 7837264
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvjpeg.so.12.3.5.92",
+        "path_type": "hardlink",
+        "sha256": "4f4631f0ef0a491eef27411539ecd62b405e94be943fdf2b81698199ddf43654",
+        "size_in_bytes": 7837264,
+        "sha256_in_prefix": "4f4631f0ef0a491eef27411539ecd62b405e94be943fdf2b81698199ddf43654"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libnvjpeg-12.3.5.92-0",
+    "type": 1
+  }
+}

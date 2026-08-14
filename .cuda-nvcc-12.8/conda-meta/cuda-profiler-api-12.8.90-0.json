@@ -1,0 +1,50 @@
+{
+  "name": "cuda-profiler-api",
+  "version": "12.8.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-profiler-api-12.8.90-0.conda",
+  "md5": "c4fc217eb5ca678ebd498b785d7eb700",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-profiler-api-12.8.90-0.conda",
+  "sha256": "9edc68a9e71302882b63bde1dc5767efcb580c9b12b13a51e40f7f4c7eb2646c",
+  "depends": [
+    "cuda-cudart-dev",
+    "cuda-version >=12.8,<12.9.0a0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739446050732,
+  "size": 19492,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-profiler-api-12.8.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-profiler-api-12.8.90-0",
+  "files": [
+    "targets/x86_64-linux/include/cudaProfiler.h",
+    "targets/x86_64-linux/include/cuda_profiler_api.h"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "targets/x86_64-linux/include/cudaProfiler.h",
+        "path_type": "hardlink",
+        "sha256": "b9c9fa71341b693f9f0b0ea8071e12a0869ac99afe669345a02145163867560d",
+        "size_in_bytes": 7019,
+        "sha256_in_prefix": "b9c9fa71341b693f9f0b0ea8071e12a0869ac99afe669345a02145163867560d"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cuda_profiler_api.h",
+        "path_type": "hardlink",
+        "sha256": "bb8e03c217df1309ccfe3249c4fac1bcd577bdcff5c65944217548195204118e",
+        "size_in_bytes": 4566,
+        "sha256_in_prefix": "bb8e03c217df1309ccfe3249c4fac1bcd577bdcff5c65944217548195204118e"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-profiler-api-12.8.90-0",
+    "type": 1
+  }
+}

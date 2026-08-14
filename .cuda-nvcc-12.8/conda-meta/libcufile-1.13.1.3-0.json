@@ -1,0 +1,94 @@
+{
+  "name": "libcufile",
+  "version": "1.13.1.3",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcufile-1.13.1.3-0.conda",
+  "md5": "b4acfac0c47ab5c614f152ada50f889d",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcufile-1.13.1.3-0.conda",
+  "sha256": "1baea90ca1cf2f5f9a891415c582ba8af294d4baaf86cc8343e64e3987393033",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739384347871,
+  "size": 958447,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcufile-1.13.1.3-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcufile-1.13.1.3-0",
+  "files": [
+    "lib/libcufile.so.0",
+    "lib/libcufile.so.1.13.1",
+    "lib/libcufile_rdma.so.1",
+    "lib/libcufile_rdma.so.1.13.1",
+    "targets/x86_64-linux/lib/libcufile.so.0",
+    "targets/x86_64-linux/lib/libcufile.so.1.13.1",
+    "targets/x86_64-linux/lib/libcufile_rdma.so.1",
+    "targets/x86_64-linux/lib/libcufile_rdma.so.1.13.1"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcufile.so.0",
+        "path_type": "softlink",
+        "sha256": "19527c11f8d2e4b26ebb5b30390543cc41c166ffa5b0c953ec7dac3d1656006a",
+        "size_in_bytes": 3209497
+      },
+      {
+        "_path": "lib/libcufile.so.1.13.1",
+        "path_type": "softlink",
+        "sha256": "19527c11f8d2e4b26ebb5b30390543cc41c166ffa5b0c953ec7dac3d1656006a",
+        "size_in_bytes": 3209497
+      },
+      {
+        "_path": "lib/libcufile_rdma.so.1",
+        "path_type": "softlink",
+        "sha256": "9708e9b39f3d9fa827fe165800eb31c296f0bd450fb90ad5e9d8277b01a083b7",
+        "size_in_bytes": 47657
+      },
+      {
+        "_path": "lib/libcufile_rdma.so.1.13.1",
+        "path_type": "softlink",
+        "sha256": "9708e9b39f3d9fa827fe165800eb31c296f0bd450fb90ad5e9d8277b01a083b7",
+        "size_in_bytes": 47657
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcufile.so.0",
+        "path_type": "softlink",
+        "sha256": "19527c11f8d2e4b26ebb5b30390543cc41c166ffa5b0c953ec7dac3d1656006a",
+        "size_in_bytes": 3209497
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcufile.so.1.13.1",
+        "path_type": "hardlink",
+        "sha256": "19527c11f8d2e4b26ebb5b30390543cc41c166ffa5b0c953ec7dac3d1656006a",
+        "size_in_bytes": 3209497,
+        "sha256_in_prefix": "19527c11f8d2e4b26ebb5b30390543cc41c166ffa5b0c953ec7dac3d1656006a"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcufile_rdma.so.1",
+        "path_type": "softlink",
+        "sha256": "9708e9b39f3d9fa827fe165800eb31c296f0bd450fb90ad5e9d8277b01a083b7",
+        "size_in_bytes": 47657
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcufile_rdma.so.1.13.1",
+        "path_type": "hardlink",
+        "sha256": "9708e9b39f3d9fa827fe165800eb31c296f0bd450fb90ad5e9d8277b01a083b7",
+        "size_in_bytes": 47657,
+        "sha256_in_prefix": "9708e9b39f3d9fa827fe165800eb31c296f0bd450fb90ad5e9d8277b01a083b7"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcufile-1.13.1.3-0",
+    "type": 1
+  }
+}

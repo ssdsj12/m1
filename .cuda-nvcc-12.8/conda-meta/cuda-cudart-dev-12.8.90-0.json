@@ -1,0 +1,66 @@
+{
+  "name": "cuda-cudart-dev",
+  "version": "12.8.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-cudart-dev-12.8.90-0.conda",
+  "md5": "ce069f909b1df418f2be01859e080bef",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-cudart-dev-12.8.90-0.conda",
+  "sha256": "9fa2b5cd8ccc8431638988936dd920741c38f46fd69956ade54ab91db30c3654",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-cudart 12.8.90 0",
+    "cuda-cudart-dev_linux-64 12.8.90 0",
+    "cuda-cudart-static 12.8.90 0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739446220747,
+  "size": 17741,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-cudart-dev-12.8.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-cudart-dev-12.8.90-0",
+  "files": [
+    "lib/libcudart.so",
+    "lib/pkgconfig/cuda-12.8.pc",
+    "lib/pkgconfig/cudart-12.8.pc"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcudart.so",
+        "path_type": "softlink",
+        "sha256": "7b15fc50d4d6bc77dd66f64603d40d045545d92a7f1b38654389ad2b1e88de9e",
+        "size_in_bytes": 746033
+      },
+      {
+        "_path": "lib/pkgconfig/cuda-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/cuda-cudart-split_1739446149919/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehol",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "f9b1794c9a914935dd027fbbe3c6de8f7856f5bd8dc74595f203b12bbb8ca86e",
+        "size_in_bytes": 469,
+        "sha256_in_prefix": "0efb12d69905de833bbe36f5fb7d4ae42edf9853b86751a820d487463dc578dc"
+      },
+      {
+        "_path": "lib/pkgconfig/cudart-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/cuda-cudart-split_1739446149919/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehol",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "625c2f9cd969e7d22687dca3dd3e363c7e6792cce419894cc29d31f7cc127964",
+        "size_in_bytes": 474,
+        "sha256_in_prefix": "0dea16df47f78ec5302a800655ea5c6ea40d07d7c4ca178af0b36c33ffcfa074"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-cudart-dev-12.8.90-0",
+    "type": 1
+  }
+}

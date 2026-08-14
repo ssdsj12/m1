@@ -1,0 +1,152 @@
+{
+  "name": "cuda-nvrtc",
+  "version": "12.8.93",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-nvrtc-12.8.93-0.conda",
+  "md5": "ad21bf0cb90fc783cb02a7f84d87c674",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-nvrtc-12.8.93-0.conda",
+  "sha256": "04ec8561afbe92d8ec8a019438622970c9f9d1f084eb73c54dfca6780c2046f5",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1740202864449,
+  "size": 66391365,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-nvrtc-12.8.93-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-nvrtc-12.8.93-0",
+  "files": [
+    "lib/libnvrtc-builtins.alt.so.12.8",
+    "lib/libnvrtc-builtins.alt.so.12.8.93",
+    "lib/libnvrtc-builtins.so.12.8",
+    "lib/libnvrtc-builtins.so.12.8.93",
+    "lib/libnvrtc.alt.so.12",
+    "lib/libnvrtc.alt.so.12.8.93",
+    "lib/libnvrtc.so.12",
+    "lib/libnvrtc.so.12.8.93",
+    "targets/x86_64-linux/lib/libnvrtc-builtins.alt.so.12.8",
+    "targets/x86_64-linux/lib/libnvrtc-builtins.alt.so.12.8.93",
+    "targets/x86_64-linux/lib/libnvrtc-builtins.so.12.8",
+    "targets/x86_64-linux/lib/libnvrtc-builtins.so.12.8.93",
+    "targets/x86_64-linux/lib/libnvrtc.alt.so.12",
+    "targets/x86_64-linux/lib/libnvrtc.alt.so.12.8.93",
+    "targets/x86_64-linux/lib/libnvrtc.so.12",
+    "targets/x86_64-linux/lib/libnvrtc.so.12.8.93"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libnvrtc-builtins.alt.so.12.8",
+        "path_type": "softlink",
+        "sha256": "d4fb410a84ce264da4961ad33b113a6725717a1703399f779d341ba7ccb1d4f4",
+        "size_in_bytes": 6313713
+      },
+      {
+        "_path": "lib/libnvrtc-builtins.alt.so.12.8.93",
+        "path_type": "softlink",
+        "sha256": "d4fb410a84ce264da4961ad33b113a6725717a1703399f779d341ba7ccb1d4f4",
+        "size_in_bytes": 6313713
+      },
+      {
+        "_path": "lib/libnvrtc-builtins.so.12.8",
+        "path_type": "softlink",
+        "sha256": "169b9662fc4acf3365465e5e287635fd53c981ebd632e67545a3654ec934eb3d",
+        "size_in_bytes": 6342377
+      },
+      {
+        "_path": "lib/libnvrtc-builtins.so.12.8.93",
+        "path_type": "softlink",
+        "sha256": "169b9662fc4acf3365465e5e287635fd53c981ebd632e67545a3654ec934eb3d",
+        "size_in_bytes": 6342377
+      },
+      {
+        "_path": "lib/libnvrtc.alt.so.12",
+        "path_type": "softlink",
+        "sha256": "75057f6c2c9a28ee4d8b7d5e95fbac18099805f103eb8e15bf065f5cd6a5e05e",
+        "size_in_bytes": 104966521
+      },
+      {
+        "_path": "lib/libnvrtc.alt.so.12.8.93",
+        "path_type": "softlink",
+        "sha256": "75057f6c2c9a28ee4d8b7d5e95fbac18099805f103eb8e15bf065f5cd6a5e05e",
+        "size_in_bytes": 104966521
+      },
+      {
+        "_path": "lib/libnvrtc.so.12",
+        "path_type": "softlink",
+        "sha256": "6c9e40f1dd20fefb86c4e87d0625d6204b24deeec536ba7c5b0a93989d62523c",
+        "size_in_bytes": 104487249
+      },
+      {
+        "_path": "lib/libnvrtc.so.12.8.93",
+        "path_type": "softlink",
+        "sha256": "6c9e40f1dd20fefb86c4e87d0625d6204b24deeec536ba7c5b0a93989d62523c",
+        "size_in_bytes": 104487249
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvrtc-builtins.alt.so.12.8",
+        "path_type": "softlink",
+        "sha256": "d4fb410a84ce264da4961ad33b113a6725717a1703399f779d341ba7ccb1d4f4",
+        "size_in_bytes": 6313713
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvrtc-builtins.alt.so.12.8.93",
+        "path_type": "hardlink",
+        "sha256": "d4fb410a84ce264da4961ad33b113a6725717a1703399f779d341ba7ccb1d4f4",
+        "size_in_bytes": 6313713,
+        "sha256_in_prefix": "d4fb410a84ce264da4961ad33b113a6725717a1703399f779d341ba7ccb1d4f4"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvrtc-builtins.so.12.8",
+        "path_type": "softlink",
+        "sha256": "169b9662fc4acf3365465e5e287635fd53c981ebd632e67545a3654ec934eb3d",
+        "size_in_bytes": 6342377
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvrtc-builtins.so.12.8.93",
+        "path_type": "hardlink",
+        "sha256": "169b9662fc4acf3365465e5e287635fd53c981ebd632e67545a3654ec934eb3d",
+        "size_in_bytes": 6342377,
+        "sha256_in_prefix": "169b9662fc4acf3365465e5e287635fd53c981ebd632e67545a3654ec934eb3d"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvrtc.alt.so.12",
+        "path_type": "softlink",
+        "sha256": "75057f6c2c9a28ee4d8b7d5e95fbac18099805f103eb8e15bf065f5cd6a5e05e",
+        "size_in_bytes": 104966521
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvrtc.alt.so.12.8.93",
+        "path_type": "hardlink",
+        "sha256": "75057f6c2c9a28ee4d8b7d5e95fbac18099805f103eb8e15bf065f5cd6a5e05e",
+        "size_in_bytes": 104966521,
+        "sha256_in_prefix": "75057f6c2c9a28ee4d8b7d5e95fbac18099805f103eb8e15bf065f5cd6a5e05e"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvrtc.so.12",
+        "path_type": "softlink",
+        "sha256": "6c9e40f1dd20fefb86c4e87d0625d6204b24deeec536ba7c5b0a93989d62523c",
+        "size_in_bytes": 104487249
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvrtc.so.12.8.93",
+        "path_type": "hardlink",
+        "sha256": "6c9e40f1dd20fefb86c4e87d0625d6204b24deeec536ba7c5b0a93989d62523c",
+        "size_in_bytes": 104487249,
+        "sha256_in_prefix": "6c9e40f1dd20fefb86c4e87d0625d6204b24deeec536ba7c5b0a93989d62523c"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-nvrtc-12.8.93-0",
+    "type": 1
+  }
+}

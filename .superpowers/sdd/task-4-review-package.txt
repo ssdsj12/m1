@@ -1,0 +1,424 @@
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/go2_pvcnn/assets/m1_panda.py	2026-08-14 14:39:08.793100987 +0800
+@@ -0,0 +1,53 @@
++"""Configuration for the combined M1 and Panda articulation."""
++
++from pathlib import Path
++
++from isaaclab.actuators import ImplicitActuatorCfg
++
++from go2_pvcnn.assets import M1_CFG
++
++
++M1_PANDA_USD_PATH = str(Path(__file__).resolve().parents[2] / "assets/m1_panda/m1_panda.usd")
++M1_PANDA_BASE_BODY_NAME = "BASE_LINK"
++M1_PANDA_MOUNT_BODY_NAME = "panda_link0"
++M1_PANDA_DOF_COUNT = 25
++
++M1_PANDA_CFG = M1_CFG.copy()
++M1_PANDA_CFG.spawn = M1_PANDA_CFG.spawn.replace(usd_path=M1_PANDA_USD_PATH)
++M1_PANDA_CFG.init_state.joint_pos.update(
++    {
++        "panda_joint1": 0.0,
++        "panda_joint2": -0.569,
++        "panda_joint3": 0.0,
++        "panda_joint4": -2.810,
++        "panda_joint5": 0.0,
++        "panda_joint6": 3.037,
++        "panda_joint7": 0.741,
++        "panda_finger_joint.*": 0.04,
++    }
++)
++M1_PANDA_CFG.actuators.update(
++    {
++        "panda_shoulder": ImplicitActuatorCfg(
++            joint_names_expr=["panda_joint[1-4]"],
++            effort_limit=87.0,
++            velocity_limit=2.175,
++            stiffness=80.0,
++            damping=4.0,
++        ),
++        "panda_forearm": ImplicitActuatorCfg(
++            joint_names_expr=["panda_joint[5-7]"],
++            effort_limit=12.0,
++            velocity_limit=2.61,
++            stiffness=80.0,
++            damping=4.0,
++        ),
++        "panda_hand": ImplicitActuatorCfg(
++            joint_names_expr=["panda_finger_joint.*"],
++            effort_limit=200.0,
++            velocity_limit=0.2,
++            stiffness=2000.0,
++            damping=100.0,
++        ),
++    }
++)
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py	2026-08-14 14:38:55.221303573 +0800
+@@ -0,0 +1,72 @@
++"""Isolated smoke environment for the combined M1 and Panda articulation."""
++
++from __future__ import annotations
++
++from isaaclab.envs import mdp as isaac_mdp
++from isaaclab.managers import ObservationGroupCfg as ObsGroup
++from isaaclab.managers import ObservationTermCfg as ObsTerm
++from isaaclab.managers import SceneEntityCfg
++from isaaclab.utils import configclass
++from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
++
++from go2_pvcnn.assets import M1_JOINT_NAMES, M1_LEG_JOINT_NAMES, M1_WHEEL_JOINT_NAMES
++from go2_pvcnn.assets.m1_panda import M1_PANDA_CFG
++import go2_pvcnn.mdp as mdp
++from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg, M1SmokeSceneCfg
++
++
++@configclass
++class M1PandaSmokeSceneCfg(M1SmokeSceneCfg):
++    """Flat smoke scene using the combined articulation."""
++
++    robot = M1_PANDA_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
++
++
++@configclass
++class M1PandaSmokeActionsCfg:
++    """Exactly 12 M1 leg-position plus four M1 wheel-velocity actions."""
++
++    leg_pos = mdp.JointPositionActionCfg(
++        asset_name="robot", joint_names=list(M1_LEG_JOINT_NAMES),
++        scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)},
++    )
++    wheel_vel = mdp.JointVelocityActionCfg(
++        asset_name="robot", joint_names=list(M1_WHEEL_JOINT_NAMES),
++        scale=8.0, use_default_offset=True, clip={".*": (-8.0, 8.0)},
++    )
++
++
++@configclass
++class M1PandaSmokeObservationsCfg:
++    """M1-only proprioception; Panda joints stay outside policy observations."""
++
++    @configclass
++    class PolicyCfg(ObsGroup):
++        base_ang_vel = ObsTerm(func=isaac_mdp.base_ang_vel, noise=Unoise(n_min=-0.0, n_max=0.0))
++        projected_gravity = ObsTerm(func=isaac_mdp.projected_gravity, noise=Unoise(n_min=-0.0, n_max=0.0))
++        joint_pos = ObsTerm(
++            func=isaac_mdp.joint_pos_rel,
++            params={"asset_cfg": SceneEntityCfg("robot", joint_names=list(M1_JOINT_NAMES))},
++            noise=Unoise(n_min=-0.0, n_max=0.0),
++        )
++        joint_vel = ObsTerm(
++            func=isaac_mdp.joint_vel_rel,
++            params={"asset_cfg": SceneEntityCfg("robot", joint_names=list(M1_JOINT_NAMES))},
++            noise=Unoise(n_min=-0.0, n_max=0.0),
++        )
++        actions = ObsTerm(func=isaac_mdp.last_action)
++
++        def __post_init__(self):
++            self.enable_corruption = False
++            self.concatenate_terms = True
++
++    policy: PolicyCfg = PolicyCfg()
++
++
++@configclass
++class M1PandaSmokeEnvCfg(M1SmokeEnvCfg):
++    """No-planner smoke cfg for the combined 25-DOF articulation."""
++
++    scene: M1PandaSmokeSceneCfg = M1PandaSmokeSceneCfg(num_envs=1, env_spacing=2.5, replicate_physics=True)
++    observations: M1PandaSmokeObservationsCfg = M1PandaSmokeObservationsCfg()
++    actions: M1PandaSmokeActionsCfg = M1PandaSmokeActionsCfg()
+--- .superpowers/sdd/task-4-before/Go2Pvcnn/go2_pvcnn/tasks/register_m1_envs.py	2026-08-14 14:35:49.119075587 +0800
++++ Go2Pvcnn/go2_pvcnn/tasks/register_m1_envs.py	2026-08-14 14:38:55.227303483 +0800
+@@ -3,6 +3,7 @@
+ import gymnasium as gym
+ 
+ from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg
++from go2_pvcnn.tasks.m1_panda_smoke_env_cfg import M1PandaSmokeEnvCfg
+ from go2_pvcnn.tasks.m1_roll_env_cfg import M1RollEnvCfg
+ from go2_pvcnn.tasks.m1_walk_env_cfg import M1WalkEnvCfg
+ from go2_pvcnn.tasks.m1_wave_env_cfg import M1WaveFlatEnvCfg
+@@ -148,6 +149,13 @@
+ )
+ 
+ gym.register(
++    id="Isaac-M1-Panda-Smoke-v0",
++    entry_point="isaaclab.envs:ManagerBasedRLEnv",
++    disable_env_checker=True,
++    kwargs={"env_cfg_entry_point": M1PandaSmokeEnvCfg, "rsl_rl_cfg_entry_point": None},
++)
++
++gym.register(
+     id="Isaac-M1-Small-Obstacle-5mm-v0",
+     entry_point="isaaclab.envs:ManagerBasedRLEnv",
+     disable_env_checker=True,
+@@ -216,6 +224,7 @@
+ print("[go2_pvcnn]   - Isaac-M1-Pvcnn-Flat-Small-Avoidance-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Pvcnn-Flat-Small-Avoidance-Play-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Smoke-v0")
++print("[go2_pvcnn]   - Isaac-M1-Panda-Smoke-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Walk-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Roll-v0")
+ print("[go2_pvcnn]   - Isaac-M1-Wave-Flat-v0")
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/tests/test_m1_panda_smoke_cfg_static.py	2026-08-14 14:38:04.489060380 +0800
+@@ -0,0 +1,101 @@
++from pathlib import Path
++import copy
++import importlib
++import sys
++import types
++
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++class _Cfg:
++    def __init__(self, **kwargs):
++        self.__dict__.update(kwargs)
++
++    def copy(self):
++        return copy.deepcopy(self)
++
++    def replace(self, **kwargs):
++        result = self.copy()
++        result.__dict__.update(kwargs)
++        return result
++
++
++def _install_isaaclab_asset_stubs(monkeypatch):
++    isaaclab = types.ModuleType("isaaclab")
++    sim = types.ModuleType("isaaclab.sim")
++    sim.UsdFileCfg = _Cfg
++    sim.RigidBodyPropertiesCfg = _Cfg
++    sim.ArticulationRootPropertiesCfg = _Cfg
++
++    actuators = types.ModuleType("isaaclab.actuators")
++    actuators.DCMotorCfg = _Cfg
++    actuators.ImplicitActuatorCfg = _Cfg
++
++    assets_pkg = types.ModuleType("isaaclab.assets")
++    articulation = types.ModuleType("isaaclab.assets.articulation")
++
++    class _ArticulationCfg(_Cfg):
++        InitialStateCfg = _Cfg
++
++    articulation.ArticulationCfg = _ArticulationCfg
++
++    utils_pkg = types.ModuleType("isaaclab.utils")
++    utils_assets = types.ModuleType("isaaclab.utils.assets")
++    utils_assets.ISAACLAB_NUCLEUS_DIR = "/Isaac/Nucleus"
++
++    for name, module in {
++        "isaaclab": isaaclab,
++        "isaaclab.sim": sim,
++        "isaaclab.actuators": actuators,
++        "isaaclab.assets": assets_pkg,
++        "isaaclab.assets.articulation": articulation,
++        "isaaclab.utils": utils_pkg,
++        "isaaclab.utils.assets": utils_assets,
++    }.items():
++        monkeypatch.setitem(sys.modules, name, module)
++
++
++def test_combined_cfg_and_smoke_task_keep_m1_action_contract():
++    asset = (ROOT / "go2_pvcnn/assets/m1_panda.py").read_text()
++    env = (ROOT / "go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py").read_text()
++    registry = (ROOT / "go2_pvcnn/tasks/register_m1_envs.py").read_text()
++
++    assert 'M1_PANDA_MOUNT_BODY_NAME = "panda_link0"' in asset
++    assert 'M1_PANDA_BASE_BODY_NAME = "BASE_LINK"' in asset
++    assert "M1_PANDA_DOF_COUNT = 25" in asset
++    assert "usd_path=M1_PANDA_USD_PATH" in asset
++    assert "joint_names=list(M1_LEG_JOINT_NAMES)" in env
++    assert "joint_names=list(M1_WHEEL_JOINT_NAMES)" in env
++    assert 'id="Isaac-M1-Panda-Smoke-v0"' in registry
++
++
++def test_smoke_observations_only_select_m1_joints_and_do_not_use_wrench():
++    env = (ROOT / "go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py").read_text()
++
++    assert env.count("joint_names=list(M1_JOINT_NAMES)") >= 2
++    assert "joint_pos_rel" in env
++    assert "joint_vel_rel" in env
++    assert "wrench" not in env.lower()
++
++
++def test_combined_cfg_copy_does_not_mutate_original_m1_cfg(monkeypatch):
++    _install_isaaclab_asset_stubs(monkeypatch)
++    monkeypatch.delitem(sys.modules, "go2_pvcnn.assets.m1_panda", raising=False)
++    monkeypatch.delitem(sys.modules, "go2_pvcnn.assets", raising=False)
++
++    assets = importlib.import_module("go2_pvcnn.assets")
++    original_usd_path = assets.M1_CFG.spawn.usd_path
++    original_joint_pos = dict(assets.M1_CFG.init_state.joint_pos)
++    original_actuator_names = set(assets.M1_CFG.actuators)
++    combined = importlib.import_module("go2_pvcnn.assets.m1_panda")
++
++    assert combined.M1_PANDA_CFG.spawn.usd_path == combined.M1_PANDA_USD_PATH
++    assert Path(combined.M1_PANDA_USD_PATH).is_file()
++    assert assets.M1_CFG.spawn.usd_path == original_usd_path
++    assert assets.M1_CFG.init_state.joint_pos == original_joint_pos
++    assert set(assets.M1_CFG.actuators) == original_actuator_names
++    assert combined.M1_PANDA_CFG.spawn is not assets.M1_CFG.spawn
++    assert combined.M1_PANDA_CFG.init_state is not assets.M1_CFG.init_state
++    assert combined.M1_PANDA_CFG.actuators is not assets.M1_CFG.actuators
++    assert len(combined.M1_PANDA_CFG.actuators) == len(original_actuator_names) + 3
+--- .superpowers/sdd/task-4-before/notes/todo/T400-m1-panda-force-aware-teacher-student.md	2026-08-14 14:35:49.120075572 +0800
++++ notes/todo/T400-m1-panda-force-aware-teacher-student.md	2026-08-14 14:43:59.372196701 +0800
+@@ -4,7 +4,7 @@
+ 
+ 用户已确认完整设计：Panda 作为本地离线 USD 与 M1 组成统一 articulation；实机在 Panda 与 M1 安装界面使用六轴力/力矩传感器；Teacher 使用仿真理想安装点总六维反力，Student 使用带噪六轴测量、本体感知和时序估计器，输出对 M1 基础运动策略的受限平衡残差。首个任务是 M1 驻停时完成 0–3 kg 抓取和短距离搬运。
+ 
+-设计文档已完成、自审并由用户批准。Asset/wrench foundation Task 1 的项目自有离线资产输入已完成；Task 2 已将本地 Panda URDF 转换为 USD，并通过 RobotAssembler 生成组合资产。Task 2→3 阻断已修复：生成器会删除 RobotAssembler `_refresh_asset` 的三个错误 list edits、移除 Panda attach root APIs、保留 disabled `root_joint` 与 articulation 内 fixed mount，并将两条项目 reference 相对化。独立审查 Fix Round 1 已补齐 exact root 与完整 mount body0/body1/enabled/exclusion 门，并增加真实 list-op/dependency/root/mount 行为测试。Task 3 轻量测试 `16 passed`、PXR behavior exit `0`；正式资产和完整资产树搬移副本的 CPU verifier 均退出 `0`，得到 exact M1 root、25 DOF、required bodies 唯一、初始化/reset/write/step/update 完成。
++设计文档已完成、自审并由用户批准。Asset/wrench foundation Task 1 的项目自有离线资产输入已完成；Task 2 已将本地 Panda URDF 转换为 USD，并通过 RobotAssembler 生成组合资产。Task 2→3 阻断已修复：生成器会删除 RobotAssembler `_refresh_asset` 的三个错误 list edits、移除 Panda attach root APIs、保留 disabled `root_joint` 与 articulation 内 fixed mount，并将两条项目 reference 相对化。独立审查 Fix Round 1 已补齐 exact root 与完整 mount body0/body1/enabled/exclusion 门，并增加真实 list-op/dependency/root/mount 行为测试。Task 3 轻量测试 `16 passed`、PXR behavior exit `0`；正式资产和完整资产树搬移副本的 CPU verifier 均退出 `0`，得到 exact M1 root、25 DOF、required bodies 唯一、初始化/reset/write/step/update 完成。Task 4 已增加不污染 `M1_CFG` 的 `M1_PANDA_CFG`、只含 12 腿位置加 4 轮速动作及 16 个显式 M1 joint observations 的隔离 smoke cfg，并注册 `Isaac-M1-Panda-Smoke-v0`；计划静态 suite `22 passed`，loco/AppLauncher 隔离导入确认 25 DOF、动作 `(12, 4)`、观测 joint `16`。
+ 
+ ## Open Children
+ 
+@@ -19,6 +19,7 @@
+ - [x] T400.2b.1 完成 Task 1：项目自有离线 M1/Panda 资产输入。
+ - [x] T400.2b.2 完成 Task 2：本地 Panda 转换与 M1 + Panda 单 articulation USD 装配。
+ - [x] T400.2b.2r 修复 Task 2→3 持久化 arcs/双 root 阻断，并在 CPU 完成 Task 3 验收；15 个 `OmniPBR.mdl` 明确分类为 Isaac Sim built-in resolver boundary。
++- [x] T400.2b.4 完成 Task 4：combined asset cfg、isolated M1-only smoke cfg、Gym 注册与静态/导入验证。
+ 
+ ## Related Logs
+ 
+@@ -28,6 +29,7 @@
+ - [Task 2 single articulation build](../log/2026-08-14-m1-panda-single-articulation-build.md)
+ - [Task 3 offline/topology verification](../log/2026-08-14-m1-panda-offline-topology-verification.md)
+ - [Task 2→3 asset repair](../log/2026-08-14-m1-panda-task23-asset-repair.md)
++- [Task 4 combined cfg and isolated smoke](../log/2026-08-14-m1-panda-combined-smoke-cfg.md)
+ 
+ ## Git Refs
+ 
+@@ -37,10 +39,12 @@
+ - Key Files:
+   - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
+   - [第一阶段实施计划](../../docs/superpowers/plans/2026-08-14-m1-panda-asset-wrench-foundation.md)
++  - [Task 4 combined asset cfg](../../Go2Pvcnn/go2_pvcnn/assets/m1_panda.py)
++  - [Task 4 isolated smoke cfg](../../Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py)
+ 
+ ## Next Step
+ 
+-进入 Task 4 前仍需由主计划确认。当前资产验收为 Isaac-Sim-offline：15 个 bare `OmniPBR.mdl` 依赖由兼容 Isaac Sim 的内置 MDL resolver 提供，并不等价于脱离 Isaac Sim 材质库的严格项目自包含。另保留 PhysX 对 disabled Panda `root_joint` 的 disjointed-transform warning；一步内 mount 相对位移 `4.7527e-05 m`，低于 `1e-4 m` 门限，未观察到 snap。
++Task 4 已完成；Task 5 仍未触碰。当前资产验收为 Isaac-Sim-offline：15 个 bare `OmniPBR.mdl` 依赖由兼容 Isaac Sim 的内置 MDL resolver 提供，并不等价于脱离 Isaac Sim 材质库的严格项目自包含。另保留 PhysX 对 disabled Panda `root_joint` 的 disjointed-transform warning；一步内 mount 相对位移 `4.7527e-05 m`，低于 `1e-4 m` 门限，未观察到 snap。默认 `go2_pvcnn.tasks` 全链真实导入仍受既有 `MultiMeshRayCasterCfg` API 兼容问题阻断，但预加载隔离 tasks namespace 后 Task 4 cfg 在 loco/AppLauncher 中成功实例化。
+ 
+ ## Node Details
+ 
+--- .superpowers/sdd/task-4-before/notes/todo.md	2026-08-14 14:35:49.121075558 +0800
++++ notes/todo.md	2026-08-14 14:43:40.438757198 +0800
+@@ -121,7 +121,7 @@
+ 
+ | Front | State | Why It Matters Now | Next Step |
+ | --- | --- | --- | --- |
+-| T400 | active | Task 2→3 资产阻断与审查 Round 1 已修复；轻量 `16 passed`、PXR behavior exit `0`，正式/搬移资产 CPU verifier 均退出 `0`，exact M1 root、完整 mount contract、25 DOF、初始化/reset/write/step/update 通过。 | Task 4 前确认；机械验算仍是实机前置门，built-in `OmniPBR.mdl` 与 disabled root-joint warning 作为边界/concern 保留。 |
++| T400 | active | Task 4 combined cfg/isolated smoke 已完成：计划静态 `22 passed`，loco/AppLauncher 隔离导入确认 25 DOF、原 M1 cfg 未变、动作 `(12,4)`、joint observation `16`。 | Task 5 尚未触碰；机械验算仍是实机前置门，默认 tasks 注册链的既有 IsaacLab API 兼容阻断作为 concern 保留。 |
+ | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
+ | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
+ | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
+@@ -136,7 +136,7 @@
+ 
+ | Root | Status | Stage | Branch | Current | Refs |
+ | --- | --- | --- | --- | --- | --- |
+-| T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | Task 2→3 repair passes CPU topology/runtime and relocatability; Task 4+ untouched. | [Repair log](log/2026-08-14-m1-panda-task23-asset-repair.md); design [2026-08-14](../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md); plan [2026-08-14](../docs/superpowers/plans/2026-08-14-m1-panda-asset-wrench-foundation.md) |
++| T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | Task 4 combined config and isolated smoke complete; 16 M1-only actions/observations guarded; Task 5+ untouched. | [Task 4 log](log/2026-08-14-m1-panda-combined-smoke-cfg.md); design [2026-08-14](../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md); plan [2026-08-14](../docs/superpowers/plans/2026-08-14-m1-panda-asset-wrench-foundation.md) |
+ | T302q | active | flat small-obstacle avoidance RL reward | [T302q](todo/T302q-flat-small-avoidance-reward-plan.md) | Local implementation complete; focused regression, pycompile, fresh IsaacLab train smoke, and old-checkpoint resume smoke pass; small-collision eval smoke remains open. | design [2026-06-10](../docs/superpowers/specs/2026-06-10-flat-small-obstacle-avoidance-reward-design.html); latest log [2026-06-10 20:35](log/2026-06-10-2035-t302q-flat-small-local-implementation-and-smoke.md) |
+ | T302r | active | Go2 geometry clearance reward | [T302r](todo/T302r-go2-geometry-clearance-reward-plan.md) | Local implementation, smoke, and radius/margin probe pass; signal-first params can produce nonzero reward, but TensorBoard sanity is still open. | design [2026-06-11](../docs/superpowers/specs/2026-06-11-go2-body-geometry-clearance-reward-design.html); latest log [2026-06-11 18:10](log/2026-06-11-1810-t302r-clearance-radius-margin-probe.md) |
+ | T302p | active | MPC command-frame alignment | [T302p](todo/T302p-mpc-command-frame-alignment-plan.md) | Implementation local; command-source equality verified; low-small hard gates pass; flat-left root direction fixed (`root lateral 0.0200`), but strict per-leg whole-cache endpoint metric remains open. | design [2026-06-06](../docs/superpowers/specs/2026-06-06-mpc-command-frame-alignment-design.html); latest log [2026-06-07 12:11](log/2026-06-07-1211-t302p-direction-loss-wiring-and-metric-boundary.md) |
+@@ -206,6 +206,7 @@
+ 
+ | Time | Topic | Result | Todo | File |
+ | --- | --- | --- | --- | --- |
++| 2026-08-14 | M1 + Panda combined cfg and isolated smoke | done with concerns: RED `3 failed`; focused `3 passed`; planned static `22 passed`; pycompile and isolated loco/AppLauncher import exit `0`; full M1 static baseline retains one unrelated wave-wrapper failure | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-combined-smoke-cfg.md](log/2026-08-14-m1-panda-combined-smoke-cfg.md) |
+ | 2026-08-14 | M1 + Panda Task 2→3 asset repair | done with concerns after review Round 1: lightweight `16 passed`; PXR behavior exit `0`; formal and relocated CPU verifier exit `0`; exact M1 root, full mount contract, 25 DOF, runtime initialized, step `1` | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-task23-asset-repair.md](log/2026-08-14-m1-panda-task23-asset-repair.md) |
+ | 2026-08-14 | M1 + Panda offline/topology verification | historical blocked baseline: verifier static `9 passed`, real CPU/GPU exit `1`; superseded by Task 2→3 repair | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-offline-topology-verification.md](log/2026-08-14-m1-panda-offline-topology-verification.md) |
+ | 2026-08-14 | M1 + Panda offline asset inputs | pass: Task 1 copied project-owned M1/Panda sources, added relative overlay/manifest, focused `2 passed`, and all 35 checksum entries verified; no simulation | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-offline-asset-inputs.md](log/2026-08-14-m1-panda-offline-asset-inputs.md) |
+--- .superpowers/sdd/task-4-before/notes/log/index.md	2026-08-14 14:35:49.122075543 +0800
++++ notes/log/index.md	2026-08-14 14:43:40.439757222 +0800
+@@ -6,6 +6,7 @@
+ 
+ | Time | Topic | Stage | Result | Key Metrics | Todo | File |
+ | --- | --- | --- | --- | --- | --- | --- |
++| 2026-08-14 | M1 + Panda combined cfg and isolated smoke | foundation Task 4 / asset and environment config | done with concerns; Task 4 contract complete | RED `3 failed`; focused `3 passed`; planned static `22 passed`; pycompile exit `0`; isolated loco/AppLauncher import: DOF `25`, actions `(12,4)`, obs joints `16`, original cfg unchanged; full M1 static `49 passed, 1` unrelated failure; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-combined-smoke-cfg.md](2026-08-14-m1-panda-combined-smoke-cfg.md) |
+ | 2026-08-14 | M1 + Panda Task 2→3 asset repair | foundation Task 2/3 / serialization and CPU topology | done with concerns after review Round 1 | A/B confirmed; lightweight behavior `16 passed`; PXR list-op/reopen behavior exit `0`; exact root and full mount contract enforced by builder/verifier; formal/relocated CPU exit `0`; checksum `2/2`; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-task23-asset-repair.md](2026-08-14-m1-panda-task23-asset-repair.md) |
+ | 2026-08-14 | M1 + Panda offline/topology verification | foundation Task 3 / dependency closure / articulation runtime | blocked by generated asset | static `9 passed`; real GPU/CPU exit `1`; 8 resolved dependencies inside root, remote empty, 18 unresolved, two articulation roots, FixedJoint valid, physics step not reached; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-offline-topology-verification.md](2026-08-14-m1-panda-offline-topology-verification.md) |
+ | 2026-08-14 | M1 + Panda single articulation build | foundation Task 2 / URDF conversion / RobotAssembler | pass with runtime concerns; generated assets and build contract complete | RED `1 failed` + compatibility RED `1 failed`; GREEN `4 passed`; direct build exit `0`; 2/2 checksums pass; independent reopen/physics step unverified; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-single-articulation-build.md](2026-08-14-m1-panda-single-articulation-build.md) |
+@@ -319,6 +320,7 @@
+ ## Topic Log Index
+ 
+ - T400 M1 + Panda force-aware Teacher–Student:
++  - [2026-08-14-m1-panda-combined-smoke-cfg.md](2026-08-14-m1-panda-combined-smoke-cfg.md)
+   - [2026-08-14-m1-panda-offline-topology-verification.md](2026-08-14-m1-panda-offline-topology-verification.md)
+   - [2026-08-14-m1-panda-offline-asset-inputs.md](2026-08-14-m1-panda-offline-asset-inputs.md)
+   - [2026-08-14-m1-panda-asset-wrench-foundation-plan.md](2026-08-14-m1-panda-asset-wrench-foundation-plan.md)
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ notes/log/2026-08-14-m1-panda-combined-smoke-cfg.md	2026-08-14 14:43:40.439757222 +0800
+@@ -0,0 +1,67 @@
++# M1 + Panda Combined Config And Isolated Smoke
++
++## Purpose And Scope
++
++完成 T400 foundation Task 4：组合 articulation 配置、只控制 M1 的隔离 smoke 环境和 Gym 注册。未加入 Task 5 mount wrench、IK、OSC 或训练逻辑。
++
++## Stage And Todo
++
++- Stage: T400 / asset-wrench foundation / Task 4
++- Related todo: [T400](../todo/T400-m1-panda-force-aware-teacher-student.md)
++- Baseline Ref: unavailable
++- Candidate Ref: filesystem working copy
++- Git Ref: unavailable
++
++## Input Conditions And Contracts
++
++- 组合 USD：`Go2Pvcnn/assets/m1_panda/m1_panda.usd`
++- DOF：25
++- policy action：12 个 `M1_LEG_JOINT_NAMES` position + 4 个 `M1_WHEEL_JOINT_NAMES` velocity
++- joint observations：`joint_pos_rel` 和 `joint_vel_rel` 均显式限定 `M1_JOINT_NAMES`；`last_action` 来自仅含上述 16 维的 Action Manager
++- Panda：三个 implicit actuator 仅保持合法 Franka home pose，不暴露 Panda action
++
++## TDD RED / GREEN
++
++RED command：
++
++```bash
++PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_panda_smoke_cfg_static.py
++```
++
++结果：`3 failed in 0.05s`，exit `1`；失败均为两个 Task 4 模块缺失。
++
++GREEN 同命令：`3 passed in 0.01s`，exit `0`。行为测试确认 `M1_PANDA_CFG` 的 spawn/init_state/actuators 与原 `M1_CFG` 不共享，导入后原 USD path、joint defaults 和 actuator keys 均未变化。
++
++## Planned Static Verification
++
++```bash
++PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
++  tests/test_m1_panda_asset_static.py \
++  tests/test_m1_panda_smoke_cfg_static.py \
++  tests/test_m1_smoke_cfg_static.py
++```
++
++结果：`22 passed in 0.03s`，exit `0`。旧 M1 smoke contract 保持绿色。
++
++四个 Task 4 Python/test 文件的 `py_compile` exit `0`。
++
++## Real Import Evidence
++
++使用 `OMNI_KIT_ACCEPT_EULA=Y`、loco Python、headless `AppLauncher` 和 60 秒 timeout，预加载隔离 `go2_pvcnn.tasks` namespace 后导入并实例化 `M1PandaSmokeEnvCfg`，exit `0`：
++
++```text
++{'dof': 25, 'usd_matches': True, 'original_unchanged': True,
++ 'actions': (12, 4), 'obs_joints': 16}
++```
++
++这证明 Task 4 模块在兼容 IsaacLab 环境中真实可导入，但未创建物理环境或执行仿真 step。
++
++## Baseline And Concerns
++
++全部 `tests/test_m1*_static.py` 结果为 `49 passed, 1 failed in 0.06s`。失败是既有 `test_m1_wave_cfg_static.py::test_wrapper_keeps_wave_wheels_equal_and_negative`，它要求 wrapper 中存在旧文本 `prepared[:, 12:16] = wheel_action.expand(-1, 4)`；Task 4 未修改 wrapper 或 wave cfg，因此不越界修复。
++
++默认 `go2_pvcnn.tasks` 全链真实导入在既有 `m1_small_obstacle_env_cfg.py` 处因当前 loco IsaacLab 不导出 `MultiMeshRayCasterCfg` 而失败。隔离 Task 4 import 成功，Gym 注册由静态测试覆盖；未声称默认全注册链或 `gym.make` 已通过。
++
++## Result
++
++DONE_WITH_CONCERNS。Task 4 的配置、16 维 M1 action/observation 隔离、注册文本、原 cfg 不污染与真实 isolated import 均有证据；物理 env step、默认全注册链和既有 wave baseline 失败未验证/未修复。Task 5+ 未触碰。

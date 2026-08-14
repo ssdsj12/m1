@@ -1,0 +1,45 @@
+.TH "CUfileFSOps" 3 "Wed Feb 12 2025" "GPUDirect Storage" \" -*- nroff -*-
+.ad l
+.nh
+.SH NAME
+CUfileFSOps
+.SH SYNOPSIS
+.br
+.PP
+.PP
+\fC#include <cufile\&.h>\fP
+.SS "Data Fields"
+
+.in +1c
+.ti -1c
+.RI "const char *(* \fBfs_type\fP )(void *handle)"
+.br
+.ti -1c
+.RI "int(* \fBgetRDMADeviceList\fP )(void *handle, \fBsockaddr_t\fP **hostaddrs)"
+.br
+.ti -1c
+.RI "int(* \fBgetRDMADevicePriority\fP )(void *handle, char *, size_t, loff_t, \fBsockaddr_t\fP *hostaddr)"
+.br
+.ti -1c
+.RI "ssize_t(* \fBread\fP )(void *handle, char *, size_t, loff_t, \fBcufileRDMAInfo_t\fP *)"
+.br
+.ti -1c
+.RI "ssize_t(* \fBwrite\fP )(void *handle, const char *, size_t, loff_t, \fBcufileRDMAInfo_t\fP *)"
+.br
+.in -1c
+.SH "Field Documentation"
+.PP 
+.SS "const char*(* CUfileFSOps::fs_type) (void *handle)"
+
+.SS "int(* CUfileFSOps::getRDMADeviceList) (void *handle, \fBsockaddr_t\fP **hostaddrs)"
+
+.SS "int(* CUfileFSOps::getRDMADevicePriority) (void *handle, char *, size_t, loff_t, \fBsockaddr_t\fP *hostaddr)"
+
+.SS "ssize_t(* CUfileFSOps::read) (void *handle, char *, size_t, loff_t, \fBcufileRDMAInfo_t\fP *)"
+
+.SS "ssize_t(* CUfileFSOps::write) (void *handle, const char *, size_t, loff_t, \fBcufileRDMAInfo_t\fP *)"
+
+
+.SH "Author"
+.PP 
+Generated automatically by Doxygen for GPUDirect Storage from the source code\&.

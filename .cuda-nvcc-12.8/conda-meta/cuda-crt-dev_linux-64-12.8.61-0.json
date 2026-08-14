@@ -1,0 +1,235 @@
+{
+  "name": "cuda-crt-dev_linux-64",
+  "version": "12.8.61",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/noarch",
+  "subdir": "noarch",
+  "fn": "cuda-crt-dev_linux-64-12.8.61-0.conda",
+  "md5": "cd21ac89d9a7ddee7994bd77b39a8d40",
+  "url": "https://conda.anaconda.org/nvidia/noarch/cuda-crt-dev_linux-64-12.8.61-0.conda",
+  "sha256": "35a997dab3c150f6cd8809c0c6f829e336a0a78bd845cb933c383d665541824d",
+  "depends": [
+    "cuda-version >=12.8,<12.9.0a0"
+  ],
+  "constrains": [],
+  "noarch": "generic",
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "package_type": "noarch_generic",
+  "timestamp": 1737006812717,
+  "size": 84381,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-crt-dev_linux-64-12.8.61-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-crt-dev_linux-64-12.8.61-0",
+  "files": [
+    "targets/x86_64-linux/include/crt/common_functions.h",
+    "targets/x86_64-linux/include/crt/cudacc_ext.h",
+    "targets/x86_64-linux/include/crt/device_double_functions.h",
+    "targets/x86_64-linux/include/crt/device_double_functions.hpp",
+    "targets/x86_64-linux/include/crt/device_fp128_functions.h",
+    "targets/x86_64-linux/include/crt/device_functions.h",
+    "targets/x86_64-linux/include/crt/device_functions.hpp",
+    "targets/x86_64-linux/include/crt/func_macro.h",
+    "targets/x86_64-linux/include/crt/host_config.h",
+    "targets/x86_64-linux/include/crt/host_defines.h",
+    "targets/x86_64-linux/include/crt/host_runtime.h",
+    "targets/x86_64-linux/include/crt/math_functions.h",
+    "targets/x86_64-linux/include/crt/math_functions.hpp",
+    "targets/x86_64-linux/include/crt/mma.h",
+    "targets/x86_64-linux/include/crt/mma.hpp",
+    "targets/x86_64-linux/include/crt/nvfunctional",
+    "targets/x86_64-linux/include/crt/sm_100_rt.h",
+    "targets/x86_64-linux/include/crt/sm_100_rt.hpp",
+    "targets/x86_64-linux/include/crt/sm_70_rt.h",
+    "targets/x86_64-linux/include/crt/sm_70_rt.hpp",
+    "targets/x86_64-linux/include/crt/sm_80_rt.h",
+    "targets/x86_64-linux/include/crt/sm_80_rt.hpp",
+    "targets/x86_64-linux/include/crt/sm_90_rt.h",
+    "targets/x86_64-linux/include/crt/sm_90_rt.hpp",
+    "targets/x86_64-linux/include/crt/storage_class.h"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "targets/x86_64-linux/include/crt/common_functions.h",
+        "path_type": "hardlink",
+        "sha256": "f94e387f8c941a6c033f077b43fdc2cf989fd39c4718f4a5033cf9cccca52d24",
+        "size_in_bytes": 13559,
+        "sha256_in_prefix": "f94e387f8c941a6c033f077b43fdc2cf989fd39c4718f4a5033cf9cccca52d24"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/cudacc_ext.h",
+        "path_type": "hardlink",
+        "sha256": "296ea7d0898e64a4b456a5660475935ed1c8f35ea187cf187848148366987555",
+        "size_in_bytes": 3224,
+        "sha256_in_prefix": "296ea7d0898e64a4b456a5660475935ed1c8f35ea187cf187848148366987555"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/device_double_functions.h",
+        "path_type": "hardlink",
+        "sha256": "035bc1de0d2ac273447dca53d5df518860dac6a3d75e062bf95c5eda8307cb16",
+        "size_in_bytes": 39938,
+        "sha256_in_prefix": "035bc1de0d2ac273447dca53d5df518860dac6a3d75e062bf95c5eda8307cb16"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/device_double_functions.hpp",
+        "path_type": "hardlink",
+        "sha256": "61821ba9885be5099ff1ce187dc0bf8f2b60e054707173e3bf74c54f085bdb81",
+        "size_in_bytes": 8568,
+        "sha256_in_prefix": "61821ba9885be5099ff1ce187dc0bf8f2b60e054707173e3bf74c54f085bdb81"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/device_fp128_functions.h",
+        "path_type": "hardlink",
+        "sha256": "de208aadd98fa753488eb946478edd0993a057d5fa32675f9a3ba0ac5e8312db",
+        "size_in_bytes": 51047,
+        "sha256_in_prefix": "de208aadd98fa753488eb946478edd0993a057d5fa32675f9a3ba0ac5e8312db"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/device_functions.h",
+        "path_type": "hardlink",
+        "sha256": "4f820db9104894b99ddc9100f07e81e571d500d195ea3f20c325138f987f175f",
+        "size_in_bytes": 137919,
+        "sha256_in_prefix": "4f820db9104894b99ddc9100f07e81e571d500d195ea3f20c325138f987f175f"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/device_functions.hpp",
+        "path_type": "hardlink",
+        "sha256": "3951e2a818dd6b2fda5059c3289c53788d150d923c640e8921d50a780291e290",
+        "size_in_bytes": 37991,
+        "sha256_in_prefix": "3951e2a818dd6b2fda5059c3289c53788d150d923c640e8921d50a780291e290"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/func_macro.h",
+        "path_type": "hardlink",
+        "sha256": "10ea4395a33dd7b6e1f5cc0188504f17af3d0c2301c398456abc4bc45b7e8bbe",
+        "size_in_bytes": 1755,
+        "sha256_in_prefix": "10ea4395a33dd7b6e1f5cc0188504f17af3d0c2301c398456abc4bc45b7e8bbe"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/host_config.h",
+        "path_type": "hardlink",
+        "sha256": "d5e922df0e71b98d3480891d61b9927d93b64a823c8226566124d120bdae16cd",
+        "size_in_bytes": 12169,
+        "sha256_in_prefix": "d5e922df0e71b98d3480891d61b9927d93b64a823c8226566124d120bdae16cd"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/host_defines.h",
+        "path_type": "hardlink",
+        "sha256": "7c353fd1c41db48bc474cd33645298d0e6e83003443201cb6e589f3da94f18b9",
+        "size_in_bytes": 10102,
+        "sha256_in_prefix": "7c353fd1c41db48bc474cd33645298d0e6e83003443201cb6e589f3da94f18b9"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/host_runtime.h",
+        "path_type": "hardlink",
+        "sha256": "94ea66931159564129f1d70c0061194484ec87ed7da3d8f2dfd91d48d2dcdcd8",
+        "size_in_bytes": 10284,
+        "sha256_in_prefix": "94ea66931159564129f1d70c0061194484ec87ed7da3d8f2dfd91d48d2dcdcd8"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/math_functions.h",
+        "path_type": "hardlink",
+        "sha256": "2f2189d1752d862e96122f985484c89e16bd03a485a01e1f114514f738a2ed4f",
+        "size_in_bytes": 238284,
+        "sha256_in_prefix": "2f2189d1752d862e96122f985484c89e16bd03a485a01e1f114514f738a2ed4f"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/math_functions.hpp",
+        "path_type": "hardlink",
+        "sha256": "bbe0866ddd11d8565674a1bee9b766192a2bf4a4ffc279884a3eb794f40a0123",
+        "size_in_bytes": 100207,
+        "sha256_in_prefix": "bbe0866ddd11d8565674a1bee9b766192a2bf4a4ffc279884a3eb794f40a0123"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/mma.h",
+        "path_type": "hardlink",
+        "sha256": "068a1600b0d6013bd9ba925a2fbf8615045060ea2d35efc5cb5d48e4d1a1d850",
+        "size_in_bytes": 62695,
+        "sha256_in_prefix": "068a1600b0d6013bd9ba925a2fbf8615045060ea2d35efc5cb5d48e4d1a1d850"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/mma.hpp",
+        "path_type": "hardlink",
+        "sha256": "b29a342d7ef5b540a2a712b9d7b06cb23d2773e6477fca0c5b3bc7a18601ffa2",
+        "size_in_bytes": 66599,
+        "sha256_in_prefix": "b29a342d7ef5b540a2a712b9d7b06cb23d2773e6477fca0c5b3bc7a18601ffa2"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/nvfunctional",
+        "path_type": "hardlink",
+        "sha256": "143334cea58ee9b97d8e924acfd53c08c6e3b7a8932a1d7cb506a5c40bd1b1a8",
+        "size_in_bytes": 16900,
+        "sha256_in_prefix": "143334cea58ee9b97d8e924acfd53c08c6e3b7a8932a1d7cb506a5c40bd1b1a8"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/sm_100_rt.h",
+        "path_type": "hardlink",
+        "sha256": "ddc062094d7539c8c6629afce5e742375ab89b6cfdd45686841b6e3b48ace13a",
+        "size_in_bytes": 8987,
+        "sha256_in_prefix": "ddc062094d7539c8c6629afce5e742375ab89b6cfdd45686841b6e3b48ace13a"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/sm_100_rt.hpp",
+        "path_type": "hardlink",
+        "sha256": "bdb23608d098d3c74323bcd7c29e8135c7992a5d1c7971b596f7aae30f9535aa",
+        "size_in_bytes": 6855,
+        "sha256_in_prefix": "bdb23608d098d3c74323bcd7c29e8135c7992a5d1c7971b596f7aae30f9535aa"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/sm_70_rt.h",
+        "path_type": "hardlink",
+        "sha256": "29ff37d31ca603ece617b2ecba71472d23728614f952224ca1c8281c141e367b",
+        "size_in_bytes": 6837,
+        "sha256_in_prefix": "29ff37d31ca603ece617b2ecba71472d23728614f952224ca1c8281c141e367b"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/sm_70_rt.hpp",
+        "path_type": "hardlink",
+        "sha256": "ddafeb53e63431207886d043158e0f090fe35e25854deed64f567284cb8224e0",
+        "size_in_bytes": 7837,
+        "sha256_in_prefix": "ddafeb53e63431207886d043158e0f090fe35e25854deed64f567284cb8224e0"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/sm_80_rt.h",
+        "path_type": "hardlink",
+        "sha256": "31d2475824732ccfff9c30dfd60a3ad6b0ec97dc9d396de88ba49905f8d4c9cf",
+        "size_in_bytes": 7743,
+        "sha256_in_prefix": "31d2475824732ccfff9c30dfd60a3ad6b0ec97dc9d396de88ba49905f8d4c9cf"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/sm_80_rt.hpp",
+        "path_type": "hardlink",
+        "sha256": "a3eac9bbe8e97a109ec8004682ffbc758441ee82530b0b8d76f482ab455445d1",
+        "size_in_bytes": 6705,
+        "sha256_in_prefix": "a3eac9bbe8e97a109ec8004682ffbc758441ee82530b0b8d76f482ab455445d1"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/sm_90_rt.h",
+        "path_type": "hardlink",
+        "sha256": "6a7e3b9b45c505a277a545fd325138fa792d3f58dbdde2545e14379ed66dcdcf",
+        "size_in_bytes": 11445,
+        "sha256_in_prefix": "6a7e3b9b45c505a277a545fd325138fa792d3f58dbdde2545e14379ed66dcdcf"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/sm_90_rt.hpp",
+        "path_type": "hardlink",
+        "sha256": "62ea95ca0195eab82d5adc7527d70fa4423705729004823e133ea86453f7c2b1",
+        "size_in_bytes": 9228,
+        "sha256_in_prefix": "62ea95ca0195eab82d5adc7527d70fa4423705729004823e133ea86453f7c2b1"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/crt/storage_class.h",
+        "path_type": "hardlink",
+        "sha256": "77370e675ea92da37c7a3a87697c388876c127a7d75b17da53eb23d908d8cf38",
+        "size_in_bytes": 4791,
+        "sha256_in_prefix": "77370e675ea92da37c7a3a87697c388876c127a7d75b17da53eb23d908d8cf38"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-crt-dev_linux-64-12.8.61-0",
+    "type": 1
+  }
+}

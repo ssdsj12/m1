@@ -1,0 +1,231 @@
+BASE: filesystem snapshot before Task 1 (expected files absent)
+HEAD: current filesystem after Task 1
+
+TEXT DIFFS
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ /home/xk/coding/M1/Go2Pvcnn/tests/test_m1_panda_asset_static.py	2026-08-14 13:19:50.603477865 +0800
+@@ -0,0 +1,23 @@
++import json
++from pathlib import Path
++
++
++ROOT = Path(__file__).resolve().parents[1]
++ASSET_ROOT = ROOT / "assets" / "m1_panda"
++
++
++def test_m1_panda_sources_are_project_owned_and_manifested():
++    manifest = json.loads((ASSET_ROOT / "source_manifest.json").read_text())
++    assert manifest["m1"]["entry"] == "m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_physics.usd"
++    assert manifest["panda"]["entry"] == "panda_source/franka_description/robots/panda_arm_hand.urdf"
++    assert (ASSET_ROOT / manifest["m1"]["entry"]).is_file()
++    assert (ASSET_ROOT / manifest["panda"]["entry"]).is_file()
++
++
++def test_m1_overlay_has_only_a_relative_local_sublayer():
++    text = (ASSET_ROOT / "m1_floating.usda").read_text()
++    assert "@./m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_physics.usd@" in text
++    assert "/home/" not in text
++    assert "omniverse://" not in text
++    assert "http://" not in text
++    assert "https://" not in text
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ /home/xk/coding/M1/Go2Pvcnn/assets/m1_panda/source_manifest.json	2026-08-14 13:20:32.533085648 +0800
+@@ -0,0 +1,10 @@
++{
++  "m1": {
++    "entry": "m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_physics.usd",
++    "source": "/home/xk/ros2_ws/src/zjs_m1_v3_description/urdf/ZJ_V3_URDF_V1_0"
++  },
++  "panda": {
++    "entry": "panda_source/franka_description/robots/panda_arm_hand.urdf",
++    "source": "/home/xk/.local/share/ov/data/exts/v2/isaacsim.asset.importer.urdf-2.3.14+106.5.0.lx64.r.cp310/data/urdf/robots/franka_description"
++  }
++}
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ /home/xk/coding/M1/Go2Pvcnn/assets/m1_panda/m1_floating.usda	2026-08-14 13:20:32.533085648 +0800
+@@ -0,0 +1,109 @@
++#usda 1.0
++(
++    defaultPrim = "ZJ_V3_URDF_V1_0"
++    subLayers = [
++        @./m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_physics.usd@
++    ]
++)
++
++over "ZJ_V3_URDF_V1_0"
++{
++    over "FAR_FOOT_LINK"
++    {
++        over "collisions" (active = false) {}
++        def Cylinder "wheel_collision" (
++            prepend apiSchemas = ["PhysicsCollisionAPI"]
++        )
++        {
++            uniform token axis = "Y"
++            double height = 0.0465
++            double radius = 0.0959
++        }
++    }
++
++    over "FBL_FOOT_LINK"
++    {
++        over "collisions" (active = false) {}
++        def Cylinder "wheel_collision" (
++            prepend apiSchemas = ["PhysicsCollisionAPI"]
++        )
++        {
++            uniform token axis = "Y"
++            double height = 0.0465
++            double radius = 0.0959
++        }
++    }
++
++    over "RAR_FOOT_LINK"
++    {
++        over "collisions" (active = false) {}
++        def Cylinder "wheel_collision" (
++            prepend apiSchemas = ["PhysicsCollisionAPI"]
++        )
++        {
++            uniform token axis = "Y"
++            double height = 0.0465
++            double radius = 0.0959
++        }
++    }
++
++    over "RBL_FOOT_LINK"
++    {
++        over "collisions" (active = false) {}
++        def Cylinder "wheel_collision" (
++            prepend apiSchemas = ["PhysicsCollisionAPI"]
++        )
++        {
++            uniform token axis = "Y"
++            double height = 0.0465
++            double radius = 0.0959
++        }
++    }
++
++    over "joints"
++    {
++        over "FAR_FOOT_JOINT"
++        {
++            float drive:angular:physics:maxForce = 500
++            float drive:angular:physics:stiffness = 0
++            float physics:lowerLimit = -1000000
++            float physics:upperLimit = 1000000
++        }
++
++        over "FBL_FOOT_JOINT"
++        {
++            float drive:angular:physics:maxForce = 500
++            float drive:angular:physics:stiffness = 0
++            float physics:lowerLimit = -1000000
++            float physics:upperLimit = 1000000
++        }
++
++        over "RAR_FOOT_JOINT"
++        {
++            float drive:angular:physics:maxForce = 500
++            float drive:angular:physics:stiffness = 0
++            float physics:lowerLimit = -1000000
++            float physics:upperLimit = 1000000
++        }
++
++        over "RBL_FOOT_JOINT"
++        {
++            float drive:angular:physics:maxForce = 500
++            float drive:angular:physics:stiffness = 0
++            float physics:lowerLimit = -1000000
++            float physics:upperLimit = 1000000
++        }
++    }
++
++    over "root_joint" (
++        active = false
++    )
++    {
++    }
++
++    over "BASE_LINK" (
++        prepend apiSchemas = ["PhysicsArticulationRootAPI", "PhysxArticulationAPI"]
++    )
++    {
++    }
++}
+
+ASSET INVENTORY
+m1/ZJ_V3_URDF_V1_0/ZJ_V3_URDF_V1_0.usd 1602 bytes
+m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_base.usd 120750501 bytes
+m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_physics.usd 7143 bytes
+m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_sensor.usd 655 bytes
+m1_floating.usda 2692 bytes
+panda_source/franka_description/meshes/collision/finger.stl 2884 bytes
+panda_source/franka_description/meshes/collision/hand.stl 10084 bytes
+panda_source/franka_description/meshes/collision/link0.stl 10084 bytes
+panda_source/franka_description/meshes/collision/link1.stl 15084 bytes
+panda_source/franka_description/meshes/collision/link2.stl 15084 bytes
+panda_source/franka_description/meshes/collision/link3.stl 15084 bytes
+panda_source/franka_description/meshes/collision/link4.stl 15084 bytes
+panda_source/franka_description/meshes/collision/link5.stl 15084 bytes
+panda_source/franka_description/meshes/collision/link6.stl 10084 bytes
+panda_source/franka_description/meshes/collision/link7.stl 10084 bytes
+panda_source/franka_description/meshes/visual/finger.dae 51123 bytes
+panda_source/franka_description/meshes/visual/hand.dae 548949 bytes
+panda_source/franka_description/meshes/visual/link0.dae 1590896 bytes
+panda_source/franka_description/meshes/visual/link1.dae 978415 bytes
+panda_source/franka_description/meshes/visual/link2.dae 998486 bytes
+panda_source/franka_description/meshes/visual/link3.dae 1099651 bytes
+panda_source/franka_description/meshes/visual/link4.dae 1145491 bytes
+panda_source/franka_description/meshes/visual/link5.dae 1438169 bytes
+panda_source/franka_description/meshes/visual/link6.dae 1727767 bytes
+panda_source/franka_description/meshes/visual/link7.dae 935952 bytes
+panda_source/franka_description/package.xml 660 bytes
+panda_source/franka_description/robots/create_urdf.sh 397 bytes
+panda_source/franka_description/robots/hand.urdf.xacro 180 bytes
+panda_source/franka_description/robots/hand.xacro 2952 bytes
+panda_source/franka_description/robots/panda_arm.urdf 7705 bytes
+panda_source/franka_description/robots/panda_arm.urdf.xacro 215 bytes
+panda_source/franka_description/robots/panda_arm.xacro 8283 bytes
+panda_source/franka_description/robots/panda_arm_hand.urdf 10235 bytes
+panda_source/franka_description/robots/panda_arm_hand.urdf.xacro 363 bytes
+source_manifest.json 415 bytes
+
+CHECKSUM VERIFICATION
+assets/m1_panda/m1/ZJ_V3_URDF_V1_0/ZJ_V3_URDF_V1_0.usd: 成功
+assets/m1_panda/m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_base.usd: 成功
+assets/m1_panda/m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_physics.usd: 成功
+assets/m1_panda/m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_sensor.usd: 成功
+assets/m1_panda/m1_floating.usda: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/finger.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/hand.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/link0.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/link1.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/link2.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/link3.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/link4.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/link5.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/link6.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/collision/link7.stl: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/finger.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/hand.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/link0.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/link1.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/link2.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/link3.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/link4.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/link5.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/link6.dae: 成功
+assets/m1_panda/panda_source/franka_description/meshes/visual/link7.dae: 成功
+assets/m1_panda/panda_source/franka_description/package.xml: 成功
+assets/m1_panda/panda_source/franka_description/robots/create_urdf.sh: 成功
+assets/m1_panda/panda_source/franka_description/robots/hand.urdf.xacro: 成功
+assets/m1_panda/panda_source/franka_description/robots/hand.xacro: 成功
+assets/m1_panda/panda_source/franka_description/robots/panda_arm.urdf: 成功
+assets/m1_panda/panda_source/franka_description/robots/panda_arm.urdf.xacro: 成功
+assets/m1_panda/panda_source/franka_description/robots/panda_arm.xacro: 成功
+assets/m1_panda/panda_source/franka_description/robots/panda_arm_hand.urdf: 成功
+assets/m1_panda/panda_source/franka_description/robots/panda_arm_hand.urdf.xacro: 成功
+assets/m1_panda/source_manifest.json: 成功
+
+SOURCE COPY IDENTITY

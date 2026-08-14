@@ -1,0 +1,79 @@
+{
+  "name": "libnvfatbin-dev",
+  "version": "12.8.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libnvfatbin-dev-12.8.90-0.conda",
+  "md5": "29333eacd4ad05ab9042c65c3f605188",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libnvfatbin-dev-12.8.90-0.conda",
+  "sha256": "ae159861fddfc2eb2e1a237cd47ed3a65b7f8a94bdf8e773d38b05b508f2f38e",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libnvfatbin 12.8.90 0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "liblibnvfatbin-static >=12.8.90"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739444985570,
+  "size": 21730,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libnvfatbin-dev-12.8.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libnvfatbin-dev-12.8.90-0",
+  "files": [
+    "lib/libnvfatbin.so",
+    "lib/pkgconfig/nvfatbin-12.8.pc",
+    "targets/x86_64-linux/include/nvFatbin.h",
+    "targets/x86_64-linux/lib/libnvfatbin.so",
+    "targets/x86_64-linux/lib/stubs/libnvfatbin.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libnvfatbin.so",
+        "path_type": "softlink",
+        "sha256": "6082649e76fd97fc09bf92b9483e46df09e154f859d8fb0d8dbfb5a546b90e7d",
+        "size_in_bytes": 2441617
+      },
+      {
+        "_path": "lib/pkgconfig/nvfatbin-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnvfatbin_1739444943081/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_plac",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "c81d46ad7c007441ee2e61e700685edcb6c95778875b531b9a7d0754583aa24d",
+        "size_in_bytes": 504,
+        "sha256_in_prefix": "d2e91c1fed23b9ac07fff3437fd1b0006b1a51d74da47ee2ae16a4742996da0f"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nvFatbin.h",
+        "path_type": "hardlink",
+        "sha256": "f632279f340e622de075e5f905914f87bd898d2a6aa704b504d2dc9be7db16c8",
+        "size_in_bytes": 13158,
+        "sha256_in_prefix": "f632279f340e622de075e5f905914f87bd898d2a6aa704b504d2dc9be7db16c8"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvfatbin.so",
+        "path_type": "softlink",
+        "sha256": "6082649e76fd97fc09bf92b9483e46df09e154f859d8fb0d8dbfb5a546b90e7d",
+        "size_in_bytes": 2441617
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnvfatbin.so",
+        "path_type": "hardlink",
+        "sha256": "acbeb0e0e7a61875f725b2f8601cee3d3ebd62bc7e83d7070854f262b01c2973",
+        "size_in_bytes": 8953,
+        "sha256_in_prefix": "acbeb0e0e7a61875f725b2f8601cee3d3ebd62bc7e83d7070854f262b01c2973"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libnvfatbin-dev-12.8.90-0",
+    "type": 1
+  }
+}

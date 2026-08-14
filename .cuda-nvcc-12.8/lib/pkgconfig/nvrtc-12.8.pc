@@ -1,0 +1,9 @@
+cudaroot=/home/xk/coding/M1/.cuda-nvcc-12.8
+libdir=${cudaroot}/targets/x86_64-linux/lib
+includedir=${cudaroot}/targets/x86_64-linux/include
+
+Name: nvrtc
+Description: A runtime compilation library for CUDA C++
+Version: 12.8
+Libs: -L${libdir} -lnvrtc
+Cflags: -I${includedir}

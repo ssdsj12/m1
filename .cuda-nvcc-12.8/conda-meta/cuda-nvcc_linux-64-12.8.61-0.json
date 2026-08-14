@@ -1,0 +1,55 @@
+{
+  "name": "cuda-nvcc_linux-64",
+  "version": "12.8.61",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-nvcc_linux-64-12.8.61-0.conda",
+  "md5": "8dce6386c31eb26e0cf6c1f7b7de3381",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-nvcc_linux-64-12.8.61-0.conda",
+  "sha256": "d1547ee37e53d2db512cfc3fa00db75d7d376b95a013ddd9901f0e957931582b",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-cudart-dev_linux-64 12.8.*",
+    "cuda-driver-dev_linux-64 12.8.*",
+    "cuda-nvcc-dev_linux-64 12.8.61.*",
+    "cuda-nvcc-impl 12.8.61.*",
+    "cuda-nvcc-tools 12.8.61.*",
+    "sysroot_linux-64 >=2.17,<3.0a0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1737007019053,
+  "size": 20073,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-nvcc_linux-64-12.8.61-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-nvcc_linux-64-12.8.61-0",
+  "files": [
+    "etc/conda/activate.d/~cuda-nvcc_activate.sh",
+    "etc/conda/deactivate.d/~cuda-nvcc_deactivate.sh"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "etc/conda/activate.d/~cuda-nvcc_activate.sh",
+        "path_type": "hardlink",
+        "sha256": "011b263f7a945e2a31fcfe2b44bed639e433c6b2bafcd4f2f7d80a32f0e8001d",
+        "size_in_bytes": 2980,
+        "sha256_in_prefix": "011b263f7a945e2a31fcfe2b44bed639e433c6b2bafcd4f2f7d80a32f0e8001d"
+      },
+      {
+        "_path": "etc/conda/deactivate.d/~cuda-nvcc_deactivate.sh",
+        "path_type": "hardlink",
+        "sha256": "3b606b81d3ff6394ff361bb730b408a9fc3d71f691fd9c9704e6a57f531ca3ee",
+        "size_in_bytes": 306,
+        "sha256_in_prefix": "3b606b81d3ff6394ff361bb730b408a9fc3d71f691fd9c9704e6a57f531ca3ee"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-nvcc_linux-64-12.8.61-0",
+    "type": 1
+  }
+}

@@ -1,0 +1,1211 @@
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/go2_pvcnn/mdp/m1_panda_wrench.py	2026-08-14 15:34:25.246058294 +0800
+@@ -0,0 +1,65 @@
++"""Mount-wrench observation helpers for the combined M1 and Panda articulation."""
++
++from __future__ import annotations
++
++import torch
++from isaaclab.utils import math as math_utils
++
++__all__ = ["shift_rotate_wrench_to_base", "m1_panda_mount_wrench_b"]
++
++
++def shift_rotate_wrench_to_base(
++    force_w: torch.Tensor,
++    torque_w: torch.Tensor,
++    sensor_pos_w: torch.Tensor,
++    base_pos_w: torch.Tensor,
++    base_quat_w: torch.Tensor,
++) -> torch.Tensor:
++    """Express a world-frame sensor wrench at the base-link origin in base coordinates.
++
++    The returned channel order is ``[Fx, Fy, Fz, Mx, My, Mz]``. The moment shift uses
++    ``M_base = M_sensor + (p_sensor - p_base) x F`` before both vectors are rotated
++    from world coordinates into the ``BASE_LINK`` actor frame.
++    """
++    moment_about_base_w = torque_w + torch.linalg.cross(sensor_pos_w - base_pos_w, force_w, dim=-1)
++    force_b = math_utils.quat_rotate_inverse(base_quat_w, force_w)
++    moment_b = math_utils.quat_rotate_inverse(base_quat_w, moment_about_base_w)
++    return torch.cat((force_b, moment_b), dim=-1)
++
++
++def m1_panda_mount_wrench_b(
++    env,
++    asset_cfg,
++    mount_body_name: str = "panda_link0",
++    base_body_name: str = "BASE_LINK",
++) -> torch.Tensor:
++    """Return the parent-on-child mount wrench about the base origin in the base frame.
++
++    PhysX reports the raw incoming wrench in the incoming joint frame about the joint
++    origin. The combined asset contract makes that child-side frame coincide with the
++    ``panda_link0`` actor frame, so the mount pose converts the raw vectors to world.
++    """
++    robot = env.scene[asset_cfg.name]
++    mount_ids, mount_names = robot.find_bodies(mount_body_name, preserve_order=True)
++    base_ids, base_names = robot.find_bodies(base_body_name, preserve_order=True)
++    if (
++        len(mount_ids) != 1
++        or len(base_ids) != 1
++        or mount_names != [mount_body_name]
++        or base_names != [base_body_name]
++    ):
++        raise RuntimeError(f"Expected one mount/base body, got {mount_names=} {base_names=}")
++
++    mount_id = mount_ids[0]
++    base_id = base_ids[0]
++    incoming = robot.root_physx_view.get_link_incoming_joint_force()[:, mount_id, :]
++    mount_quat_w = robot.data.body_quat_w[:, mount_id]
++    force_w = math_utils.quat_rotate(mount_quat_w, incoming[:, :3])
++    torque_w = math_utils.quat_rotate(mount_quat_w, incoming[:, 3:6])
++    return shift_rotate_wrench_to_base(
++        force_w,
++        torque_w,
++        robot.data.body_pos_w[:, mount_id],
++        robot.data.body_pos_w[:, base_id],
++        robot.data.body_quat_w[:, base_id],
++    )
+--- .superpowers/sdd/task-5-before/Go2Pvcnn/go2_pvcnn/mdp/__init__.py	2026-08-14 15:06:22.716304440 +0800
++++ Go2Pvcnn/go2_pvcnn/mdp/__init__.py	2026-08-14 15:31:39.417174055 +0800
+@@ -6,10 +6,10 @@
+ from .commands import *
+ from .curriculums import *
+ from .observations import *
++from .m1_panda_wrench import m1_panda_mount_wrench_b, shift_rotate_wrench_to_base
+ from .rewards import *
+ from .terminations import *
+ from .events import *
+ from .scene_manager import (
+     create_dynamic_objects_collection_cfg,
+ )
+-
+--- .superpowers/sdd/task-5-before/Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py	2026-08-14 15:06:22.717304436 +0800
++++ Go2Pvcnn/go2_pvcnn/tasks/m1_panda_smoke_env_cfg.py	2026-08-14 15:09:40.957362660 +0800
+@@ -10,7 +10,7 @@
+ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
+ 
+ from go2_pvcnn.assets import M1_JOINT_NAMES, M1_LEG_JOINT_NAMES, M1_WHEEL_JOINT_NAMES
+-from go2_pvcnn.assets.m1_panda import M1_PANDA_CFG
++from go2_pvcnn.assets.m1_panda import M1_PANDA_BASE_BODY_NAME, M1_PANDA_CFG, M1_PANDA_MOUNT_BODY_NAME
+ import go2_pvcnn.mdp as mdp
+ from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg, M1SmokeSceneCfg
+ 
+@@ -55,6 +55,14 @@
+             noise=Unoise(n_min=-0.0, n_max=0.0),
+         )
+         actions = ObsTerm(func=isaac_mdp.last_action)
++        mount_wrench_b = ObsTerm(
++            func=mdp.m1_panda_mount_wrench_b,
++            params={
++                "asset_cfg": SceneEntityCfg("robot", body_names=M1_PANDA_MOUNT_BODY_NAME),
++                "mount_body_name": M1_PANDA_MOUNT_BODY_NAME,
++                "base_body_name": M1_PANDA_BASE_BODY_NAME,
++            },
++        )
+ 
+         def __post_init__(self):
+             self.enable_corruption = False
+--- .superpowers/sdd/task-5-before/Go2Pvcnn/tests/test_m1_panda_smoke_cfg_static.py	2026-08-14 15:06:22.719304427 +0800
++++ Go2Pvcnn/tests/test_m1_panda_smoke_cfg_static.py	2026-08-14 15:09:07.100532591 +0800
+@@ -226,7 +226,43 @@
+     assert asset.index("M1_PANDA_CFG = M1_CFG.copy()") < asset.index("M1_PANDA_CFG.spawn")
+     assert "usd_path=M1_PANDA_USD_PATH" in asset
+     assert Path(ROOT / "assets/m1_panda/m1_panda.usd").is_file()
+-    assert "wrench" not in env.lower()
++    assert "student" not in env.lower()
++    assert "teacher" not in env.lower()
++    assert "IK" not in env
++    assert "OSC" not in env
++
++
++def test_mount_wrench_observation_has_exact_explicit_body_contract():
++    env = ENV_FILE.read_text()
++    assert 'body_names=M1_PANDA_MOUNT_BODY_NAME' in env
++    tree = ast.parse(env)
++    observations = _class(tree, "M1PandaSmokeObservationsCfg")
++    policy = next(node for node in observations.body if isinstance(node, ast.ClassDef) and node.name == "PolicyCfg")
++    terms = {
++        _assignment_name(node): _assignment_value(node)
++        for node in _assignments(policy.body)
++        if isinstance(_assignment_value(node), ast.Call) and ast.unparse(_assignment_value(node).func) == "ObsTerm"
++    }
++    assert list(terms) == ["base_ang_vel", "projected_gravity", "joint_pos", "joint_vel", "actions", "mount_wrench_b"]
++    wrench = terms["mount_wrench_b"]
++    keywords = _keywords(wrench)
++    assert list(keywords) == ["func", "params"]
++    assert ast.unparse(keywords["func"]) == "mdp.m1_panda_mount_wrench_b"
++    params = keywords["params"]
++    assert isinstance(params, ast.Dict)
++    assert [ast.literal_eval(key) for key in params.keys] == [
++        "asset_cfg",
++        "mount_body_name",
++        "base_body_name",
++    ]
++    selector, mount_name, base_name = params.values
++    assert ast.unparse(selector.func) == "SceneEntityCfg"
++    assert ast.literal_eval(selector.args[0]) == "robot"
++    assert ast.unparse(_keywords(selector)["body_names"]) == "M1_PANDA_MOUNT_BODY_NAME"
++    assert ast.unparse(mount_name) == "M1_PANDA_MOUNT_BODY_NAME"
++    assert ast.unparse(base_name) == "M1_PANDA_BASE_BODY_NAME"
++
++    _assert_action_contract(env)
+ 
+ 
+ def test_registry_is_lazy_and_preserves_all_m1_gym_ids():
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/tests/test_m1_panda_wrench.py	2026-08-14 15:24:37.047115676 +0800
+@@ -0,0 +1,172 @@
++from __future__ import annotations
++
++import importlib.util
++import sys
++import types
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++import torch
++
++
++MODULE = Path(__file__).resolve().parents[1] / "go2_pvcnn/mdp/m1_panda_wrench.py"
++
++
++def _quat_rotate_inverse(quat: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
++    quat_vector = quat[..., 1:]
++    return (
++        vector * (2.0 * quat[..., :1].square() - 1.0)
++        - 2.0 * quat[..., :1] * torch.linalg.cross(quat_vector, vector, dim=-1)
++        + 2.0 * quat_vector * torch.sum(quat_vector * vector, dim=-1, keepdim=True)
++    )
++
++
++def _quat_rotate(quat: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
++    quat_vector = quat[..., 1:]
++    return (
++        vector * (2.0 * quat[..., :1].square() - 1.0)
++        + 2.0 * quat[..., :1] * torch.linalg.cross(quat_vector, vector, dim=-1)
++        + 2.0 * quat_vector * torch.sum(quat_vector * vector, dim=-1, keepdim=True)
++    )
++
++
++@pytest.fixture
++def wrench_module(monkeypatch):
++    isaaclab = types.ModuleType("isaaclab")
++    utils = types.ModuleType("isaaclab.utils")
++    math_utils = types.ModuleType("isaaclab.utils.math")
++    math_utils.quat_rotate = _quat_rotate
++    math_utils.quat_rotate_inverse = _quat_rotate_inverse
++    utils.math = math_utils
++    isaaclab.utils = utils
++    monkeypatch.setitem(sys.modules, "isaaclab", isaaclab)
++    monkeypatch.setitem(sys.modules, "isaaclab.utils", utils)
++    monkeypatch.setitem(sys.modules, "isaaclab.utils.math", math_utils)
++
++    spec = importlib.util.spec_from_file_location("m1_panda_wrench_under_test", MODULE)
++    assert spec is not None and spec.loader is not None
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def test_identity_frame_keeps_force_and_shifts_moment_to_base_origin(wrench_module):
++    result = wrench_module.shift_rotate_wrench_to_base(
++        force_w=torch.tensor([[0.0, 10.0, 0.0]]),
++        torque_w=torch.tensor([[0.0, 0.0, 2.0]]),
++        sensor_pos_w=torch.tensor([[1.0, 0.0, 0.0]]),
++        base_pos_w=torch.zeros(1, 3),
++        base_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
++    )
++
++    assert torch.allclose(result, torch.tensor([[0.0, 10.0, 0.0, 0.0, 0.0, 12.0]]))
++
++
++def test_base_yaw_rotates_world_force_into_base_frame(wrench_module):
++    half = 2.0**-0.5
++    result = wrench_module.shift_rotate_wrench_to_base(
++        force_w=torch.tensor([[0.0, 1.0, 0.0]]),
++        torque_w=torch.zeros(1, 3),
++        sensor_pos_w=torch.zeros(1, 3),
++        base_pos_w=torch.zeros(1, 3),
++        base_quat_w=torch.tensor([[half, 0.0, 0.0, half]]),
++    )
++
++    assert torch.allclose(result[:, :3], torch.tensor([[1.0, 0.0, 0.0]]), atol=1e-6)
++
++
++def test_batch_combines_nonzero_lever_arm_and_base_rotation(wrench_module):
++    half = 2.0**-0.5
++    result = wrench_module.shift_rotate_wrench_to_base(
++        force_w=torch.tensor([[0.0, 2.0, 0.0], [1.0, 0.0, 0.0]]),
++        torque_w=torch.tensor([[0.0, 0.0, 3.0], [0.0, 0.0, 4.0]]),
++        sensor_pos_w=torch.tensor([[2.0, 0.0, 0.0], [0.0, 2.0, 0.0]]),
++        base_pos_w=torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
++        base_quat_w=torch.tensor([[half, 0.0, 0.0, half], [0.0, 0.0, 0.0, 1.0]]),
++    )
++
++    expected = torch.tensor([[2.0, 0.0, 0.0, 0.0, 0.0, 5.0], [-1.0, 0.0, 0.0, 0.0, 0.0, 3.0]])
++    assert result.shape == (2, 6)
++    assert torch.allclose(result, expected, atol=1e-6)
++
++
++class _FakePhysxView:
++    def __init__(self, incoming: torch.Tensor):
++        self.incoming = incoming
++        self.calls = 0
++
++    def get_link_incoming_joint_force(self):
++        self.calls += 1
++        return self.incoming
++
++
++class _FakeRobot:
++    def __init__(self, responses, incoming, body_pos_w, body_quat_w):
++        self.responses = responses
++        self.find_calls = []
++        self.root_physx_view = _FakePhysxView(incoming)
++        self.data = SimpleNamespace(body_pos_w=body_pos_w, body_quat_w=body_quat_w)
++
++    def find_bodies(self, name, preserve_order=False):
++        self.find_calls.append((name, preserve_order))
++        return self.responses[name]
++
++
++def test_adapter_rotates_raw_joint_wrench_once_then_shifts_about_base(wrench_module):
++    half = 2.0**-0.5
++    incoming = torch.zeros(1, 2, 6)
++    incoming[:, 1] = torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0, 2.0])
++    body_pos_w = torch.tensor([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]])
++    body_quat_w = torch.tensor([[[half, 0.0, 0.0, half], [half, 0.0, 0.0, half]]])
++    robot = _FakeRobot(
++        responses={"mount": ([1], ["mount"]), "base": ([0], ["base"])},
++        incoming=incoming,
++        body_pos_w=body_pos_w,
++        body_quat_w=body_quat_w,
++    )
++    asset_cfg = SimpleNamespace(name="robot", body_ids=[1], body_names=["conflicting_selector"])
++
++    result = wrench_module.m1_panda_mount_wrench_b(
++        SimpleNamespace(scene={"robot": robot}), asset_cfg, mount_body_name="mount", base_body_name="base"
++    )
++
++    assert torch.allclose(result, torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 3.0]]), atol=1e-6)
++    assert robot.find_calls == [("mount", True), ("base", True)]
++    assert robot.root_physx_view.calls == 1
++
++
++def test_wrench_module_exports_only_the_two_public_functions():
++    source = MODULE.read_text()
++    init_source = (MODULE.parent / "__init__.py").read_text()
++    assert '__all__ = ["shift_rotate_wrench_to_base", "m1_panda_mount_wrench_b"]' in source
++    assert "from .m1_panda_wrench import m1_panda_mount_wrench_b, shift_rotate_wrench_to_base" in init_source
++    assert "from .m1_panda_wrench import *" not in init_source
++
++
++@pytest.mark.parametrize(
++    "responses",
++    [
++        {"mount": ([], []), "base": ([0], ["base"])},
++        {"mount": ([1, 2], ["mount", "mount"]), "base": ([0], ["base"])},
++        {"mount": ([1, 2], ["mount"]), "base": ([0], ["base"])},
++        {"mount": ([1], ["mount"]), "base": ([], [])},
++        {"mount": ([1], ["mount"]), "base": ([0, 2], ["base", "base"])},
++    ],
++    ids=["missing-mount", "duplicate-mount", "duplicate-mount-ids", "missing-base", "duplicate-base"],
++)
++def test_adapter_rejects_missing_or_duplicate_explicit_body(wrench_module, responses):
++    robot = _FakeRobot(
++        responses=responses,
++        incoming=torch.zeros(1, 3, 6),
++        body_pos_w=torch.zeros(1, 3, 3),
++        body_quat_w=torch.zeros(1, 3, 4),
++    )
++
++    with pytest.raises(RuntimeError, match="Expected one mount/base body"):
++        wrench_module.m1_panda_mount_wrench_b(
++            SimpleNamespace(scene={"robot": robot}),
++            SimpleNamespace(name="robot"),
++            mount_body_name="mount",
++            base_body_name="base",
++        )
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/scripts/build_m1_panda_asset.py	2026-08-14 15:31:39.417174055 +0800
+@@ -0,0 +1,202 @@
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++from isaaclab.app import AppLauncher
++
++parser = argparse.ArgumentParser()
++parser.add_argument("--asset-root", type=Path, required=True)
++AppLauncher.add_app_launcher_args(parser)
++args = parser.parse_args()
++app_launcher = AppLauncher(args)
++simulation_app = app_launcher.app
++
++import numpy as np
++from pxr import PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
++
++from isaacsim.core.utils.extensions import enable_extension
++
++enable_extension("isaacsim.robot_setup.assembler")
++
++import isaacsim.core.utils.prims as prim_utils
++import isaacsim.core.utils.stage as stage_utils
++from isaacsim.robot_setup.assembler import RobotAssembler
++from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
++
++ROOT_PRIM = "/M1Panda"
++PANDA_PRIM = f"{ROOT_PRIM}/Panda"
++BASE_MOUNT_FRAME = "/BASE_LINK"
++PANDA_MOUNT_FRAME = "/panda_link0"
++MOUNT_JOINT_PATH = f"{PANDA_PRIM}/panda_link0/AssemblerFixedJoint"
++MOUNT_CLEARANCE_M = 0.01
++EXPECTED_ARTICULATION_ROOT = f"{ROOT_PRIM}/BASE_LINK"
++EXPECTED_MOUNT_BODY0 = f"{ROOT_PRIM}/BASE_LINK"
++EXPECTED_MOUNT_BODY1 = f"{PANDA_PRIM}/panda_link0"
++EXPECTED_MOUNT_CHILD_LOCAL_POS = (0.0, 0.0, 0.0)
++EXPECTED_MOUNT_CHILD_LOCAL_ROT = (1.0, 0.0, 0.0, 0.0)
++
++
++def _top_z(stage: Usd.Stage, prim_path: str) -> float:
++    bbox = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
++    return float(bbox.ComputeWorldBound(stage.GetPrimAtPath(prim_path)).ComputeAlignedBox().GetMax()[2])
++
++
++def _require(condition: bool, message: str) -> None:
++    if not condition:
++        raise RuntimeError(message)
++
++
++def _remove_refresh_asset_edits(root_layer: Sdf.Layer) -> None:
++    """Remove only the invalid asset-path list edits authored by RobotAssembler."""
++    m1_spec = root_layer.GetPrimAtPath(ROOT_PRIM)
++    panda_spec = root_layer.GetPrimAtPath(PANDA_PRIM)
++    _require(m1_spec is not None, f"missing root-layer spec: {ROOT_PRIM}")
++    _require(panda_spec is not None, f"missing root-layer spec: {PANDA_PRIM}")
++
++    m1_spec.referenceList.RemoveItemEdits(Sdf.Reference("/M1Panda"))
++    panda_spec.referenceList.RemoveItemEdits(Sdf.Reference("/M1Panda/Panda"))
++    panda_spec.payloadList.RemoveItemEdits(Sdf.Payload("/M1Panda/Panda"))
++
++
++def _validate_stage_contract(stage: Usd.Stage, context: str) -> None:
++    articulation_roots = [
++        str(prim.GetPath()) for prim in stage.Traverse() if prim.HasAPI(UsdPhysics.ArticulationRootAPI)
++    ]
++    _require(
++        articulation_roots == [EXPECTED_ARTICULATION_ROOT],
++        f"{context}: expected articulation root {[EXPECTED_ARTICULATION_ROOT]}, found {articulation_roots}",
++    )
++
++    mount_joint = stage.GetPrimAtPath(MOUNT_JOINT_PATH)
++    _require(mount_joint.IsA(UsdPhysics.FixedJoint), f"{context}: mount joint is not fixed: {MOUNT_JOINT_PATH}")
++    mount_joint_schema = UsdPhysics.Joint(mount_joint)
++    body0_targets = [str(path) for path in mount_joint_schema.GetBody0Rel().GetTargets()]
++    body1_targets = [str(path) for path in mount_joint_schema.GetBody1Rel().GetTargets()]
++    _require(body0_targets == [EXPECTED_MOUNT_BODY0], f"{context}: unexpected mount body0: {body0_targets}")
++    _require(body1_targets == [EXPECTED_MOUNT_BODY1], f"{context}: unexpected mount body1: {body1_targets}")
++    child_local_pos = tuple(mount_joint_schema.GetLocalPos1Attr().Get())
++    child_local_rot_value = mount_joint_schema.GetLocalRot1Attr().Get()
++    child_local_rot = (
++        float(child_local_rot_value.GetReal()),
++        *tuple(child_local_rot_value.GetImaginary()),
++    )
++    _require(
++        child_local_pos == EXPECTED_MOUNT_CHILD_LOCAL_POS,
++        f"{context}: unexpected mount child local position: {child_local_pos}",
++    )
++    _require(
++        child_local_rot == EXPECTED_MOUNT_CHILD_LOCAL_ROT,
++        f"{context}: unexpected mount child local rotation: {child_local_rot}",
++    )
++    _require(mount_joint_schema.GetJointEnabledAttr().Get() is True, f"{context}: mount joint is disabled")
++    exclude_attr = mount_joint.GetAttribute("physics:excludeFromArticulation")
++    _require(
++        exclude_attr.IsValid() and exclude_attr.Get() is False,
++        f"{context}: mount joint is excluded from articulation",
++    )
++
++    panda_root_joint = stage.GetPrimAtPath(f"{PANDA_PRIM}/root_joint")
++    enabled_attr = panda_root_joint.GetAttribute("physics:jointEnabled")
++    _require(
++        enabled_attr.IsValid() and enabled_attr.Get() is False,
++        f"{context}: Panda root_joint must remain disabled",
++    )
++
++
++def _prepare_serialized_root_layer(stage: Usd.Stage, asset_root: Path) -> None:
++    """Remove RobotAssembler live-refresh artifacts and author portable references."""
++    root_layer = stage.GetRootLayer()
++    _remove_refresh_asset_edits(root_layer)
++    m1_spec = root_layer.GetPrimAtPath(ROOT_PRIM)
++    panda_spec = root_layer.GetPrimAtPath(PANDA_PRIM)
++
++    panda_prim = stage.GetPrimAtPath(PANDA_PRIM)
++    _require(panda_prim.RemoveAPI(UsdPhysics.ArticulationRootAPI), "failed to remove Panda root API")
++    _require(panda_prim.RemoveAPI(PhysxSchema.PhysxArticulationAPI), "failed to remove Panda PhysX root API")
++
++    _validate_stage_contract(stage, "pre-export stage")
++
++    m1_spec.referenceList.RemoveItemEdits(Sdf.Reference(str(asset_root / "m1_floating.usda")))
++    panda_spec.referenceList.RemoveItemEdits(Sdf.Reference(str(asset_root / "panda/panda.usd")))
++    m1_spec.referenceList.Prepend(Sdf.Reference("m1_floating.usda"))
++    panda_spec.referenceList.Prepend(Sdf.Reference("panda/panda.usd"))
++
++
++def _validate_serialized_asset(combined_usd: Path) -> None:
++    reopened_stage = Usd.Stage.Open(str(combined_usd))
++    _require(reopened_stage is not None, f"failed to reopen serialized asset: {combined_usd}")
++    _validate_stage_contract(reopened_stage, "serialized reopen")
++
++
++def build_asset(asset_root: Path) -> Path:
++    asset_root = asset_root.resolve()
++    panda_dir = asset_root / "panda"
++    panda_dir.mkdir(parents=True, exist_ok=True)
++    panda_usd = panda_dir / "panda.usd"
++    combined_usd = asset_root / "m1_panda.usd"
++    urdf = asset_root / "panda_source/franka_description/robots/panda_arm_hand.urdf"
++
++    converter = UrdfConverter(
++        UrdfConverterCfg(
++            asset_path=str(urdf),
++            usd_dir=str(panda_dir),
++            usd_file_name=panda_usd.name,
++            fix_base=True,
++            merge_fixed_joints=False,
++            force_usd_conversion=True,
++            joint_drive=UrdfConverterCfg.JointDriveCfg(
++                gains=UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=80.0, damping=4.0),
++                target_type="position",
++            ),
++        )
++    )
++    _require(Path(converter.usd_path).is_file(), f"URDF conversion did not produce {panda_usd}")
++
++    stage_utils.create_new_stage()
++    prim_utils.create_prim(ROOT_PRIM, usd_path=str(asset_root / "m1_floating.usda"))
++    prim_utils.create_prim(PANDA_PRIM, usd_path=str(panda_usd))
++    stage = stage_utils.get_current_stage()
++    base_top_z = _top_z(stage, f"{ROOT_PRIM}/BASE_LINK")
++    base_origin_z = float(
++        UsdGeom.Xformable(stage.GetPrimAtPath(f"{ROOT_PRIM}/BASE_LINK"))
++        .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
++        .ExtractTranslation()[2]
++    )
++    mount_offset = np.array([0.0, 0.0, base_top_z - base_origin_z + MOUNT_CLEARANCE_M])
++
++    assembled = RobotAssembler().assemble_articulations(
++        ROOT_PRIM,
++        PANDA_PRIM,
++        BASE_MOUNT_FRAME,
++        PANDA_MOUNT_FRAME,
++        fixed_joint_offset=mount_offset,
++        fixed_joint_orient=np.array([1.0, 0.0, 0.0, 0.0]),
++        mask_all_collisions=True,
++        single_robot=True,
++    )
++    _require(
++        str(assembled.fixed_joint.GetPath()) == MOUNT_JOINT_PATH,
++        f"unexpected mount joint path: {assembled.fixed_joint.GetPath()}",
++    )
++    _prepare_serialized_root_layer(stage, asset_root)
++
++    mount_joint = stage.GetPrimAtPath(MOUNT_JOINT_PATH)
++    _require(mount_joint.IsA(UsdPhysics.FixedJoint), f"mount joint is not fixed: {MOUNT_JOINT_PATH}")
++    exclude_attr = mount_joint.GetAttribute("physics:excludeFromArticulation")
++    _require(exclude_attr.IsValid() and exclude_attr.Get() is False, "mount joint is excluded from articulation")
++    panda_root_joint = stage.GetPrimAtPath(f"{PANDA_PRIM}/root_joint")
++    enabled_attr = panda_root_joint.GetAttribute("physics:jointEnabled")
++    _require(enabled_attr.IsValid() and enabled_attr.Get() is False, "Panda root_joint must remain disabled")
++
++    stage.SetDefaultPrim(stage.GetPrimAtPath(ROOT_PRIM))
++    _require(stage.GetRootLayer().Export(str(combined_usd)), f"failed to export combined asset: {combined_usd}")
++    _validate_serialized_asset(combined_usd)
++    return combined_usd
++
++
++if __name__ == "__main__":
++    try:
++        print(build_asset(args.asset_root))
++    finally:
++        simulation_app.close()
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/scripts/verify_m1_panda_asset.py	2026-08-14 15:31:39.417174055 +0800
+@@ -0,0 +1,306 @@
++#!/usr/bin/env python3
++"""Verify that the generated M1 + Panda asset is offline and simulation-ready."""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import sys
++from pathlib import Path
++from typing import Any
++
++from isaaclab.app import AppLauncher
++
++
++EXPECTED_DOF_COUNT = 25
++MAX_MOUNT_RELATIVE_STEP_DELTA_M = 1.0e-4
++REMOTE_PREFIXES = ("omniverse://", "http://", "https://")
++BUILTIN_MDL_ALLOWLIST = {"OmniPBR.mdl"}
++EXPECTED_ARTICULATION_ROOT = "/M1Panda/BASE_LINK"
++EXPECTED_MOUNT_BODY0 = "/M1Panda/BASE_LINK"
++EXPECTED_MOUNT_BODY1 = "/M1Panda/Panda/panda_link0"
++EXPECTED_MOUNT_CHILD_LOCAL_POS = (0.0, 0.0, 0.0)
++EXPECTED_MOUNT_CHILD_LOCAL_ROT = (1.0, 0.0, 0.0, 0.0)
++MOUNT_JOINT_PATH = "/M1Panda/Panda/panda_link0/AssemblerFixedJoint"
++REQUIRED_BODY_NAMES = ("BASE_LINK", "panda_link0", "panda_hand")
++PANDA_HOME_JOINT_POS = {
++    "panda_joint1": 0.0,
++    "panda_joint2": -0.569,
++    "panda_joint3": 0.0,
++    "panda_joint4": -2.810,
++    "panda_joint5": 0.0,
++    "panda_joint6": 3.037,
++    "panda_joint7": 0.741,
++    "panda_finger_joint.*": 0.04,
++}
++
++
++def _build_parser() -> argparse.ArgumentParser:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--asset", type=Path, required=True)
++    parser.add_argument("--asset-root", type=Path, required=True)
++    AppLauncher.add_app_launcher_args(parser)
++    return parser
++
++
++def _require(condition: bool, message: str) -> None:
++    if not condition:
++        raise RuntimeError(message)
++
++
++def _asset_path_text(asset: Any) -> str:
++    resolved = str(getattr(asset, "resolvedPath", ""))
++    authored = str(getattr(asset, "path", asset))
++    return resolved or authored
++
++
++def _is_within(path: Path, root: Path) -> bool:
++    try:
++        path.resolve().relative_to(root.resolve())
++    except ValueError:
++        return False
++    return True
++
++
++def _classify_unresolved_dependencies(unresolved):
++    builtin_mdl_dependencies = []
++    unresolved_dependencies = []
++    for unresolved_asset in unresolved:
++        item = str(unresolved_asset)
++        if item in BUILTIN_MDL_ALLOWLIST:
++            builtin_mdl_dependencies.append(item)
++        else:
++            unresolved_dependencies.append(item)
++    return builtin_mdl_dependencies, unresolved_dependencies
++
++
++def _articulation_root_errors(articulation_roots):
++    if articulation_roots == [EXPECTED_ARTICULATION_ROOT]:
++        return []
++    return [
++        f"expected articulation roots [{EXPECTED_ARTICULATION_ROOT!r}], found {articulation_roots}"
++    ]
++
++
++def _mount_joint_contract_errors(
++    body0_targets, body1_targets, joint_enabled, excluded, child_local_pos, child_local_rot
++):
++    errors = []
++    if body0_targets != [EXPECTED_MOUNT_BODY0]:
++        errors.append(f"expected mount body0 [{EXPECTED_MOUNT_BODY0!r}], found {body0_targets}")
++    if body1_targets != [EXPECTED_MOUNT_BODY1]:
++        errors.append(f"expected mount body1 [{EXPECTED_MOUNT_BODY1!r}], found {body1_targets}")
++    if joint_enabled is not True:
++        errors.append(f"expected enabled mount joint, found jointEnabled={joint_enabled}")
++    if excluded is not False:
++        errors.append(f"expected mount joint in articulation, found excludeFromArticulation={excluded}")
++    if child_local_pos != EXPECTED_MOUNT_CHILD_LOCAL_POS:
++        errors.append(
++            f"expected mount child local position {EXPECTED_MOUNT_CHILD_LOCAL_POS}, found {child_local_pos}"
++        )
++    if child_local_rot != EXPECTED_MOUNT_CHILD_LOCAL_ROT:
++        errors.append(
++            f"expected mount child local rotation {EXPECTED_MOUNT_CHILD_LOCAL_ROT}, found {child_local_rot}"
++        )
++    return errors
++
++
++def _inspect_dependencies(asset_path: Path, asset_root: Path, UsdUtils: Any) -> dict[str, list[str]]:
++    layers, assets, unresolved = UsdUtils.ComputeAllDependencies(str(asset_path))
++    dependencies = [str(layer.identifier) for layer in layers] + [_asset_path_text(asset) for asset in assets]
++    remote_dependencies = [item for item in dependencies if item.startswith(REMOTE_PREFIXES)]
++    outside_root = [
++        item
++        for item in dependencies
++        if not item.startswith("anon:") and not _is_within(Path(item), asset_root)
++    ]
++    builtin_mdl_dependencies, unresolved_dependencies = _classify_unresolved_dependencies(unresolved)
++    return {
++        "dependencies": dependencies,
++        "remote_dependencies": remote_dependencies,
++        "unresolved_dependencies": unresolved_dependencies,
++        "builtin_mdl_dependencies": builtin_mdl_dependencies,
++        "outside_root_dependencies": outside_root,
++    }
++
++
++def _verify_asset(asset_path: Path, asset_root: Path, device: str) -> dict[str, Any]:
++    from pxr import Usd, UsdPhysics, UsdUtils
++
++    import isaaclab.sim as sim_utils
++    from isaaclab.assets import Articulation, ArticulationCfg
++
++    asset_root = asset_root.resolve()
++    asset_path = asset_path.resolve()
++    _require(asset_path.is_file(), f"asset does not exist: {asset_path}")
++    _require(asset_root.is_dir(), f"asset root does not exist: {asset_root}")
++    _require(_is_within(asset_path, asset_root), f"asset is outside asset root: {asset_path}")
++
++    stage = Usd.Stage.Open(str(asset_path))
++    _require(stage is not None, f"failed to open USD stage: {asset_path}")
++    dependency_result = _inspect_dependencies(asset_path, asset_root, UsdUtils)
++    validation_errors: list[str] = []
++    if dependency_result["unresolved_dependencies"]:
++        validation_errors.append(f"unresolved dependencies: {dependency_result['unresolved_dependencies']}")
++    if dependency_result["remote_dependencies"]:
++        validation_errors.append(f"remote dependencies: {dependency_result['remote_dependencies']}")
++    if dependency_result["outside_root_dependencies"]:
++        validation_errors.append(
++            f"dependencies outside asset root: {dependency_result['outside_root_dependencies']}"
++        )
++
++    articulation_roots = [
++        str(prim.GetPath()) for prim in stage.Traverse() if prim.HasAPI(UsdPhysics.ArticulationRootAPI)
++    ]
++    validation_errors.extend(_articulation_root_errors(articulation_roots))
++    mount_joint = stage.GetPrimAtPath(MOUNT_JOINT_PATH)
++    mount_body0_targets: list[str] = []
++    mount_body1_targets: list[str] = []
++    mount_joint_enabled: bool | None = None
++    mount_joint_exclude_from_articulation: bool | None = None
++    mount_child_local_pos: tuple[float, ...] | None = None
++    mount_child_local_rot: tuple[float, ...] | None = None
++    if not mount_joint.IsValid():
++        validation_errors.append(f"mount joint is invalid: {MOUNT_JOINT_PATH}")
++    elif not mount_joint.IsA(UsdPhysics.FixedJoint):
++        validation_errors.append(f"mount joint is not a FixedJoint: {MOUNT_JOINT_PATH}")
++    else:
++        mount_joint_schema = UsdPhysics.Joint(mount_joint)
++        mount_body0_targets = [str(path) for path in mount_joint_schema.GetBody0Rel().GetTargets()]
++        mount_body1_targets = [str(path) for path in mount_joint_schema.GetBody1Rel().GetTargets()]
++        mount_joint_enabled = mount_joint_schema.GetJointEnabledAttr().Get()
++        exclude_attr = mount_joint.GetAttribute("physics:excludeFromArticulation")
++        mount_joint_exclude_from_articulation = exclude_attr.Get() if exclude_attr.IsValid() else None
++        mount_child_local_pos = tuple(mount_joint_schema.GetLocalPos1Attr().Get())
++        child_local_rot_value = mount_joint_schema.GetLocalRot1Attr().Get()
++        mount_child_local_rot = (
++            float(child_local_rot_value.GetReal()),
++            *tuple(child_local_rot_value.GetImaginary()),
++        )
++        validation_errors.extend(
++            _mount_joint_contract_errors(
++                mount_body0_targets,
++                mount_body1_targets,
++                mount_joint_enabled,
++                mount_joint_exclude_from_articulation,
++                mount_child_local_pos,
++                mount_child_local_rot,
++            )
++        )
++    panda_root_joint = stage.GetPrimAtPath("/M1Panda/Panda/root_joint")
++    panda_root_enabled_attr = panda_root_joint.GetAttribute("physics:jointEnabled")
++    panda_root_joint_enabled = (
++        bool(panda_root_enabled_attr.Get()) if panda_root_enabled_attr.IsValid() else None
++    )
++    if panda_root_joint_enabled is not False:
++        validation_errors.append(
++            f"expected disabled Panda root_joint, found jointEnabled={panda_root_joint_enabled}"
++        )
++
++    joint_names: list[str] = []
++    body_names: list[str] = []
++    dof_count: int | None = None
++    physics_steps = 0
++    runtime_initialized = False
++    mount_relative_step_delta_m: float | None = None
++    try:
++        sim = sim_utils.SimulationContext(sim_utils.SimulationCfg(device=device, dt=0.01))
++        robot = Articulation(
++            ArticulationCfg(
++                prim_path="/World/M1Panda",
++                spawn=sim_utils.UsdFileCfg(usd_path=str(asset_path)),
++                init_state=ArticulationCfg.InitialStateCfg(joint_pos=PANDA_HOME_JOINT_POS),
++                actuators={},
++            )
++        )
++        sim.reset()
++        runtime_initialized = bool(robot.is_initialized)
++        _require(runtime_initialized, "Isaac Lab articulation initialization did not complete")
++        robot.reset()
++        robot.write_data_to_sim()
++        robot.update(0.0)
++        base_index = robot.body_names.index("BASE_LINK")
++        panda_mount_index = robot.body_names.index("panda_link0")
++        relative_position_before = (
++            robot.data.body_link_pos_w[:, panda_mount_index]
++            - robot.data.body_link_pos_w[:, base_index]
++        ).clone()
++        sim.step()
++        physics_steps = 1
++        robot.update(sim.get_physics_dt())
++        relative_position_after = (
++            robot.data.body_link_pos_w[:, panda_mount_index]
++            - robot.data.body_link_pos_w[:, base_index]
++        )
++        mount_relative_step_delta_m = float(
++            (relative_position_after - relative_position_before).norm(dim=-1).max().item()
++        )
++        if mount_relative_step_delta_m > MAX_MOUNT_RELATIVE_STEP_DELTA_M:
++            validation_errors.append(
++                "mount relative position changed across one physics step: "
++                f"{mount_relative_step_delta_m} m > {MAX_MOUNT_RELATIVE_STEP_DELTA_M} m"
++            )
++
++        joint_names = list(robot.joint_names)
++        body_names = list(robot.body_names)
++        dof_count = int(robot.num_joints)
++        if dof_count != EXPECTED_DOF_COUNT:
++            validation_errors.append(f"expected {EXPECTED_DOF_COUNT} DOF, found {dof_count}")
++        for body_name in REQUIRED_BODY_NAMES:
++            _, matches = robot.find_bodies(body_name)
++            if matches != [body_name]:
++                validation_errors.append(f"expected body {body_name!r} exactly once, found {matches}")
++    except Exception as exc:
++        validation_errors.append(f"runtime topology check failed: {type(exc).__name__}: {exc}")
++
++    return {
++        "root": str(asset_path),
++        **dependency_result,
++        "joint_names": joint_names,
++        "body_names": body_names,
++        "dof_count": dof_count,
++        "articulation_roots": articulation_roots,
++        "mount_joint_is_fixed": bool(mount_joint.IsValid() and mount_joint.IsA(UsdPhysics.FixedJoint)),
++        "mount_body0_targets": mount_body0_targets,
++        "mount_body1_targets": mount_body1_targets,
++        "mount_joint_enabled": mount_joint_enabled,
++        "mount_joint_exclude_from_articulation": mount_joint_exclude_from_articulation,
++        "mount_child_local_pos": mount_child_local_pos,
++        "mount_child_local_rot": mount_child_local_rot,
++        "panda_root_joint_enabled": panda_root_joint_enabled,
++        "runtime_initialized": runtime_initialized,
++        "mount_relative_step_delta_m": mount_relative_step_delta_m,
++        "physics_steps": 1 if physics_steps == 1 else 0,
++        "validation_errors": validation_errors,
++    }
++
++
++def main() -> int:
++    args = _build_parser().parse_args()
++    app_launcher = AppLauncher(args)
++    simulation_app = app_launcher.app
++    result: dict[str, Any]
++    exit_code = 0
++    try:
++        result = _verify_asset(args.asset, args.asset_root, args.device)
++        if result["validation_errors"]:
++            exit_code = 1
++    except Exception as exc:
++        exit_code = 1
++        result = {
++            "root": str(args.asset.resolve()),
++            "dependencies": [],
++            "joint_names": [],
++            "body_names": [],
++            "dof_count": None,
++            "remote_dependencies": [],
++            "error": f"{type(exc).__name__}: {exc}",
++        }
++    print(json.dumps(result, sort_keys=True))
++    sys.stdout.flush()
++    os._exit(exit_code)
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ Go2Pvcnn/tests/run_m1_panda_asset_pxr_behavior.py	2026-08-14 15:24:37.048115648 +0800
+@@ -0,0 +1,104 @@
++#!/usr/bin/env python3
++"""PXR behavior checks for the Task 2/3 serialized asset contract."""
++
++from __future__ import annotations
++
++import ast
++import json
++import os
++from pathlib import Path
++import sys
++import traceback
++
++from isaaclab.app import AppLauncher
++
++
++app = AppLauncher({"headless": True}).app
++
++from pxr import Sdf, Usd, UsdPhysics
++
++
++ROOT = Path(__file__).resolve().parents[1]
++BUILDER = ROOT / "scripts" / "build_m1_panda_asset.py"
++ASSET = ROOT / "assets" / "m1_panda" / "m1_panda.usd"
++
++
++def _load_cleanup_helper():
++    tree = ast.parse(BUILDER.read_text())
++    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
++    if "_remove_refresh_asset_edits" not in functions:
++        raise AssertionError("builder is missing _remove_refresh_asset_edits")
++    constants = [
++        node
++        for node in tree.body
++        if isinstance(node, ast.Assign)
++        and len(node.targets) == 1
++        and isinstance(node.targets[0], ast.Name)
++        and node.targets[0].id in {"ROOT_PRIM", "PANDA_PRIM"}
++    ]
++    namespace = {"Sdf": Sdf}
++    exec(
++        compile(
++            ast.Module(
++                body=constants + [functions["_require"], functions["_remove_refresh_asset_edits"]],
++                type_ignores=[],
++            ),
++            str(BUILDER),
++            "exec",
++        ),
++        namespace,
++    )
++    return namespace["_remove_refresh_asset_edits"]
++
++
++def _all_asset_paths(proxy):
++    fields = (proxy.prependedItems, proxy.appendedItems, proxy.addedItems, proxy.deletedItems, proxy.explicitItems)
++    return [item.assetPath for field in fields for item in field]
++
++
++def main() -> None:
++    cleanup = _load_cleanup_helper()
++    layer = Sdf.Layer.CreateAnonymous("cleanup-test.usda")
++    m1 = Sdf.CreatePrimInLayer(layer, "/M1Panda")
++    panda = Sdf.CreatePrimInLayer(layer, "/M1Panda/Panda")
++    m1.referenceList.prependedItems = [Sdf.Reference("keep-m1.usd"), Sdf.Reference("/M1Panda")]
++    m1.referenceList.deletedItems = [Sdf.Reference("/M1Panda")]
++    panda.referenceList.prependedItems = [Sdf.Reference("keep-panda.usd"), Sdf.Reference("/M1Panda/Panda")]
++    panda.referenceList.deletedItems = [Sdf.Reference("/M1Panda/Panda")]
++    panda.payloadList.prependedItems = [Sdf.Payload("keep-payload.usd"), Sdf.Payload("/M1Panda/Panda")]
++    panda.payloadList.deletedItems = [Sdf.Payload("/M1Panda/Panda")]
++
++    cleanup(layer)
++    assert _all_asset_paths(m1.referenceList) == ["keep-m1.usd"]
++    assert _all_asset_paths(panda.referenceList) == ["keep-panda.usd"]
++    assert _all_asset_paths(panda.payloadList) == ["keep-payload.usd"]
++
++    stage = Usd.Stage.Open(str(ASSET))
++    assert stage is not None
++    roots = [
++        str(prim.GetPath()) for prim in stage.Traverse() if prim.HasAPI(UsdPhysics.ArticulationRootAPI)
++    ]
++    assert roots == ["/M1Panda/BASE_LINK"]
++    mount = stage.GetPrimAtPath("/M1Panda/Panda/panda_link0/AssemblerFixedJoint")
++    assert mount.IsA(UsdPhysics.FixedJoint)
++    joint = UsdPhysics.Joint(mount)
++    assert [str(path) for path in joint.GetBody0Rel().GetTargets()] == ["/M1Panda/BASE_LINK"]
++    assert [str(path) for path in joint.GetBody1Rel().GetTargets()] == ["/M1Panda/Panda/panda_link0"]
++    assert joint.GetJointEnabledAttr().Get() is True
++    assert mount.GetAttribute("physics:excludeFromArticulation").Get() is False
++    assert tuple(joint.GetLocalPos1Attr().Get()) == (0.0, 0.0, 0.0)
++    local_rot1 = joint.GetLocalRot1Attr().Get()
++    assert (float(local_rot1.GetReal()), *tuple(local_rot1.GetImaginary())) == (1.0, 0.0, 0.0, 0.0)
++    print(json.dumps({"cleanup": "pass", "roots": roots, "mount": "pass"}, sort_keys=True), flush=True)
++
++
++if __name__ == "__main__":
++    try:
++        main()
++    except Exception:
++        traceback.print_exc()
++        sys.stdout.flush()
++        sys.stderr.flush()
++        os._exit(1)
++    sys.stdout.flush()
++    os._exit(0)
+--- .superpowers/sdd/task-2-before/test_m1_panda_asset_static.py	2026-08-14 13:19:50.603477865 +0800
++++ Go2Pvcnn/tests/test_m1_panda_asset_static.py	2026-08-14 15:24:37.047115676 +0800
+@@ -1,3 +1,4 @@
++import ast
+ import json
+ from pathlib import Path
+ 
+@@ -6,6 +7,39 @@
+ ASSET_ROOT = ROOT / "assets" / "m1_panda"
+ 
+ 
++def _load_verifier_contract_helpers():
++    path = ROOT / "scripts" / "verify_m1_panda_asset.py"
++    tree = ast.parse(path.read_text())
++    helper_names = {
++        "_classify_unresolved_dependencies",
++        "_articulation_root_errors",
++        "_mount_joint_contract_errors",
++    }
++    functions = {
++        node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
++    }
++    assert helper_names <= functions.keys()
++    constants = [
++        node
++        for node in tree.body
++        if isinstance(node, ast.Assign)
++        and len(node.targets) == 1
++        and isinstance(node.targets[0], ast.Name)
++        and node.targets[0].id
++        in {
++            "BUILTIN_MDL_ALLOWLIST",
++            "EXPECTED_ARTICULATION_ROOT",
++            "EXPECTED_MOUNT_BODY0",
++            "EXPECTED_MOUNT_BODY1",
++            "EXPECTED_MOUNT_CHILD_LOCAL_POS",
++            "EXPECTED_MOUNT_CHILD_LOCAL_ROT",
++        }
++    ]
++    namespace = {}
++    exec(compile(ast.Module(body=constants + [functions[name] for name in helper_names], type_ignores=[]), str(path), "exec"), namespace)
++    return namespace
++
++
+ def test_m1_panda_sources_are_project_owned_and_manifested():
+     manifest = json.loads((ASSET_ROOT / "source_manifest.json").read_text())
+     assert manifest["m1"]["entry"] == "m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_physics.usd"
+@@ -21,3 +55,165 @@
+     assert "omniverse://" not in text
+     assert "http://" not in text
+     assert "https://" not in text
++
++
++def test_builder_declares_single_robot_mount_contract():
++    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
++    assert 'ROOT_PRIM = "/M1Panda"' in source
++    assert 'BASE_MOUNT_FRAME = "/BASE_LINK"' in source
++    assert 'PANDA_MOUNT_FRAME = "/panda_link0"' in source
++    assert 'MOUNT_JOINT_PATH = f"{PANDA_PRIM}/panda_link0/AssemblerFixedJoint"' in source
++    assert "assemble_articulations(" in source
++    assert "single_robot=True" in source
++    assert "EXPECTED_MOUNT_CHILD_LOCAL_POS = (0.0, 0.0, 0.0)" in source
++    assert "EXPECTED_MOUNT_CHILD_LOCAL_ROT = (1.0, 0.0, 0.0, 0.0)" in source
++    assert "GetLocalPos1Attr().Get()" in source
++    assert "GetLocalRot1Attr().Get()" in source
++
++
++def test_builder_enables_robot_assembler_after_app_startup():
++    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
++    app_start = source.index("simulation_app = app_launcher.app")
++    enable = source.index('enable_extension("isaacsim.robot_setup.assembler")')
++    assembler_import = source.index("from isaacsim.robot_setup.assembler import RobotAssembler")
++    assert app_start < enable < assembler_import
++
++
++def test_verifier_checks_offline_and_topology_contracts():
++    source = (ROOT / "scripts" / "verify_m1_panda_asset.py").read_text()
++    for token in (
++        "ComputeAllDependencies",
++        "remote_dependencies",
++        "EXPECTED_DOF_COUNT = 25",
++        '"BASE_LINK"',
++        '"panda_link0"',
++        '"panda_hand"',
++        '"/M1Panda/Panda/panda_link0/AssemblerFixedJoint"',
++    ):
++        assert token in source
++
++
++def test_verifier_emits_json_and_forces_a_reliable_exit_without_kit_cleanup():
++    source = (ROOT / "scripts" / "verify_m1_panda_asset.py").read_text()
++    emit = source.index("print(json.dumps(result, sort_keys=True))")
++    flush = source.index("sys.stdout.flush()", emit)
++    forced_exit = source.index("os._exit(exit_code)", flush)
++    assert emit < flush < forced_exit
++    assert "simulation_app.close()" not in source
++
++
++def test_verifier_forces_nonzero_exit_before_kit_cleanup_on_failure():
++    source = (ROOT / "scripts" / "verify_m1_panda_asset.py").read_text()
++    assert "sys.stdout.flush()" in source
++    assert "os._exit(exit_code)" in source
++
++
++def test_verifier_reports_dependency_and_physics_evidence_together():
++    source = (ROOT / "scripts" / "verify_m1_panda_asset.py").read_text()
++    assert '"unresolved_dependencies"' in source
++    assert '"validation_errors"' in source
++    assert '"physics_steps": 1' in source
++
++
++def test_verifier_supplies_required_empty_actuator_mapping():
++    source = (ROOT / "scripts" / "verify_m1_panda_asset.py").read_text()
++    assert "actuators={}" in source
++
++
++def test_builder_serializes_a_relocatable_single_root_asset():
++    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
++    tree = ast.parse(source)
++    assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
++    for token in (
++        'Sdf.Reference("/M1Panda")',
++        'Sdf.Reference("/M1Panda/Panda")',
++        'Sdf.Payload("/M1Panda/Panda")',
++        'Sdf.Reference("m1_floating.usda")',
++        'Sdf.Reference("panda/panda.usd")',
++        "RemoveAPI(UsdPhysics.ArticulationRootAPI)",
++        "RemoveAPI(PhysxSchema.PhysxArticulationAPI)",
++        'GetAttribute("physics:excludeFromArticulation")',
++        'GetAttribute("physics:jointEnabled")',
++        "raise RuntimeError",
++        "Export(str(combined_usd))",
++    ):
++        assert token in source
++
++
++def test_verifier_only_allows_the_declared_builtin_mdl_dependency():
++    source = (ROOT / "scripts" / "verify_m1_panda_asset.py").read_text()
++    tree = ast.parse(source)
++    assignments = {
++        node.targets[0].id: ast.literal_eval(node.value)
++        for node in tree.body
++        if isinstance(node, ast.Assign)
++        and len(node.targets) == 1
++        and isinstance(node.targets[0], ast.Name)
++        and node.targets[0].id == "BUILTIN_MDL_ALLOWLIST"
++    }
++    assert assignments == {"BUILTIN_MDL_ALLOWLIST": {"OmniPBR.mdl"}}
++    assert '"builtin_mdl_dependencies"' in source
++    assert '"unresolved_dependencies"' in source
++    assert "if item in BUILTIN_MDL_ALLOWLIST" in source
++
++
++def test_verifier_requires_successful_initialization_with_legal_panda_home_pose():
++    source = (ROOT / "scripts" / "verify_m1_panda_asset.py").read_text()
++    for token in (
++        '"panda_joint2": -0.569',
++        '"panda_joint4": -2.810',
++        '"panda_joint6": 3.037',
++        '"panda_joint7": 0.741',
++        '"panda_finger_joint.*": 0.04',
++        "init_state=ArticulationCfg.InitialStateCfg(",
++        "robot.is_initialized",
++        '"runtime_initialized"',
++        '"panda_root_joint_enabled"',
++        '"mount_relative_step_delta_m"',
++        "MAX_MOUNT_RELATIVE_STEP_DELTA_M",
++    ):
++        assert token in source
++
++
++def test_dependency_classification_only_allows_exact_omnipbr():
++    helpers = _load_verifier_contract_helpers()
++    builtin, unresolved = helpers["_classify_unresolved_dependencies"](
++        ["OmniPBR.mdl", "Other.mdl", "textures/OmniPBR.mdl", "/M1Panda"]
++    )
++    assert builtin == ["OmniPBR.mdl"]
++    assert unresolved == ["Other.mdl", "textures/OmniPBR.mdl", "/M1Panda"]
++
++
++def test_articulation_root_predicate_requires_exact_m1_base_link():
++    errors = _load_verifier_contract_helpers()["_articulation_root_errors"]
++    assert errors(["/M1Panda/BASE_LINK"]) == []
++    assert errors(["/M1Panda/Panda"])
++    assert errors([])
++    assert errors(["/M1Panda/BASE_LINK", "/M1Panda/Panda"])
++
++
++def test_mount_contract_predicate_checks_targets_enabled_and_inclusion():
++    errors = _load_verifier_contract_helpers()["_mount_joint_contract_errors"]
++    expected = (
++        ["/M1Panda/BASE_LINK"],
++        ["/M1Panda/Panda/panda_link0"],
++        True,
++        False,
++        (0.0, 0.0, 0.0),
++        (1.0, 0.0, 0.0, 0.0),
++    )
++    assert errors(*expected) == []
++    assert errors(["/Wrong"], *expected[1:])
++    assert errors(expected[0], ["/Wrong"], *expected[2:])
++    assert errors(*expected[:2], False, *expected[3:])
++    assert errors(*expected[:3], True, *expected[4:])
++    assert errors(*expected[:4], (0.1, 0.0, 0.0), expected[5])
++    assert errors(*expected[:5], (0.0, 1.0, 0.0, 0.0))
++
++
++def test_builder_exposes_behavioral_cleanup_and_serialized_validation_helpers():
++    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
++    tree = ast.parse(source)
++    names = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
++    assert "_remove_refresh_asset_edits" in names
++    assert "_validate_serialized_asset" in names
+# Task 5 Report
+
+Status: FIX_ROUND_1_AWAITING_REVIEW
+
+Git Ref: unavailable
+
+## Changes
+
+- Added `Go2Pvcnn/go2_pvcnn/mdp/m1_panda_wrench.py`: pure transform and environment adapter.
+- Exported both functions from `go2_pvcnn.mdp`.
+- Wired exact mount/base params into the isolated smoke policy observation.
+- Added Kit-free tensor/adapter tests and exact smoke AST coverage; the 12 leg-position + 4 wheel-velocity action contract is unchanged.
+- Updated T400 dashboard/branch/progress and an independent log/index entry.
+
+## Frame And Sign Contract
+
+The raw PhysX incoming wrench is parent-on-child, expressed in the incoming joint frame and about the joint origin. The formal asset proves the child-side joint pose is `localPos1=(0,0,0)`, `localRot1=(1,0,0,0)`, so it coincides with the `panda_link0` actor frame/origin. The adapter first uses the mount world quaternion to rotate raw `[Fx,Fy,Fz,Mx,My,Mz]` into world. The unchanged pure transform then computes `M_BASE_w = M_mount_w + (p_mount_w - p_BASE_w) x F_w` and inverse-rotates force/moment into `BASE_LINK`. Output remains unnormalized `[F,M]` about the base actor origin.
+
+The adapter uses `asset_cfg.name` only and resolves the explicit mount/base names independently with `preserve_order=True`; exact returned names and exactly one ID are required. Python integer indexing preserves the incoming tensor device.
+
+## RED / GREEN And Verification
+
+- Initial RED: `1 failed, 11 passed, 8 errors in 1.79s`, exit `1` (missing module/term only).
+- First GREEN: `20 passed in 0.92s`, exit `0`.
+- Unique-ID self-review RED: `1 failed, 4 passed in 0.77s`, then fixed with explicit ID cardinality.
+- Planned regression: `25 passed in 0.84s`, exit `0`.
+- Task 4 expanded regression: `41 passed in 0.86s`, exit `0`.
+- Related `py_compile`: exit `0`.
+- Bounded loco/source real Isaac `quat_rotate_inverse` and production pure-function calls: exit `0`; lever+yaw output approximately `[2,0,0,0,0,5]`.
+- Bounded loco bootstrap + headless AppLauncher public export/real cfg/exact params/actions assertions: exit `0`.
+
+## Self-review And Boundary
+
+Tests cover batch lever+rotation, sign/order, adapter slices/poses/quaternion/output, explicit-name priority, `preserve_order`, and missing/duplicate bodies. Smoke adds no noise, normalization, Student/Teacher, IK, or OSC; Task 6 is untouched. No physical smoke env create/step or known-load live PhysX sign calibration was performed.
+
+## Fix Round 1
+
+- Root cause: the initial adapter trusted IsaacLab's high-level “world frame” docstring, but the installed vendor `TestLinkIncomingJointForce` behavior test constructs torque about each incoming joint origin, inverse-rotates world force and torque into the joint frame, and compares those values directly with `get_link_incoming_joint_force()`.
+- Read-only bounded AppLauncher+PXR evidence for `/M1Panda/Panda/panda_link0/AssemblerFixedJoint`: body0 `/M1Panda/BASE_LINK`, body1 `/M1Panda/Panda/panda_link0`, localPos0 `(0,0,0.1389991939)`, localRot0 identity, localPos1 zero, localRot1 identity.
+- Hypothesis RED: rotated base/mount with raw joint-frame `+X`, raw `Mz=2`, and nonzero world lever. Old output was approximately `[0,-1,0,0,0,2]`; required output `[1,0,0,0,0,3]`. Together with export/asset-contract checks: `4 failed, 22 passed`.
+- Fix: rotate raw force and torque once from mount/joint frame into world with `quat_rotate`, then call the unchanged world-frame pure helper using mount actor position as the joint origin. Builder, verifier, and PXR behavior now enforce child local zero/identity. Public exports are explicit and module `__all__` contains only the two functions.
+- Focused GREEN: `26 passed in 0.88s`. Final planned four-file suite: `26 passed in 0.81s`; all five Task 5/Task 4 related files: `42 passed in 0.81s`; Task 2–4 focused without wrench: `32 passed in 0.04s`; pycompile exit `0`.
+- Asset evidence: rebuild exit `0`; 2/2 generated checksums unchanged/pass; PXR behavior exit `0`; CPU verifier exit `0`, 25 DOF, one physics step, child local pose recorded, `validation_errors=[]`.
+- Real Isaac evidence: raw joint→world→base production sequence exit `0`, output approximately `[1,0,0,0,0,3]`; headless AppLauncher public export/cfg/action check exit `0`.
+- Remaining Task 6 boundary: calibrate live combined-asset numerical sign/magnitude and sensor-facing convention. Parent-on-child naming is retained. Task 5 is awaiting independent re-review, not claimed PASS.
+assets/m1_panda/panda/panda.usd: 成功
+assets/m1_panda/m1_panda.usd: 成功

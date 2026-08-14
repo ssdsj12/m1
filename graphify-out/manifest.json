@@ -1,0 +1,22 @@
+{
+  "__init__.py": {
+    "mtime": 1784201356.381827,
+    "ast_hash": "42dbb17c6fb84b3fd32e3203a4e14d15",
+    "semantic_hash": "42dbb17c6fb84b3fd32e3203a4e14d15"
+  },
+  "rigid_object/global_rigid_object.py": {
+    "mtime": 1782355600.0,
+    "ast_hash": "91302fdc68b5f559b0ec9d0b671935ee",
+    "semantic_hash": "91302fdc68b5f559b0ec9d0b671935ee"
+  },
+  "rigid_object_collection/global_rigid_object_collection.py": {
+    "mtime": 1782355600.0,
+    "ast_hash": "5a18469a5396385d8f445ee4bee10cc1",
+    "semantic_hash": "5a18469a5396385d8f445ee4bee10cc1"
+  },
+  "rigid_object_collection/global_rigid_object_collection_cfg.py": {
+    "mtime": 1782355600.0,
+    "ast_hash": "86d5bea7fd7cda373db31c98c57f6c35",
+    "semantic_hash": "86d5bea7fd7cda373db31c98c57f6c35"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "name": "cuda-cudart-static",
+  "version": "12.8.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-cudart-static-12.8.90-0.conda",
+  "md5": "ddae12fe2225728e706b708aff52c757",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-cudart-static-12.8.90-0.conda",
+  "sha256": "8e93a18c81e510d62289178d3344af3865bcbe37b694c7890a1919217fd31a2e",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-cudart-static_linux-64 12.8.90 0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739446213223,
+  "size": 17369,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-cudart-static-12.8.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-cudart-static-12.8.90-0",
+  "files": [
+    "lib/libcudadevrt.a",
+    "lib/libcudart_static.a",
+    "lib/libculibos.a"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcudadevrt.a",
+        "path_type": "softlink",
+        "sha256": "1621b3f71d09c649f94b8eb53c7d4adedc96bd36e2a0d7add2cf11eab3e3bbbb",
+        "size_in_bytes": 2391498
+      },
+      {
+        "_path": "lib/libcudart_static.a",
+        "path_type": "softlink",
+        "sha256": "548012438f65d00ecc28c30bd4a11ca6b090cc8773a990174ccc33e0b81aa966",
+        "size_in_bytes": 1373394
+      },
+      {
+        "_path": "lib/libculibos.a",
+        "path_type": "softlink",
+        "sha256": "385075313a7f493a9c4dd550683a11d812729e1645efae94dca2dec7ac4e6d45",
+        "size_in_bytes": 30794
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-cudart-static-12.8.90-0",
+    "type": 1
+  }
+}

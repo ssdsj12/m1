@@ -1,0 +1,76 @@
+.TH "CUfileIOParams" 3 "Wed Feb 12 2025" "GPUDirect Storage" \" -*- nroff -*-
+.ad l
+.nh
+.SH NAME
+CUfileIOParams
+.SH SYNOPSIS
+.br
+.PP
+.PP
+\fC#include <cufile\&.h>\fP
+.SS "Data Fields"
+
+.in +1c
+.ti -1c
+.RI "void * \fBcookie\fP"
+.br
+.ti -1c
+.RI "\fBCUfileHandle_t\fP \fBfh\fP"
+.br
+.ti -1c
+.RI "\fBCUfileBatchMode_t\fP \fBmode\fP"
+.br
+.ti -1c
+.RI "\fBCUfileOpcode_t\fP \fBopcode\fP"
+.br
+.ti -1c
+.RI "union {"
+.br
+.ti -1c
+.RI "   struct {"
+.br
+.ti -1c
+.RI "      void * \fBdevPtr_base\fP"
+.br
+.ti -1c
+.RI "      off_t \fBdevPtr_offset\fP"
+.br
+.ti -1c
+.RI "      off_t \fBfile_offset\fP"
+.br
+.ti -1c
+.RI "      size_t \fBsize\fP"
+.br
+.ti -1c
+.RI "   } \fBbatch\fP"
+.br
+.ti -1c
+.RI "} \fBu\fP"
+.br
+.in -1c
+.SH "Field Documentation"
+.PP 
+.SS "struct { \&.\&.\&. }  CUfileIOParams::batch"
+
+.SS "void* CUfileIOParams::cookie"
+
+.SS "void* CUfileIOParams::devPtr_base"
+
+.SS "off_t CUfileIOParams::devPtr_offset"
+
+.SS "\fBCUfileHandle_t\fP CUfileIOParams::fh"
+
+.SS "off_t CUfileIOParams::file_offset"
+
+.SS "\fBCUfileBatchMode_t\fP CUfileIOParams::mode"
+
+.SS "\fBCUfileOpcode_t\fP CUfileIOParams::opcode"
+
+.SS "size_t CUfileIOParams::size"
+
+.SS "union { \&.\&.\&. }  CUfileIOParams::u"
+
+
+.SH "Author"
+.PP 
+Generated automatically by Doxygen for GPUDirect Storage from the source code\&.

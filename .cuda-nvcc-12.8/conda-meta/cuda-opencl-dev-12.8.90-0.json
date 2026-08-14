@@ -1,0 +1,126 @@
+{
+  "name": "cuda-opencl-dev",
+  "version": "12.8.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-opencl-dev-12.8.90-0.conda",
+  "md5": "9cf65e338358c67473ee1dd9b35820b3",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-opencl-dev-12.8.90-0.conda",
+  "sha256": "ae357369ba35d89e1dc9bde99490a0dd328e0bfa3fc66b49df4f6c06514c3a5e",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-opencl 12.8.90 0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739445930585,
+  "size": 92492,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-opencl-dev-12.8.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-opencl-dev-12.8.90-0",
+  "files": [
+    "lib/pkgconfig/opencl-12.8.pc",
+    "targets/x86_64-linux/include/CL/cl.h",
+    "targets/x86_64-linux/include/CL/cl.hpp",
+    "targets/x86_64-linux/include/CL/cl_egl.h",
+    "targets/x86_64-linux/include/CL/cl_ext.h",
+    "targets/x86_64-linux/include/CL/cl_gl.h",
+    "targets/x86_64-linux/include/CL/cl_gl_ext.h",
+    "targets/x86_64-linux/include/CL/cl_platform.h",
+    "targets/x86_64-linux/include/CL/cl_version.h",
+    "targets/x86_64-linux/include/CL/opencl.h",
+    "targets/x86_64-linux/lib/libOpenCL.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/pkgconfig/opencl-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/cuda-opencl_1739445895021/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_plac",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "f969c35843cd1f94c83f78a4dbfb3bf81a84910e5e5b09663cec12631c382681",
+        "size_in_bytes": 473,
+        "sha256_in_prefix": "c3cd1230ff96bee091ab3bcb58e607e6387cd966bb3412fea4aaaee1735387d0"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/cl.h",
+        "path_type": "hardlink",
+        "sha256": "065f453d561c93fde178f4821fa767d58505d179fc3c2d9725d072af1129644b",
+        "size_in_bytes": 81631,
+        "sha256_in_prefix": "065f453d561c93fde178f4821fa767d58505d179fc3c2d9725d072af1129644b"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/cl.hpp",
+        "path_type": "hardlink",
+        "sha256": "89107e251e6728de46bb0b7754038add31b0273aa091382b95fc298858454f81",
+        "size_in_bytes": 396680,
+        "sha256_in_prefix": "89107e251e6728de46bb0b7754038add31b0273aa091382b95fc298858454f81"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/cl_egl.h",
+        "path_type": "hardlink",
+        "sha256": "a16fcaec96792b6768d82e351c07ebbf7c9e12be415ee735eb2af5ce379cfcb7",
+        "size_in_bytes": 5812,
+        "sha256_in_prefix": "a16fcaec96792b6768d82e351c07ebbf7c9e12be415ee735eb2af5ce379cfcb7"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/cl_ext.h",
+        "path_type": "hardlink",
+        "sha256": "19c91370c4d371c5bfcdc16896f46bf4d40356bdea17951234c963686a6fc197",
+        "size_in_bytes": 150467,
+        "sha256_in_prefix": "19c91370c4d371c5bfcdc16896f46bf4d40356bdea17951234c963686a6fc197"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/cl_gl.h",
+        "path_type": "hardlink",
+        "sha256": "621a3a1fb33604a9026584fc423110b9ecaa094ac2c8cf3d2c3dfe795debbbff",
+        "size_in_bytes": 12535,
+        "sha256_in_prefix": "621a3a1fb33604a9026584fc423110b9ecaa094ac2c8cf3d2c3dfe795debbbff"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/cl_gl_ext.h",
+        "path_type": "hardlink",
+        "sha256": "7fd0d4ad6072a90b05749fe4d2131b424b71d19ae809ae3d7d4862b0d0aee16a",
+        "size_in_bytes": 905,
+        "sha256_in_prefix": "7fd0d4ad6072a90b05749fe4d2131b424b71d19ae809ae3d7d4862b0d0aee16a"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/cl_platform.h",
+        "path_type": "hardlink",
+        "sha256": "494bfa8b1f0050d8308cb9699a0301485b3bc42a298d5582b37ee25000fadf5a",
+        "size_in_bytes": 43455,
+        "sha256_in_prefix": "494bfa8b1f0050d8308cb9699a0301485b3bc42a298d5582b37ee25000fadf5a"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/cl_version.h",
+        "path_type": "hardlink",
+        "sha256": "1b161f73c0f0b07121314055f75df6c19d6a93e3a0d24202c6f3e2dd1615b2a2",
+        "size_in_bytes": 3125,
+        "sha256_in_prefix": "1b161f73c0f0b07121314055f75df6c19d6a93e3a0d24202c6f3e2dd1615b2a2"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/CL/opencl.h",
+        "path_type": "hardlink",
+        "sha256": "9a76fa63630e8fd5b30b5e6c692dbe7ab22edff708dfe6a06d04a3671a7716e1",
+        "size_in_bytes": 970,
+        "sha256_in_prefix": "9a76fa63630e8fd5b30b5e6c692dbe7ab22edff708dfe6a06d04a3671a7716e1"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libOpenCL.so",
+        "path_type": "softlink",
+        "sha256": "1552ec44b469da72e585a29ac7fd2aa98d7f99b9362b7fb8f3dcb2d6b603d3fb",
+        "size_in_bytes": 30856
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-opencl-dev-12.8.90-0",
+    "type": 1
+  }
+}

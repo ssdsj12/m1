@@ -1,0 +1,49 @@
+{
+  "name": "cuda-libraries-dev",
+  "version": "12.8.1",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-libraries-dev-12.8.1-0.conda",
+  "md5": "9f4a68d7770e9eee5982f2a2f7b491c0",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-libraries-dev-12.8.1-0.conda",
+  "sha256": "8013f5025b009b0c6e52f70bf291a448e9767f0291a903604b3cea70f6914276",
+  "depends": [
+    "cuda-cccl_linux-64 12.8.90.*",
+    "cuda-cudart-dev 12.8.90.*",
+    "cuda-driver-dev 12.8.90.*",
+    "cuda-nvrtc-dev 12.8.93.*",
+    "cuda-opencl-dev 12.8.90.*",
+    "cuda-profiler-api 12.8.90.*",
+    "libcublas-dev 12.8.4.1.*",
+    "libcufft-dev 11.3.3.83.*",
+    "libcufile-dev 1.13.1.3.*",
+    "libcurand-dev 10.3.9.90.*",
+    "libcusolver-dev 11.7.3.90.*",
+    "libcusparse-dev 12.5.8.93.*",
+    "libnpp-dev 12.3.3.100.*",
+    "libnvfatbin-dev 12.8.90.*",
+    "libnvjitlink-dev 12.8.93.*",
+    "libnvjpeg-dev 12.3.5.92.*"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1741064482356,
+  "size": 17071,
+  "requested_spec": "cuda-libraries-dev=12.8.1",
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-libraries-dev-12.8.1-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-libraries-dev-12.8.1-0",
+  "files": [],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": []
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-libraries-dev-12.8.1-0",
+    "type": 1
+  },
+  "requested_specs": [
+    "cuda-libraries-dev=12.8.1"
+  ]
+}

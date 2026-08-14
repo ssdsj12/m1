@@ -1,0 +1,9 @@
+cudaroot=/home/xk/coding/M1/.cuda-nvcc-12.8
+libdir=${cudaroot}/targets/x86_64-linux/lib
+includedir=${cudaroot}/targets/x86_64-linux/include
+
+Name: nppisu
+Description: NVIDIA Performance Primitives - Image Processing - Support and Data Exchange
+Version: 12.8
+Libs: -L${libdir} -lnppisu
+Cflags: -I${includedir}

@@ -1,0 +1,65 @@
+{
+  "name": "libcurand",
+  "version": "10.3.9.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcurand-10.3.9.90-0.conda",
+  "md5": "e2cd451c5d14344f5e19660e895d5665",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcurand-10.3.9.90-0.conda",
+  "sha256": "2009fa1710802de906a8210725646e696d9277e245f59888e722f7d342035c61",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739445666652,
+  "size": 45658220,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcurand-10.3.9.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcurand-10.3.9.90-0",
+  "files": [
+    "lib/libcurand.so.10",
+    "lib/libcurand.so.10.3.9.90",
+    "targets/x86_64-linux/lib/libcurand.so.10",
+    "targets/x86_64-linux/lib/libcurand.so.10.3.9.90"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcurand.so.10",
+        "path_type": "softlink",
+        "sha256": "5d00fa321858b41ef0d3b52dd53916c2af78ecbc1a1520075fdc1b45cc050593",
+        "size_in_bytes": 136749240
+      },
+      {
+        "_path": "lib/libcurand.so.10.3.9.90",
+        "path_type": "softlink",
+        "sha256": "5d00fa321858b41ef0d3b52dd53916c2af78ecbc1a1520075fdc1b45cc050593",
+        "size_in_bytes": 136749240
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcurand.so.10",
+        "path_type": "softlink",
+        "sha256": "5d00fa321858b41ef0d3b52dd53916c2af78ecbc1a1520075fdc1b45cc050593",
+        "size_in_bytes": 136749240
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcurand.so.10.3.9.90",
+        "path_type": "hardlink",
+        "sha256": "5d00fa321858b41ef0d3b52dd53916c2af78ecbc1a1520075fdc1b45cc050593",
+        "size_in_bytes": 136749240,
+        "sha256_in_prefix": "5d00fa321858b41ef0d3b52dd53916c2af78ecbc1a1520075fdc1b45cc050593"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcurand-10.3.9.90-0",
+    "type": 1
+  }
+}

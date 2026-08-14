@@ -1,0 +1,207 @@
+{
+  "name": "libcurand-dev",
+  "version": "10.3.9.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcurand-dev-10.3.9.90-0.conda",
+  "md5": "0b65128cb045500cb15d84406eb60b70",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcurand-dev-10.3.9.90-0.conda",
+  "sha256": "1d2b78bd3f612521527aacfd68df133b75a3c71ca5c4f06c4ff7ed3a8316facf",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libcurand 10.3.9.90 0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "libcurand-static >=10.3.9.90"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739445755236,
+  "size": 268146,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcurand-dev-10.3.9.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcurand-dev-10.3.9.90-0",
+  "files": [
+    "lib/libcurand.so",
+    "lib/pkgconfig/curand-12.8.pc",
+    "targets/x86_64-linux/include/curand.h",
+    "targets/x86_64-linux/include/curand_discrete.h",
+    "targets/x86_64-linux/include/curand_discrete2.h",
+    "targets/x86_64-linux/include/curand_globals.h",
+    "targets/x86_64-linux/include/curand_kernel.h",
+    "targets/x86_64-linux/include/curand_lognormal.h",
+    "targets/x86_64-linux/include/curand_mrg32k3a.h",
+    "targets/x86_64-linux/include/curand_mtgp32.h",
+    "targets/x86_64-linux/include/curand_mtgp32_host.h",
+    "targets/x86_64-linux/include/curand_mtgp32_kernel.h",
+    "targets/x86_64-linux/include/curand_mtgp32dc_p_11213.h",
+    "targets/x86_64-linux/include/curand_normal.h",
+    "targets/x86_64-linux/include/curand_normal_static.h",
+    "targets/x86_64-linux/include/curand_philox4x32_x.h",
+    "targets/x86_64-linux/include/curand_poisson.h",
+    "targets/x86_64-linux/include/curand_precalc.h",
+    "targets/x86_64-linux/include/curand_uniform.h",
+    "targets/x86_64-linux/lib/libcurand.so",
+    "targets/x86_64-linux/lib/stubs/libcurand.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcurand.so",
+        "path_type": "softlink",
+        "sha256": "5d00fa321858b41ef0d3b52dd53916c2af78ecbc1a1520075fdc1b45cc050593",
+        "size_in_bytes": 136749240
+      },
+      {
+        "_path": "lib/pkgconfig/curand-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libcurand_1739445629351/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeh",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "bfbb137af8671bec323900bebc40bd00a27470566187b9c3c96ee497c9b2ad61",
+        "size_in_bytes": 491,
+        "sha256_in_prefix": "ca01ac25833ac75f153f240bf54319994d7561d53008c1a353f54bc168480b7f"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand.h",
+        "path_type": "hardlink",
+        "sha256": "b2dad0f62765453428049cbf8406c04f8a60916e8129883ca7f9d48db6fc055c",
+        "size_in_bytes": 44075,
+        "sha256_in_prefix": "b2dad0f62765453428049cbf8406c04f8a60916e8129883ca7f9d48db6fc055c"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_discrete.h",
+        "path_type": "hardlink",
+        "sha256": "daa0f706423adb65c4bb4e38e3054fec779890a031d118ebd870e1a94e1203b1",
+        "size_in_bytes": 3486,
+        "sha256_in_prefix": "daa0f706423adb65c4bb4e38e3054fec779890a031d118ebd870e1a94e1203b1"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_discrete2.h",
+        "path_type": "hardlink",
+        "sha256": "66b4133b947dc7cdc0317f3cbaaeccf0cf780cb482e55133d0f0247dcc2d41e8",
+        "size_in_bytes": 10883,
+        "sha256_in_prefix": "66b4133b947dc7cdc0317f3cbaaeccf0cf780cb482e55133d0f0247dcc2d41e8"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_globals.h",
+        "path_type": "hardlink",
+        "sha256": "6c44b52b1d0dac04d79350d178c324a96ac1d3ada73a7680a77f72db6c158975",
+        "size_in_bytes": 3717,
+        "sha256_in_prefix": "6c44b52b1d0dac04d79350d178c324a96ac1d3ada73a7680a77f72db6c158975"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_kernel.h",
+        "path_type": "hardlink",
+        "sha256": "4a37c07a1d77c9b5c8c627a4720733cee6b4da4200a844e8a49291858bc26adf",
+        "size_in_bytes": 53133,
+        "sha256_in_prefix": "4a37c07a1d77c9b5c8c627a4720733cee6b4da4200a844e8a49291858bc26adf"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_lognormal.h",
+        "path_type": "hardlink",
+        "sha256": "f97fa2364252cd6a406188e8826ebcf4425365fce8adef6cc54ece6dd7658cb9",
+        "size_in_bytes": 28142,
+        "sha256_in_prefix": "f97fa2364252cd6a406188e8826ebcf4425365fce8adef6cc54ece6dd7658cb9"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_mrg32k3a.h",
+        "path_type": "hardlink",
+        "sha256": "65555112318db09409fb7233659fcb286b46b5eb2589c6fc134025cb8f4128fb",
+        "size_in_bytes": 170296,
+        "sha256_in_prefix": "65555112318db09409fb7233659fcb286b46b5eb2589c6fc134025cb8f4128fb"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_mtgp32.h",
+        "path_type": "hardlink",
+        "sha256": "421ae6c74a47585f8fd94bb96cac1813dca6116ab773ba81cc221354c68a31f2",
+        "size_in_bytes": 7845,
+        "sha256_in_prefix": "421ae6c74a47585f8fd94bb96cac1813dca6116ab773ba81cc221354c68a31f2"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_mtgp32_host.h",
+        "path_type": "hardlink",
+        "sha256": "497ab3992424cd32d2449e29a234e0fd33420b74fe1bcf477412be6e8483aabe",
+        "size_in_bytes": 18274,
+        "sha256_in_prefix": "497ab3992424cd32d2449e29a234e0fd33420b74fe1bcf477412be6e8483aabe"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_mtgp32_kernel.h",
+        "path_type": "hardlink",
+        "sha256": "6a36675ebe595e7404c4495fe8b3e98a0aeb28f4e630865b4724c49c9f810e1c",
+        "size_in_bytes": 13731,
+        "sha256_in_prefix": "6a36675ebe595e7404c4495fe8b3e98a0aeb28f4e630865b4724c49c9f810e1c"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_mtgp32dc_p_11213.h",
+        "path_type": "hardlink",
+        "sha256": "eff8066141f8ed4ba020012deb4bd81f99c56be414c13a43c121202e0f5c66db",
+        "size_in_bytes": 276889,
+        "sha256_in_prefix": "eff8066141f8ed4ba020012deb4bd81f99c56be414c13a43c121202e0f5c66db"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_normal.h",
+        "path_type": "hardlink",
+        "sha256": "967998564d9f9f4a045563b2b5d2a15eb1cbdfa18b0a332707c3a765e09a61c0",
+        "size_in_bytes": 26953,
+        "sha256_in_prefix": "967998564d9f9f4a045563b2b5d2a15eb1cbdfa18b0a332707c3a765e09a61c0"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_normal_static.h",
+        "path_type": "hardlink",
+        "sha256": "e4ae224c2f40b925827b52d5c6e8ffd32dc1563b69d1bc4eea19ddbf6adb9a2c",
+        "size_in_bytes": 4727,
+        "sha256_in_prefix": "e4ae224c2f40b925827b52d5c6e8ffd32dc1563b69d1bc4eea19ddbf6adb9a2c"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_philox4x32_x.h",
+        "path_type": "hardlink",
+        "sha256": "4f6d483fe45d837fed49553d25ee1d2cabb012a138a2f7f08bbaf584e63dd83c",
+        "size_in_bytes": 7166,
+        "sha256_in_prefix": "4f6d483fe45d837fed49553d25ee1d2cabb012a138a2f7f08bbaf584e63dd83c"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_poisson.h",
+        "path_type": "hardlink",
+        "sha256": "2ab8573a63bf0fb69c9678fc81e2321ea769490c161eead2f55fe956d833a1d3",
+        "size_in_bytes": 25461,
+        "sha256_in_prefix": "2ab8573a63bf0fb69c9678fc81e2321ea769490c161eead2f55fe956d833a1d3"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_precalc.h",
+        "path_type": "hardlink",
+        "sha256": "23a3597604f8d9f326f6a482b4ffab94e02ab7866caa06a5d1a8e4b5c3e611a9",
+        "size_in_bytes": 1392393,
+        "sha256_in_prefix": "23a3597604f8d9f326f6a482b4ffab94e02ab7866caa06a5d1a8e4b5c3e611a9"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/curand_uniform.h",
+        "path_type": "hardlink",
+        "sha256": "829991810bb9afaa6980b4e0eb4357a03755252eb0314cba8c2e5b87c974e1ef",
+        "size_in_bytes": 17472,
+        "sha256_in_prefix": "829991810bb9afaa6980b4e0eb4357a03755252eb0314cba8c2e5b87c974e1ef"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcurand.so",
+        "path_type": "softlink",
+        "sha256": "5d00fa321858b41ef0d3b52dd53916c2af78ecbc1a1520075fdc1b45cc050593",
+        "size_in_bytes": 136749240
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libcurand.so",
+        "path_type": "hardlink",
+        "sha256": "636ac012981e6742fcc090f92ed5f5c9def352c9291b7e6cf8df365f3e0676c4",
+        "size_in_bytes": 13313,
+        "sha256_in_prefix": "636ac012981e6742fcc090f92ed5f5c9def352c9291b7e6cf8df365f3e0676c4"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcurand-dev-10.3.9.90-0",
+    "type": 1
+  }
+}

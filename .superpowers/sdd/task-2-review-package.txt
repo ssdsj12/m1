@@ -1,0 +1,298 @@
+BASE: filesystem snapshot after Task 1
+HEAD: current filesystem after Task 2
+
+BUILDER DIFF
+--- /dev/null	2026-08-14 17:49:55.089959484 +0800
++++ /home/xk/coding/M1/Go2Pvcnn/scripts/build_m1_panda_asset.py	2026-08-14 13:33:48.477934857 +0800
+@@ -0,0 +1,96 @@
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++from isaaclab.app import AppLauncher
++
++parser = argparse.ArgumentParser()
++parser.add_argument("--asset-root", type=Path, required=True)
++AppLauncher.add_app_launcher_args(parser)
++args = parser.parse_args()
++app_launcher = AppLauncher(args)
++simulation_app = app_launcher.app
++
++import numpy as np
++from pxr import Sdf, Usd, UsdGeom
++
++from isaacsim.core.utils.extensions import enable_extension
++
++enable_extension("isaacsim.robot_setup.assembler")
++
++import isaacsim.core.utils.prims as prim_utils
++import isaacsim.core.utils.stage as stage_utils
++from isaacsim.robot_setup.assembler import RobotAssembler
++from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
++
++ROOT_PRIM = "/M1Panda"
++PANDA_PRIM = f"{ROOT_PRIM}/Panda"
++BASE_MOUNT_FRAME = "/BASE_LINK"
++PANDA_MOUNT_FRAME = "/panda_link0"
++MOUNT_JOINT_PATH = f"{PANDA_PRIM}/panda_link0/AssemblerFixedJoint"
++MOUNT_CLEARANCE_M = 0.01
++
++
++def _top_z(stage: Usd.Stage, prim_path: str) -> float:
++    bbox = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
++    return float(bbox.ComputeWorldBound(stage.GetPrimAtPath(prim_path)).ComputeAlignedBox().GetMax()[2])
++
++
++def build_asset(asset_root: Path) -> Path:
++    asset_root = asset_root.resolve()
++    panda_dir = asset_root / "panda"
++    panda_dir.mkdir(parents=True, exist_ok=True)
++    panda_usd = panda_dir / "panda.usd"
++    combined_usd = asset_root / "m1_panda.usd"
++    urdf = asset_root / "panda_source/franka_description/robots/panda_arm_hand.urdf"
++
++    converter = UrdfConverter(
++        UrdfConverterCfg(
++            asset_path=str(urdf),
++            usd_dir=str(panda_dir),
++            usd_file_name=panda_usd.name,
++            fix_base=True,
++            merge_fixed_joints=False,
++            force_usd_conversion=True,
++            joint_drive=UrdfConverterCfg.JointDriveCfg(
++                gains=UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=80.0, damping=4.0),
++                target_type="position",
++            ),
++        )
++    )
++    assert Path(converter.usd_path).is_file()
++
++    stage_utils.create_new_stage()
++    prim_utils.create_prim(ROOT_PRIM, usd_path=str(asset_root / "m1_floating.usda"))
++    prim_utils.create_prim(PANDA_PRIM, usd_path=str(panda_usd))
++    stage = stage_utils.get_current_stage()
++    base_top_z = _top_z(stage, f"{ROOT_PRIM}/BASE_LINK")
++    base_origin_z = float(
++        UsdGeom.Xformable(stage.GetPrimAtPath(f"{ROOT_PRIM}/BASE_LINK"))
++        .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
++        .ExtractTranslation()[2]
++    )
++    mount_offset = np.array([0.0, 0.0, base_top_z - base_origin_z + MOUNT_CLEARANCE_M])
++
++    assembled = RobotAssembler().assemble_articulations(
++        ROOT_PRIM,
++        PANDA_PRIM,
++        BASE_MOUNT_FRAME,
++        PANDA_MOUNT_FRAME,
++        fixed_joint_offset=mount_offset,
++        fixed_joint_orient=np.array([1.0, 0.0, 0.0, 0.0]),
++        mask_all_collisions=True,
++        single_robot=True,
++    )
++    assert str(assembled.fixed_joint.GetPath()) == MOUNT_JOINT_PATH
++    stage.SetDefaultPrim(stage.GetPrimAtPath(ROOT_PRIM))
++    stage.GetRootLayer().Export(str(combined_usd))
++    return combined_usd
++
++
++if __name__ == "__main__":
++    try:
++        print(build_asset(args.asset_root))
++    finally:
++        simulation_app.close()
+
+TEST DIFF
+--- /home/xk/coding/M1/.superpowers/sdd/task-2-before/test_m1_panda_asset_static.py	2026-08-14 13:19:50.603477865 +0800
++++ /home/xk/coding/M1/Go2Pvcnn/tests/test_m1_panda_asset_static.py	2026-08-14 13:33:38.654439677 +0800
+@@ -21,3 +21,21 @@
+     assert "omniverse://" not in text
+     assert "http://" not in text
+     assert "https://" not in text
++
++
++def test_builder_declares_single_robot_mount_contract():
++    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
++    assert 'ROOT_PRIM = "/M1Panda"' in source
++    assert 'BASE_MOUNT_FRAME = "/BASE_LINK"' in source
++    assert 'PANDA_MOUNT_FRAME = "/panda_link0"' in source
++    assert 'MOUNT_JOINT_PATH = f"{PANDA_PRIM}/panda_link0/AssemblerFixedJoint"' in source
++    assert "assemble_articulations(" in source
++    assert "single_robot=True" in source
++
++
++def test_builder_enables_robot_assembler_after_app_startup():
++    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
++    app_start = source.index("simulation_app = app_launcher.app")
++    enable = source.index('enable_extension("isaacsim.robot_setup.assembler")')
++    assembler_import = source.index("from isaacsim.robot_setup.assembler import RobotAssembler")
++    assert app_start < enable < assembler_import
+
+GENERATED INVENTORY
+.asset_hash 32 bytes
+config.yaml 658 bytes
+configuration/panda_base.usd 7982775 bytes
+configuration/panda_physics.usd 5335 bytes
+configuration/panda_sensor.usd 645 bytes
+panda.usd 1592 bytes
+-rw-rw-r-- 1 xk xk  193 Aug 14 13:36 /home/xk/coding/M1/Go2Pvcnn/assets/m1_panda/generated_files.sha256
+-rw-rw-r-- 1 xk xk 2787 Aug 14 13:36 /home/xk/coding/M1/Go2Pvcnn/assets/m1_panda/m1_panda.usd
+
+GENERATED CHECKSUMS
+assets/m1_panda/panda/panda.usd: 成功
+assets/m1_panda/m1_panda.usd: 成功
+
+TASK LOG
+# M1 + Panda Single Articulation Build
+
+## Purpose
+
+记录 T400 asset/wrench foundation Task 2 的 TDD、Panda URDF 转换、RobotAssembler 单 articulation 装配和生成文件校验。
+
+## Stage And Todo
+
+- Stage: T400 / asset-wrench foundation / Task 2
+- Related todo: [T400](../todo/T400-m1-panda-force-aware-teacher-student.md)
+
+## Input Conditions
+
+- `Go2Pvcnn/assets/m1_panda/m1_floating.usda`
+- `Go2Pvcnn/assets/m1_panda/panda_source/franka_description/robots/panda_arm_hand.urdf`
+- Git Ref: unavailable
+- Baseline Ref: unavailable
+- Candidate Ref: filesystem working copy
+
+## RED
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+  Go2Pvcnn/tests/test_m1_panda_asset_static.py::test_builder_declares_single_robot_mount_contract
+```
+
+Result: expected missing-builder failure, `1 failed in 0.03s`, exit code `1`.
+
+The local Isaac Sim 4.5 headless experience also exposed a missing extension enable. A second static RED required `enable_extension("isaacsim.robot_setup.assembler")` after AppLauncher startup and before the assembler import: `1 failed in 0.02s`, exit code `1`.
+
+## GREEN
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+  Go2Pvcnn/tests/test_m1_panda_asset_static.py
+```
+
+Result after the compatibility fix: `4 passed in 0.01s`, exit code `0`.
+
+## Real Build
+
+The requested wrapper defaults to base Python 3.13 in this shell. The compatible local stack is `/home/xk/miniconda3/envs/loco/bin/python` (Python 3.10, Isaac Sim 4.5.0, Isaac Lab 2.1.0), whose RobotAssembler source provides `assemble_articulations`, `single_robot`, and `AssembledRobot.fixed_joint`.
+
+Wrapper command used with that environment:
+
+```bash
+OMNI_KIT_ACCEPT_EULA=Y CONDA_PREFIX=/home/xk/miniconda3/envs/loco \
+PATH=/home/xk/miniconda3/envs/loco/bin:$PATH TERM=xterm \
+/home/xk/coding/IsaacLab/isaaclab.sh -p Go2Pvcnn/scripts/build_m1_panda_asset.py \
+  --asset-root /home/xk/coding/M1/Go2Pvcnn/assets/m1_panda --headless
+```
+
+The wrapper generated both files, but `isaaclab.sh` ends its `-p` case with `break`, so a Python failure can be masked as shell exit `0`. A direct reliable-status rerun used the same compatible interpreter:
+
+```bash
+OMNI_KIT_ACCEPT_EULA=Y PYTHONUNBUFFERED=1 timeout 30 \
+/home/xk/miniconda3/envs/loco/bin/python Go2Pvcnn/scripts/build_m1_panda_asset.py \
+  --asset-root /home/xk/coding/M1/Go2Pvcnn/assets/m1_panda --headless
+```
+
+Result: printed `/home/xk/coding/M1/Go2Pvcnn/assets/m1_panda/m1_panda.usd`, exit code `0`. The in-builder assertion confirmed the fixed joint path is `/M1Panda/Panda/panda_link0/AssemblerFixedJoint`. Isaac Sim emitted URDF mass/joint-axis warnings and RobotAssembler `_refresh_asset` recomposition warnings, but no traceback or assertion failure.
+
+## Checksums
+
+```bash
+cd Go2Pvcnn
+sha256sum assets/m1_panda/panda/panda.usd assets/m1_panda/m1_panda.usd > assets/m1_panda/generated_files.sha256
+sha256sum -c assets/m1_panda/generated_files.sha256
+```
+
+Result: two rows verified, exit code `0`.
+
+- `panda/panda.usd`: `1cb6d489e7cfa44ea06959b652024180ae956fe4fc2ad82c10b1b54293389b51`
+- `m1_panda.usd`: `67d4288bfd43141d5a7cdd6126ed0806e4e5cc6ac3b84f6238ed434ddac15ab4`
+
+## Result And Follow-up
+
+Task 2 build contract is implemented and generated assets are present. Independent reopen inspection entered Isaac Sim but hung during shutdown and was terminated; post-reopen articulation-root counting and physics stepping remain unverified and belong to later runtime validation.
+
+## Key Files
+
+- `Go2Pvcnn/scripts/build_m1_panda_asset.py`
+- `Go2Pvcnn/tests/test_m1_panda_asset_static.py`
+- `Go2Pvcnn/assets/m1_panda/panda/panda.usd`
+- `Go2Pvcnn/assets/m1_panda/m1_panda.usd`
+- `Go2Pvcnn/assets/m1_panda/generated_files.sha256`
+- [Task 2 report](../../.superpowers/sdd/task-2-report.md)
+
+T400 CURRENT
+# T400 M1 + Panda 六轴力感知 Teacher–Student
+
+## Current State
+
+用户已确认完整设计：Panda 作为本地离线 USD 与 M1 组成统一 articulation；实机在 Panda 与 M1 安装界面使用六轴力/力矩传感器；Teacher 使用仿真理想安装点总六维反力，Student 使用带噪六轴测量、本体感知和时序估计器，输出对 M1 基础运动策略的受限平衡残差。首个任务是 M1 驻停时完成 0–3 kg 抓取和短距离搬运。
+
+设计文档已完成、自审并由用户批准。Asset/wrench foundation Task 1 的项目自有离线资产输入已完成；Task 2 已将本地 Panda URDF 转换为 USD，并通过 RobotAssembler 生成 M1 + Panda 单 articulation 资产。静态测试、真实构建和两项生成 checksum 已通过；独立重开后的 articulation-root 计数与物理步进尚未验证。
+
+## Open Children
+
+- [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
+
+## Closed Children Archive
+
+- [x] T400.0 需求澄清、路线比较和分节设计确认。
+- [x] T400.1 用户审阅并批准书面设计。
+- [x] T400.2 完成首个 asset/wrench foundation 实施计划。
+- [x] T400.2a 用户选择并启动 foundation plan 执行。
+- [x] T400.2b.1 完成 Task 1：项目自有离线 M1/Panda 资产输入。
+- [x] T400.2b.2 完成 Task 2：本地 Panda 转换与 M1 + Panda 单 articulation USD 装配。
+
+## Related Logs
+
+- [设计记录与自审](../log/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
+- [Asset/wrench foundation plan](../log/2026-08-14-m1-panda-asset-wrench-foundation-plan.md)
+- [Task 1 offline asset inputs](../log/2026-08-14-m1-panda-offline-asset-inputs.md)
+- [Task 2 single articulation build](../log/2026-08-14-m1-panda-single-articulation-build.md)
+
+## Git Refs
+
+- Last Feature Commit: unavailable（`/home/xk/coding/M1` 不是 Git 工作树）
+- Last Verified Commit: unavailable
+- Current Work Ref: filesystem working copy
+- Key Files:
+  - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
+  - [第一阶段实施计划](../../docs/superpowers/plans/2026-08-14-m1-panda-asset-wrench-foundation.md)
+
+## Next Step
+
+继续 foundation Task 3；使用 Task 2 生成资产定义和验证安装点六维 wrench 坐标契约。独立重开/物理步进验证仍需在后续 runtime acceptance 中补齐。
+
+## Node Details
+
+### T400.1 书面设计审阅
+
+重点检查统一 articulation 与六轴传感器接口、Teacher/Student 可见信息边界、12 腿位置加 4 轮速残差动作、安全降级状态机，以及 0–3 kg 静止抓取验收范围。
+
+### T400.3 机械验算前置门
+
+策略设计不代表 M1 机架、转接板、传感器和执行器已经具备承载能力。任何最大负载或快速摆臂实机测试前，必须独立验证 Panda 本体质量、物体质量、最大力臂、动态载荷和安全系数。
+
+INDEX ENTRIES
+/home/xk/coding/M1/notes/log/index.md:9:| 2026-08-14 | M1 + Panda single articulation build | foundation Task 2 / URDF conversion / RobotAssembler | pass with runtime concerns; generated assets and build contract complete | RED `1 failed` + compatibility RED `1 failed`; GREEN `4 passed`; direct build exit `0`; 2/2 checksums pass; independent reopen/physics step unverified; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-single-articulation-build.md](2026-08-14-m1-panda-single-articulation-build.md) |
+/home/xk/coding/M1/notes/log/index.md:10:| 2026-08-14 | M1 + Panda offline asset inputs | foundation Task 1 / project-owned offline assets | pass; local M1/Panda source closure and relative overlay established; no simulation | RED `2 failed`; GREEN/final `2 passed`; 35/35 checksum entries pass; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-offline-asset-inputs.md](2026-08-14-m1-panda-offline-asset-inputs.md) |
+/home/xk/coding/M1/notes/log/index.md:11:| 2026-08-14 | M1 + Panda asset/wrench foundation plan | implementation planning / local USD / Robot Assembler / wrench transform | plan pass; first independent phase defined without runtime changes | 6 tasks; 25 DOF; 16 M1 actions; six-axis probe; no simulation run; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-asset-wrench-foundation-plan.md](2026-08-14-m1-panda-asset-wrench-foundation-plan.md) |
+/home/xk/coding/M1/notes/log/index.md:12:| 2026-08-14 | M1 + Panda 六轴力感知 Teacher–Student 设计 | design / force-aware residual balance / stationary grasping | design pass; written spec covers offline USD, mount F/T sensor, Teacher–Student data boundary, safety and staged verification | 252-line design; placeholder scan clean; 12 leg-position + 4 wheel-velocity residuals; no runtime test; Git unavailable | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-force-aware-teacher-student-design.md](2026-08-14-m1-panda-force-aware-teacher-student-design.md) |
+/home/xk/coding/M1/notes/log/index.md:319:- T400 M1 + Panda force-aware Teacher–Student:
+/home/xk/coding/M1/notes/todo.md:124:| T400 | active | M1 + Panda foundation Task 2 已完成：本地 Panda URDF 已转换并与 M1 装配为单 articulation USD；静态 `4 passed`、真实构建 exit `0`、两项 hash 验证通过。 | 执行 foundation Task 3；后续补独立重开/物理步进验收。 |
+/home/xk/coding/M1/notes/todo.md:139:| T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | Foundation Task 2 complete: local Panda conversion and M1 single-articulation assembly built with stable hashes; independent reopen/physics acceptance remains. | [Task 2 log](log/2026-08-14-m1-panda-single-articulation-build.md); design [2026-08-14](../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md); plan [2026-08-14](../docs/superpowers/plans/2026-08-14-m1-panda-asset-wrench-foundation.md) |
+/home/xk/coding/M1/notes/todo.md:164:| T400.3 | T400 | open | P0 | Panda mass, payload moment, dynamic load, sensor overload capacity and M1 structure must be verified independently before real maximum-load tests. | [T400 branch](todo/T400-m1-panda-force-aware-teacher-student.md#t4003-机械验算前置门) |
+/home/xk/coding/M1/notes/todo.md:184:- [T400-m1-panda-force-aware-teacher-student.md](todo/T400-m1-panda-force-aware-teacher-student.md)
+/home/xk/coding/M1/notes/todo.md:209:| 2026-08-14 | M1 + Panda offline asset inputs | pass: Task 1 copied project-owned M1/Panda sources, added relative overlay/manifest, focused `2 passed`, and all 35 checksum entries verified; no simulation | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-offline-asset-inputs.md](log/2026-08-14-m1-panda-offline-asset-inputs.md) |
+/home/xk/coding/M1/notes/todo.md:210:| 2026-08-14 | M1 + Panda asset/wrench foundation plan | 6-task implementation plan written and self-reviewed; no runtime implementation | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-asset-wrench-foundation-plan.md](log/2026-08-14-m1-panda-asset-wrench-foundation-plan.md) |
+/home/xk/coding/M1/notes/todo.md:211:| 2026-08-14 | M1 + Panda 六轴力感知 Teacher–Student 设计 | design written and self-reviewed; no runtime code or simulation test | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-14-m1-panda-force-aware-teacher-student-design.md](log/2026-08-14-m1-panda-force-aware-teacher-student-design.md) |

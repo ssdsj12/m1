@@ -1,0 +1,65 @@
+{
+  "name": "libnvfatbin",
+  "version": "12.8.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libnvfatbin-12.8.90-0.conda",
+  "md5": "3ffb6e5e77fae2d089377c518b39adda",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libnvfatbin-12.8.90-0.conda",
+  "sha256": "993d2bd52b7d5a630869132e3c66dad8beaeb3fe0a250fd2d7cf3b7105aeb943",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739444975333,
+  "size": 807839,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libnvfatbin-12.8.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libnvfatbin-12.8.90-0",
+  "files": [
+    "lib/libnvfatbin.so.12",
+    "lib/libnvfatbin.so.12.8.90",
+    "targets/x86_64-linux/lib/libnvfatbin.so.12",
+    "targets/x86_64-linux/lib/libnvfatbin.so.12.8.90"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libnvfatbin.so.12",
+        "path_type": "softlink",
+        "sha256": "6082649e76fd97fc09bf92b9483e46df09e154f859d8fb0d8dbfb5a546b90e7d",
+        "size_in_bytes": 2441617
+      },
+      {
+        "_path": "lib/libnvfatbin.so.12.8.90",
+        "path_type": "softlink",
+        "sha256": "6082649e76fd97fc09bf92b9483e46df09e154f859d8fb0d8dbfb5a546b90e7d",
+        "size_in_bytes": 2441617
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvfatbin.so.12",
+        "path_type": "softlink",
+        "sha256": "6082649e76fd97fc09bf92b9483e46df09e154f859d8fb0d8dbfb5a546b90e7d",
+        "size_in_bytes": 2441617
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvfatbin.so.12.8.90",
+        "path_type": "hardlink",
+        "sha256": "6082649e76fd97fc09bf92b9483e46df09e154f859d8fb0d8dbfb5a546b90e7d",
+        "size_in_bytes": 2441617,
+        "sha256_in_prefix": "6082649e76fd97fc09bf92b9483e46df09e154f859d8fb0d8dbfb5a546b90e7d"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libnvfatbin-12.8.90-0",
+    "type": 1
+  }
+}

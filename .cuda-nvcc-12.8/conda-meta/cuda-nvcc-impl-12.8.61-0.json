@@ -1,0 +1,46 @@
+{
+  "name": "cuda-nvcc-impl",
+  "version": "12.8.61",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-nvcc-impl-12.8.61-0.conda",
+  "md5": "8519463cca579c0a6aaacfb4a74c3e61",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-nvcc-impl-12.8.61-0.conda",
+  "sha256": "4a5f1e51829f3c5cdcf423ba2d1ca82ba13e0ceaec1b15be03d9189658536021",
+  "depends": [
+    "cuda-cudart-dev",
+    "cuda-nvcc-dev_linux-64 12.8.61 0",
+    "cuda-nvcc-tools 12.8.61 0",
+    "cuda-nvvm-impl 12.8.61 0",
+    "cuda-version >=12.8,<12.9.0a0"
+  ],
+  "constrains": [
+    "gcc_impl_linux-64 >=6,<14.0a0"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1737006992369,
+  "size": 18817,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-nvcc-impl-12.8.61-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-nvcc-impl-12.8.61-0",
+  "files": [
+    "lib/libnvptxcompiler_static.a"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libnvptxcompiler_static.a",
+        "path_type": "softlink",
+        "sha256": "830cee18fe96e21e412653ec67f4a3a443b8635d1814de72007e3bcb9ea39250",
+        "size_in_bytes": 78896868
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-nvcc-impl-12.8.61-0",
+    "type": 1
+  }
+}

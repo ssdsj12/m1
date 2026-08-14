@@ -1,0 +1,97 @@
+{
+  "name": "libcusolver",
+  "version": "11.7.3.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcusolver-11.7.3.90-0.conda",
+  "md5": "d98e294258b6df4c81ab30468a8b7b3e",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcusolver-11.7.3.90-0.conda",
+  "sha256": "ff8e9c9ebd1fcf9acdea07f34a15a8da520ac6e2e3cc98b583319473ea54506c",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libcublas",
+    "libcusparse",
+    "libgcc-ng >=11.2.0",
+    "libnvjitlink",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739450284402,
+  "size": 164428802,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcusolver-11.7.3.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcusolver-11.7.3.90-0",
+  "files": [
+    "lib/libcusolver.so.11",
+    "lib/libcusolver.so.11.7.3.90",
+    "lib/libcusolverMg.so.11",
+    "lib/libcusolverMg.so.11.7.3.90",
+    "targets/x86_64-linux/lib/libcusolver.so.11",
+    "targets/x86_64-linux/lib/libcusolver.so.11.7.3.90",
+    "targets/x86_64-linux/lib/libcusolverMg.so.11",
+    "targets/x86_64-linux/lib/libcusolverMg.so.11.7.3.90"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcusolver.so.11",
+        "path_type": "softlink",
+        "sha256": "fd4739395116a33f7a7899e600020ae2127ba2671e8b533911fdab5ad23f38cc",
+        "size_in_bytes": 241587952
+      },
+      {
+        "_path": "lib/libcusolver.so.11.7.3.90",
+        "path_type": "softlink",
+        "sha256": "fd4739395116a33f7a7899e600020ae2127ba2671e8b533911fdab5ad23f38cc",
+        "size_in_bytes": 241587952
+      },
+      {
+        "_path": "lib/libcusolverMg.so.11",
+        "path_type": "softlink",
+        "sha256": "33e9b68ee0abf7c088f10939618f473f1a5b37de6b08fcad71557546c6194c90",
+        "size_in_bytes": 161239545
+      },
+      {
+        "_path": "lib/libcusolverMg.so.11.7.3.90",
+        "path_type": "softlink",
+        "sha256": "33e9b68ee0abf7c088f10939618f473f1a5b37de6b08fcad71557546c6194c90",
+        "size_in_bytes": 161239545
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusolver.so.11",
+        "path_type": "softlink",
+        "sha256": "fd4739395116a33f7a7899e600020ae2127ba2671e8b533911fdab5ad23f38cc",
+        "size_in_bytes": 241587952
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusolver.so.11.7.3.90",
+        "path_type": "hardlink",
+        "sha256": "fd4739395116a33f7a7899e600020ae2127ba2671e8b533911fdab5ad23f38cc",
+        "size_in_bytes": 241587952,
+        "sha256_in_prefix": "fd4739395116a33f7a7899e600020ae2127ba2671e8b533911fdab5ad23f38cc"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusolverMg.so.11",
+        "path_type": "softlink",
+        "sha256": "33e9b68ee0abf7c088f10939618f473f1a5b37de6b08fcad71557546c6194c90",
+        "size_in_bytes": 161239545
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusolverMg.so.11.7.3.90",
+        "path_type": "hardlink",
+        "sha256": "33e9b68ee0abf7c088f10939618f473f1a5b37de6b08fcad71557546c6194c90",
+        "size_in_bytes": 161239545,
+        "sha256_in_prefix": "33e9b68ee0abf7c088f10939618f473f1a5b37de6b08fcad71557546c6194c90"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcusolver-11.7.3.90-0",
+    "type": 1
+  }
+}

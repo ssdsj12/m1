@@ -1,0 +1,135 @@
+{
+  "name": "libcufft-dev",
+  "version": "11.3.3.83",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcufft-dev-11.3.3.83-0.conda",
+  "md5": "1dec04f952445ef867a5bcb275a0800b",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcufft-dev-11.3.3.83-0.conda",
+  "sha256": "96260d551a037ead82ae8336dd13ae8699245344a4a1c79d9327802739c9bb66",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libcufft 11.3.3.83 0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "libcufft-static >=11.3.3.83"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1741042647139,
+  "size": 28713,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcufft-dev-11.3.3.83-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcufft-dev-11.3.3.83-0",
+  "files": [
+    "lib/libcufft.so",
+    "lib/libcufftw.so",
+    "lib/pkgconfig/cufft-12.8.pc",
+    "lib/pkgconfig/cufftw-12.8.pc",
+    "targets/x86_64-linux/include/cudalibxt.h",
+    "targets/x86_64-linux/include/cufft.h",
+    "targets/x86_64-linux/include/cufftXt.h",
+    "targets/x86_64-linux/include/cufftw.h",
+    "targets/x86_64-linux/lib/libcufft.so",
+    "targets/x86_64-linux/lib/libcufftw.so",
+    "targets/x86_64-linux/lib/stubs/libcufft.so",
+    "targets/x86_64-linux/lib/stubs/libcufftw.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcufft.so",
+        "path_type": "softlink",
+        "sha256": "f0c64b71c9b1b14f3c53823fcbca422e1648ae9c620a2ede2f133ab6c6aa73ce",
+        "size_in_bytes": 278678584
+      },
+      {
+        "_path": "lib/libcufftw.so",
+        "path_type": "softlink",
+        "sha256": "93bf284cc07fa4375cd8fa9276ee2d06673c029a872ebeecd41aacd7f5c0c42b",
+        "size_in_bytes": 987608
+      },
+      {
+        "_path": "lib/pkgconfig/cufft-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libcufft_1741042241756/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeho",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "89b360aed4614282aa7a01eb640a0b7f5afd756abb440ca92e842ce107b4baec",
+        "size_in_bytes": 479,
+        "sha256_in_prefix": "eb0bdd6b71958aa781852f4f5e4f29ea17872545eae0f7846a24853917f081e4"
+      },
+      {
+        "_path": "lib/pkgconfig/cufftw-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libcufft_1741042241756/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeho",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "344c5642e408b1ba28eb2a60624b5c7303b7786f73da9b0c09029d0b0ff8abb0",
+        "size_in_bytes": 486,
+        "sha256_in_prefix": "1551837312849a50d7d788055a5d131dc9aa07c93b207a9f0a9e56ec84501269"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cudalibxt.h",
+        "path_type": "hardlink",
+        "sha256": "f460ee4623b326e3bad73443848a56a45ed71e9f055d238894724da083303994",
+        "size_in_bytes": 4105,
+        "sha256_in_prefix": "f460ee4623b326e3bad73443848a56a45ed71e9f055d238894724da083303994"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cufft.h",
+        "path_type": "hardlink",
+        "sha256": "297d0c7cffef22b8215e1d27c5a2dfd4fc60da0882997f2c25a0a40db86d5a8a",
+        "size_in_bytes": 13169,
+        "sha256_in_prefix": "297d0c7cffef22b8215e1d27c5a2dfd4fc60da0882997f2c25a0a40db86d5a8a"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cufftXt.h",
+        "path_type": "hardlink",
+        "sha256": "47731414730da8c69eef51f014a3cf712848d474c96c725876bafe711bea5def",
+        "size_in_bytes": 12945,
+        "sha256_in_prefix": "47731414730da8c69eef51f014a3cf712848d474c96c725876bafe711bea5def"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cufftw.h",
+        "path_type": "hardlink",
+        "sha256": "5337e3d4854c94b414fc6e74bbce215d85f52bde472d723039c8d0a00839a461",
+        "size_in_bytes": 20051,
+        "sha256_in_prefix": "5337e3d4854c94b414fc6e74bbce215d85f52bde472d723039c8d0a00839a461"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcufft.so",
+        "path_type": "softlink",
+        "sha256": "f0c64b71c9b1b14f3c53823fcbca422e1648ae9c620a2ede2f133ab6c6aa73ce",
+        "size_in_bytes": 278678584
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcufftw.so",
+        "path_type": "softlink",
+        "sha256": "93bf284cc07fa4375cd8fa9276ee2d06673c029a872ebeecd41aacd7f5c0c42b",
+        "size_in_bytes": 987608
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libcufft.so",
+        "path_type": "hardlink",
+        "sha256": "ae86d8ff4d9574ee0bec44d6c7a88ef2feef79e204be3081c8a2566da7aeb3f1",
+        "size_in_bytes": 13921,
+        "sha256_in_prefix": "ae86d8ff4d9574ee0bec44d6c7a88ef2feef79e204be3081c8a2566da7aeb3f1"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libcufftw.so",
+        "path_type": "hardlink",
+        "sha256": "f1a936d2c60f52d6534b72585754806712a34b7d6f59a6598d2bd1c59bc06264",
+        "size_in_bytes": 18489,
+        "sha256_in_prefix": "f1a936d2c60f52d6534b72585754806712a34b7d6f59a6598d2bd1c59bc06264"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcufft-dev-11.3.3.83-0",
+    "type": 1
+  }
+}

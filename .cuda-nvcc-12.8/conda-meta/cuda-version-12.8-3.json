@@ -1,0 +1,34 @@
+{
+  "name": "cuda-version",
+  "version": "12.8",
+  "build": "3",
+  "build_number": 3,
+  "channel": "https://conda.anaconda.org/nvidia/noarch",
+  "subdir": "noarch",
+  "fn": "cuda-version-12.8-3.conda",
+  "md5": "c4a0e656851b1a8a5ec8f7a407d0204c",
+  "url": "https://conda.anaconda.org/nvidia/noarch/cuda-version-12.8-3.conda",
+  "sha256": "0193901b9be91ea09278538707908fbd0a5b21059c57ff0aa7ce1a597009f56d",
+  "depends": [],
+  "constrains": [
+    "__cuda >=12",
+    "cudatoolkit 12.8|12.8.*"
+  ],
+  "noarch": "generic",
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "package_type": "noarch_generic",
+  "timestamp": 1741063629415,
+  "size": 17104,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-version-12.8-3.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-version-12.8-3",
+  "files": [],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": []
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-version-12.8-3",
+    "type": 1
+  }
+}

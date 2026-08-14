@@ -1,0 +1,88 @@
+.TH "CUfileDrvProps" 3 "Wed Feb 12 2025" "GPUDirect Storage" \" -*- nroff -*-
+.ad l
+.nh
+.SH NAME
+CUfileDrvProps
+.SH SYNOPSIS
+.br
+.PP
+.PP
+\fC#include <cufile\&.h>\fP
+.SS "Data Fields"
+
+.in +1c
+.ti -1c
+.RI "unsigned int \fBfflags\fP"
+.br
+.ti -1c
+.RI "unsigned int \fBmax_batch_io_size\fP"
+.br
+.ti -1c
+.RI "unsigned int \fBmax_batch_io_timeout_msecs\fP"
+.br
+.ti -1c
+.RI "unsigned int \fBmax_device_cache_size\fP"
+.br
+.ti -1c
+.RI "unsigned int \fBmax_device_pinned_mem_size\fP"
+.br
+.ti -1c
+.RI "struct {"
+.br
+.ti -1c
+.RI "   unsigned int \fBdcontrolflags\fP"
+.br
+.ti -1c
+.RI "   unsigned int \fBdstatusflags\fP"
+.br
+.ti -1c
+.RI "   unsigned int \fBmajor_version\fP"
+.br
+.ti -1c
+.RI "   size_t \fBmax_direct_io_size\fP"
+.br
+.ti -1c
+.RI "   unsigned int \fBminor_version\fP"
+.br
+.ti -1c
+.RI "   size_t \fBpoll_thresh_size\fP"
+.br
+.ti -1c
+.RI "} \fBnvfs\fP"
+.br
+.ti -1c
+.RI "unsigned int \fBper_buffer_cache_size\fP"
+.br
+.in -1c
+.SH "Field Documentation"
+.PP 
+.SS "unsigned int CUfileDrvProps::dcontrolflags"
+
+.SS "unsigned int CUfileDrvProps::dstatusflags"
+
+.SS "unsigned int CUfileDrvProps::fflags"
+
+.SS "unsigned int CUfileDrvProps::major_version"
+
+.SS "unsigned int CUfileDrvProps::max_batch_io_size"
+
+.SS "unsigned int CUfileDrvProps::max_batch_io_timeout_msecs"
+
+.SS "unsigned int CUfileDrvProps::max_device_cache_size"
+
+.SS "unsigned int CUfileDrvProps::max_device_pinned_mem_size"
+
+.SS "size_t CUfileDrvProps::max_direct_io_size"
+
+.SS "unsigned int CUfileDrvProps::minor_version"
+
+.SS "struct { \&.\&.\&. }   CUfileDrvProps::nvfs"
+
+.SS "unsigned int CUfileDrvProps::per_buffer_cache_size"
+
+.SS "size_t CUfileDrvProps::poll_thresh_size"
+
+
+.SH "Author"
+.PP 
+Generated automatically by Doxygen for GPUDirect Storage from the source code\&.

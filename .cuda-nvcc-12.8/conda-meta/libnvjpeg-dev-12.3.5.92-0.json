@@ -1,0 +1,77 @@
+{
+  "name": "libnvjpeg-dev",
+  "version": "12.3.5.92",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libnvjpeg-dev-12.3.5.92-0.conda",
+  "md5": "16475679d7dc5d1b687a8782cf653d0d",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libnvjpeg-dev-12.3.5.92-0.conda",
+  "sha256": "c93ec3f5c4a5e007d4cafdd04f01f5f51f1096a5bf39c1b12dd9651caa2a7c48",
+  "depends": [
+    "cuda-cudart-dev",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libnvjpeg 12.3.5.92 0"
+  ],
+  "constrains": [
+    "libnvjpeg-static >=12.3.5.92"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739446523507,
+  "size": 27611,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libnvjpeg-dev-12.3.5.92-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libnvjpeg-dev-12.3.5.92-0",
+  "files": [
+    "lib/libnvjpeg.so",
+    "lib/pkgconfig/nvjpeg-12.8.pc",
+    "targets/x86_64-linux/include/nvjpeg.h",
+    "targets/x86_64-linux/lib/libnvjpeg.so",
+    "targets/x86_64-linux/lib/stubs/libnvjpeg.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libnvjpeg.so",
+        "path_type": "softlink",
+        "sha256": "4f4631f0ef0a491eef27411539ecd62b405e94be943fdf2b81698199ddf43654",
+        "size_in_bytes": 7837264
+      },
+      {
+        "_path": "lib/pkgconfig/nvjpeg-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libnvjpeg_1739446480222/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeh",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "21bc0a3870ad5fa0f9ab4fab6d51a9e74ed3181c6db29fd6d52ea393e23724f6",
+        "size_in_bytes": 473,
+        "sha256_in_prefix": "49b34b3341639dad9d5dd50fb74909d26cf04eddc033d5dd2f5f350e5e0c3cd4"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nvjpeg.h",
+        "path_type": "hardlink",
+        "sha256": "fb48b7c38ec77b0a330531a646874bebf1bd0028c69afb1f09b95d96258f65cf",
+        "size_in_bytes": 34162,
+        "sha256_in_prefix": "fb48b7c38ec77b0a330531a646874bebf1bd0028c69afb1f09b95d96258f65cf"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvjpeg.so",
+        "path_type": "softlink",
+        "sha256": "4f4631f0ef0a491eef27411539ecd62b405e94be943fdf2b81698199ddf43654",
+        "size_in_bytes": 7837264
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libnvjpeg.so",
+        "path_type": "hardlink",
+        "sha256": "4d228cadd312611a8a79f060d9d233c66e6c2b5e6c109f1e1e8b902a8e8d9581",
+        "size_in_bytes": 19265,
+        "sha256_in_prefix": "4d228cadd312611a8a79f060d9d233c66e6c2b5e6c109f1e1e8b902a8e8d9581"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libnvjpeg-dev-12.3.5.92-0",
+    "type": 1
+  }
+}

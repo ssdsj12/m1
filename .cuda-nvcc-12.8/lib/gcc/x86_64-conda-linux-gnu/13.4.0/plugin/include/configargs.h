@@ -1,0 +1,7 @@
+/* Generated automatically. */
+static const char configuration_arguments[] = "../configure --prefix=/home/xk/coding/M1/.cuda-nvcc-12.8 --with-slibdir=/home/xk/coding/M1/.cuda-nvcc-12.8/lib --libdir=/home/xk/coding/M1/.cuda-nvcc-12.8/lib --mandir=/home/xk/coding/M1/.cuda-nvcc-12.8/share/man --build=x86_64-conda-linux-gnu --host=x86_64-conda-linux-gnu --target=x86_64-conda-linux-gnu --enable-languages=c,c++,fortran,objc,obj-c++ --enable-libgomp --disable-libssp --enable-libquadmath --enable-libquadmath-support --disable-nls --disable-bootstrap --disable-multilib --enable-long-long --without-zstd --with-native-system-header-dir=/usr/include --with-gxx-include-dir=/home/xk/coding/M1/.cuda-nvcc-12.8/lib/gcc/x86_64-conda-linux-gnu/13.4.0/include/c++ --with-gxx-libcxx-include-dir=/home/xk/coding/M1/.cuda-nvcc-12.8/lib/gcc/x86_64-conda-linux-gnu/13.4.0/../../../../include/c++/v1 --with-pkgversion='conda-forge gcc 13.4.0-19' --with-bugurl=https://github.com/conda-forge/ctng-compilers-feedstock/issues/new/choose --enable-libsanitizer --enable-default-pie --enable-threads=posix --enable-__cxa_atexit --with-sysroot=/home/xk/coding/M1/.cuda-nvcc-12.8/x86_64-conda-linux-gnu/sysroot --with-build-sysroot=/home/conda/feedstock_root/build_artifacts/gcc_compilers_1778265112136/_build_env/x86_64-conda-linux-gnu/sysroot --enable-plugin --enable-lto";
+static const char thread_model[] = "posix";
+
+static const struct {
+  const char *name, *value;
+} configure_default_options[] = { { "cpu", "generic" }, { "arch", "x86-64" } };

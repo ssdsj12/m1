@@ -1,0 +1,10 @@
+{
+  "m1": {
+    "entry": "m1/ZJ_V3_URDF_V1_0/configuration/ZJ_V3_URDF_V1_0_physics.usd",
+    "source": "/home/xk/ros2_ws/src/zjs_m1_v3_description/urdf/ZJ_V3_URDF_V1_0"
+  },
+  "panda": {
+    "entry": "panda_source/franka_description/robots/panda_arm_hand.urdf",
+    "source": "/home/xk/.local/share/ov/data/exts/v2/isaacsim.asset.importer.urdf-2.3.14+106.5.0.lx64.r.cp310/data/urdf/robots/franka_description"
+  }
+}

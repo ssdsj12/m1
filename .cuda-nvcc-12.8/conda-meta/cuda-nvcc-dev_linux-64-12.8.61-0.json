@@ -1,0 +1,71 @@
+{
+  "name": "cuda-nvcc-dev_linux-64",
+  "version": "12.8.61",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/noarch",
+  "subdir": "noarch",
+  "fn": "cuda-nvcc-dev_linux-64-12.8.61-0.conda",
+  "md5": "bd2e255c19f22759f7fde0466df76460",
+  "url": "https://conda.anaconda.org/nvidia/noarch/cuda-nvcc-dev_linux-64-12.8.61-0.conda",
+  "sha256": "50a8fed902ef454a27407bd8b847509075982865ad86bfd7abd757b509e0a7ea",
+  "depends": [
+    "cuda-crt-dev_linux-64 12.8.61 0",
+    "cuda-nvvm-dev_linux-64 12.8.61 0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=6"
+  ],
+  "constrains": [
+    "gcc_impl_linux-64 >=6,<14.0a0"
+  ],
+  "noarch": "generic",
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "package_type": "noarch_generic",
+  "timestamp": 1737006956030,
+  "size": 13179818,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-nvcc-dev_linux-64-12.8.61-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-nvcc-dev_linux-64-12.8.61-0",
+  "files": [
+    "targets/x86_64-linux/bin/nvcc",
+    "targets/x86_64-linux/include/fatbinary_section.h",
+    "targets/x86_64-linux/include/nvPTXCompiler.h",
+    "targets/x86_64-linux/lib/libnvptxcompiler_static.a"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "targets/x86_64-linux/bin/nvcc",
+        "path_type": "softlink",
+        "sha256": "3aadf006f53dd288a372b2c4fabd46df1caa25aacd2e60964d7a26af25e91517",
+        "size_in_bytes": 24803880
+      },
+      {
+        "_path": "targets/x86_64-linux/include/fatbinary_section.h",
+        "path_type": "hardlink",
+        "sha256": "367b947f2df9f32189c787a7ab4a419deb63bf5ed459afa73a58184e8522b6bc",
+        "size_in_bytes": 1809,
+        "sha256_in_prefix": "367b947f2df9f32189c787a7ab4a419deb63bf5ed459afa73a58184e8522b6bc"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/nvPTXCompiler.h",
+        "path_type": "hardlink",
+        "sha256": "945d6cb0a96b8ec3560aca7451d85b07a1b23a01420ced6ad19043cceb30963d",
+        "size_in_bytes": 14471,
+        "sha256_in_prefix": "945d6cb0a96b8ec3560aca7451d85b07a1b23a01420ced6ad19043cceb30963d"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libnvptxcompiler_static.a",
+        "path_type": "hardlink",
+        "sha256": "830cee18fe96e21e412653ec67f4a3a443b8635d1814de72007e3bcb9ea39250",
+        "size_in_bytes": 78896868,
+        "sha256_in_prefix": "830cee18fe96e21e412653ec67f4a3a443b8635d1814de72007e3bcb9ea39250"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-nvcc-dev_linux-64-12.8.61-0",
+    "type": 1
+  }
+}

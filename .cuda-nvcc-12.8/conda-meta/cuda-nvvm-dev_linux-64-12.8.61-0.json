@@ -1,0 +1,42 @@
+{
+  "name": "cuda-nvvm-dev_linux-64",
+  "version": "12.8.61",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/noarch",
+  "subdir": "noarch",
+  "fn": "cuda-nvvm-dev_linux-64-12.8.61-0.conda",
+  "md5": "03292ad23a0b42cec3ee20935ce5479b",
+  "url": "https://conda.anaconda.org/nvidia/noarch/cuda-nvvm-dev_linux-64-12.8.61-0.conda",
+  "sha256": "c8852580af5e4c0d99e51d758172d8fb0393326c9f3438aeac14d53a0bd12723",
+  "depends": [
+    "cuda-version >=12.8,<12.9.0a0"
+  ],
+  "constrains": [],
+  "noarch": "generic",
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "package_type": "noarch_generic",
+  "timestamp": 1737006818582,
+  "size": 17283,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-nvvm-dev_linux-64-12.8.61-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-nvvm-dev_linux-64-12.8.61-0",
+  "files": [
+    "targets/x86_64-linux/nvvm"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "targets/x86_64-linux/nvvm",
+        "path_type": "softlink",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size_in_bytes": 0
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-nvvm-dev_linux-64-12.8.61-0",
+    "type": 1
+  }
+}

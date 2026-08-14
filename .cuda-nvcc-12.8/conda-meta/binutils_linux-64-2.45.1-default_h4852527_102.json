@@ -1,0 +1,49 @@
+{
+  "name": "binutils_linux-64",
+  "version": "2.45.1",
+  "build": "default_h4852527_102",
+  "build_number": 102,
+  "channel": "https://conda.anaconda.org/conda-forge/linux-64",
+  "subdir": "linux-64",
+  "fn": "binutils_linux-64-2.45.1-default_h4852527_102.conda",
+  "md5": "2a307a17309d358c9b42afdd3199ddcc",
+  "url": "https://conda.anaconda.org/conda-forge/linux-64/binutils_linux-64-2.45.1-default_h4852527_102.conda",
+  "sha256": "78a58d523d072b7f8e591b8f8572822e044b31764ed7e8d170392e7bc6d58339",
+  "depends": [
+    "binutils_impl_linux-64 2.45.1 default_hfdba357_102"
+  ],
+  "constrains": [],
+  "license": "GPL-3.0-only",
+  "timestamp": 1774197485247,
+  "size": 36304,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/binutils_linux-64-2.45.1-default_h4852527_102.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/binutils_linux-64-2.45.1-default_h4852527_102",
+  "files": [
+    "etc/conda/activate.d/activate-binutils_linux-64.sh",
+    "etc/conda/deactivate.d/deactivate-binutils_linux-64.sh"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "etc/conda/activate.d/activate-binutils_linux-64.sh",
+        "path_type": "hardlink",
+        "sha256": "78a0347ee01c6925d5a27a26986cd1ba7649eaee850986546b6f29eb278a8dbf",
+        "size_in_bytes": 3021,
+        "sha256_in_prefix": "78a0347ee01c6925d5a27a26986cd1ba7649eaee850986546b6f29eb278a8dbf"
+      },
+      {
+        "_path": "etc/conda/deactivate.d/deactivate-binutils_linux-64.sh",
+        "path_type": "hardlink",
+        "sha256": "d8b0c26b069cd7c50c0eb1a8b0309226767c032a539c31ddab32af3634aba0ec",
+        "size_in_bytes": 2441,
+        "sha256_in_prefix": "d8b0c26b069cd7c50c0eb1a8b0309226767c032a539c31ddab32af3634aba0ec"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/binutils_linux-64-2.45.1-default_h4852527_102",
+    "type": 1
+  }
+}

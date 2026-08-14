@@ -1,0 +1,157 @@
+{
+  "name": "libcufile-dev",
+  "version": "1.13.1.3",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcufile-dev-1.13.1.3-0.conda",
+  "md5": "624084fd04da168f6004b57a7c0e8d29",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcufile-dev-1.13.1.3-0.conda",
+  "sha256": "281f824725f058ea0e6ace1f47e9853ac2d6751772eb20969b09998a694429f5",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libcufile 1.13.1.3 0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "libcufile-static >=1.13.1.3"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739384366892,
+  "size": 29490,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcufile-dev-1.13.1.3-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcufile-dev-1.13.1.3-0",
+  "files": [
+    "lib/libcufile.so",
+    "lib/libcufile_rdma.so",
+    "lib/pkgconfig/cufile-12.8.pc",
+    "man/man3/CUfileDescr_t.3",
+    "man/man3/CUfileDrvProps.3",
+    "man/man3/CUfileError.3",
+    "man/man3/CUfileFSOps.3",
+    "man/man3/CUfileIOEvents.3",
+    "man/man3/CUfileIOParams.3",
+    "man/man3/CUfileOpError.h.3",
+    "man/man3/cufile.h.3",
+    "man/man3/cufileRDMAInfo.3",
+    "targets/x86_64-linux/include/cufile.h",
+    "targets/x86_64-linux/lib/libcufile.so",
+    "targets/x86_64-linux/lib/libcufile_rdma.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcufile.so",
+        "path_type": "softlink",
+        "sha256": "19527c11f8d2e4b26ebb5b30390543cc41c166ffa5b0c953ec7dac3d1656006a",
+        "size_in_bytes": 3209497
+      },
+      {
+        "_path": "lib/libcufile_rdma.so",
+        "path_type": "softlink",
+        "sha256": "9708e9b39f3d9fa827fe165800eb31c296f0bd450fb90ad5e9d8277b01a083b7",
+        "size_in_bytes": 47657
+      },
+      {
+        "_path": "lib/pkgconfig/cufile-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libcufile_1739384306852/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placeh",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "5399c3aef76f015f340dfbec7b198e2028a58f8b57110227dd20137676e8a916",
+        "size_in_bytes": 479,
+        "sha256_in_prefix": "f483599c6e6ce113a98594ec0e07aab3a567091b7c8f6b74db15121150806520"
+      },
+      {
+        "_path": "man/man3/CUfileDescr_t.3",
+        "path_type": "hardlink",
+        "sha256": "7b147d256eedec60b60640fe2b9c02047329d580486bcd076c7022d081adda7c",
+        "size_in_bytes": 813,
+        "sha256_in_prefix": "7b147d256eedec60b60640fe2b9c02047329d580486bcd076c7022d081adda7c"
+      },
+      {
+        "_path": "man/man3/CUfileDrvProps.3",
+        "path_type": "hardlink",
+        "sha256": "653c9336ce2fc71319a30916ddbb8aa8925901497c40ed112ae0e89887fbcf92",
+        "size_in_bytes": 1738,
+        "sha256_in_prefix": "653c9336ce2fc71319a30916ddbb8aa8925901497c40ed112ae0e89887fbcf92"
+      },
+      {
+        "_path": "man/man3/CUfileError.3",
+        "path_type": "hardlink",
+        "sha256": "36ac5c8595df8ab3cffb5680b5739a4e2582262bb0de1d227f67db8c96730b40",
+        "size_in_bytes": 578,
+        "sha256_in_prefix": "36ac5c8595df8ab3cffb5680b5739a4e2582262bb0de1d227f67db8c96730b40"
+      },
+      {
+        "_path": "man/man3/CUfileFSOps.3",
+        "path_type": "hardlink",
+        "sha256": "753c6f294d3fa8cdd87f797ec9b83ef0f32a6b23faf5d8d944fac426943bccd5",
+        "size_in_bytes": 1292,
+        "sha256_in_prefix": "753c6f294d3fa8cdd87f797ec9b83ef0f32a6b23faf5d8d944fac426943bccd5"
+      },
+      {
+        "_path": "man/man3/CUfileIOEvents.3",
+        "path_type": "hardlink",
+        "sha256": "5d5e4b205fe347671359e32d1704bef429125370dbfb34adf8aba2baca09f687",
+        "size_in_bytes": 577,
+        "sha256_in_prefix": "5d5e4b205fe347671359e32d1704bef429125370dbfb34adf8aba2baca09f687"
+      },
+      {
+        "_path": "man/man3/CUfileIOParams.3",
+        "path_type": "hardlink",
+        "sha256": "57f3f644ada787ba3707993b134054c27d287e8c2368e66dffb4663fadf2298d",
+        "size_in_bytes": 1273,
+        "sha256_in_prefix": "57f3f644ada787ba3707993b134054c27d287e8c2368e66dffb4663fadf2298d"
+      },
+      {
+        "_path": "man/man3/CUfileOpError.h.3",
+        "path_type": "hardlink",
+        "sha256": "b070e6e5effa7fe1c27ce8bb4cc55d833509ab02ada136b9ff17c58f16caaeeb",
+        "size_in_bytes": 6049,
+        "sha256_in_prefix": "b070e6e5effa7fe1c27ce8bb4cc55d833509ab02ada136b9ff17c58f16caaeeb"
+      },
+      {
+        "_path": "man/man3/cufile.h.3",
+        "path_type": "hardlink",
+        "sha256": "df7b4ff32c7657c89d3ae0d35da3a304c56a600fff179067ae875cf1db8a482f",
+        "size_in_bytes": 29861,
+        "sha256_in_prefix": "df7b4ff32c7657c89d3ae0d35da3a304c56a600fff179067ae875cf1db8a482f"
+      },
+      {
+        "_path": "man/man3/cufileRDMAInfo.3",
+        "path_type": "hardlink",
+        "sha256": "178defd11657e1c70460f3393d9659af71dcbf836bca80f300d1466f4d062b81",
+        "size_in_bytes": 565,
+        "sha256_in_prefix": "178defd11657e1c70460f3393d9659af71dcbf836bca80f300d1466f4d062b81"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cufile.h",
+        "path_type": "hardlink",
+        "sha256": "e5b34391964d385fea1db0c190dd3839fc05d3d04472b031c4f5bad47252cd7d",
+        "size_in_bytes": 29530,
+        "sha256_in_prefix": "e5b34391964d385fea1db0c190dd3839fc05d3d04472b031c4f5bad47252cd7d"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcufile.so",
+        "path_type": "softlink",
+        "sha256": "19527c11f8d2e4b26ebb5b30390543cc41c166ffa5b0c953ec7dac3d1656006a",
+        "size_in_bytes": 3209497
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcufile_rdma.so",
+        "path_type": "softlink",
+        "sha256": "9708e9b39f3d9fa827fe165800eb31c296f0bd450fb90ad5e9d8277b01a083b7",
+        "size_in_bytes": 47657
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcufile-dev-1.13.1.3-0",
+    "type": 1
+  }
+}

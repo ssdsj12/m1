@@ -1,0 +1,59 @@
+{
+  "name": "cuda-cudart-static_linux-64",
+  "version": "12.8.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/noarch",
+  "subdir": "noarch",
+  "fn": "cuda-cudart-static_linux-64-12.8.90-0.conda",
+  "md5": "73c9b9d4eb67dd57fa122626c04331eb",
+  "url": "https://conda.anaconda.org/nvidia/noarch/cuda-cudart-static_linux-64-12.8.90-0.conda",
+  "sha256": "ac6513f0b9790695c715865b2cbc5ddfc670e98c16a8a2e5f46899da24811143",
+  "depends": [
+    "cuda-version >=12.8,<12.9.0a0"
+  ],
+  "constrains": [],
+  "noarch": "generic",
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "package_type": "noarch_generic",
+  "timestamp": 1739446190141,
+  "size": 980032,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-cudart-static_linux-64-12.8.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-cudart-static_linux-64-12.8.90-0",
+  "files": [
+    "targets/x86_64-linux/lib/libcudadevrt.a",
+    "targets/x86_64-linux/lib/libcudart_static.a",
+    "targets/x86_64-linux/lib/libculibos.a"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "targets/x86_64-linux/lib/libcudadevrt.a",
+        "path_type": "hardlink",
+        "sha256": "1621b3f71d09c649f94b8eb53c7d4adedc96bd36e2a0d7add2cf11eab3e3bbbb",
+        "size_in_bytes": 2391498,
+        "sha256_in_prefix": "1621b3f71d09c649f94b8eb53c7d4adedc96bd36e2a0d7add2cf11eab3e3bbbb"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcudart_static.a",
+        "path_type": "hardlink",
+        "sha256": "548012438f65d00ecc28c30bd4a11ca6b090cc8773a990174ccc33e0b81aa966",
+        "size_in_bytes": 1373394,
+        "sha256_in_prefix": "548012438f65d00ecc28c30bd4a11ca6b090cc8773a990174ccc33e0b81aa966"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libculibos.a",
+        "path_type": "hardlink",
+        "sha256": "385075313a7f493a9c4dd550683a11d812729e1645efae94dca2dec7ac4e6d45",
+        "size_in_bytes": 30794,
+        "sha256_in_prefix": "385075313a7f493a9c4dd550683a11d812729e1645efae94dca2dec7ac4e6d45"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-cudart-static_linux-64-12.8.90-0",
+    "type": 1
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "name": "cuda-nvcc-tools",
+  "version": "12.8.61",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-nvcc-tools-12.8.61-0.conda",
+  "md5": "74f62e6bf674f0fbadb1bf570672ef35",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-nvcc-tools-12.8.61-0.conda",
+  "sha256": "cd4d1d19f7ceb62d2f62c67d6c7f0a90704541bbe96b11df8965be47bc298df8",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-crt-tools 12.8.61 0",
+    "cuda-nvvm-tools 12.8.61 0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "gcc_impl_linux-64 >=6,<14.0a0"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1737006912666,
+  "size": 25659785,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-nvcc-tools-12.8.61-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-nvcc-tools-12.8.61-0",
+  "files": [
+    "bin/__nvcc_device_query",
+    "bin/bin2c",
+    "bin/cudafe++",
+    "bin/fatbinary",
+    "bin/nvcc",
+    "bin/nvcc.profile",
+    "bin/nvlink",
+    "bin/ptxas"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "bin/__nvcc_device_query",
+        "path_type": "hardlink",
+        "sha256": "8fb7a0b4bad6c83089af973cea6c222c6f9497500dfd2179876f0327d896f42d",
+        "size_in_bytes": 15128,
+        "sha256_in_prefix": "8fb7a0b4bad6c83089af973cea6c222c6f9497500dfd2179876f0327d896f42d"
+      },
+      {
+        "_path": "bin/bin2c",
+        "path_type": "hardlink",
+        "sha256": "e012fead827c212bfdf70f43e4e7365fb47a6bd22a2cb55dde435e41ffa345af",
+        "size_in_bytes": 92944,
+        "sha256_in_prefix": "e012fead827c212bfdf70f43e4e7365fb47a6bd22a2cb55dde435e41ffa345af"
+      },
+      {
+        "_path": "bin/cudafe++",
+        "path_type": "hardlink",
+        "sha256": "1d2412449b1293d6cc6abfd32fd592c4e0f99666d9d3ca339b32fbda664a5a31",
+        "size_in_bytes": 8722776,
+        "sha256_in_prefix": "1d2412449b1293d6cc6abfd32fd592c4e0f99666d9d3ca339b32fbda664a5a31"
+      },
+      {
+        "_path": "bin/fatbinary",
+        "path_type": "hardlink",
+        "sha256": "d396c259ae1b7620a7bcc2bfc9fc84f30ec02728e25649cb4eb902e892d60705",
+        "size_in_bytes": 1253464,
+        "sha256_in_prefix": "d396c259ae1b7620a7bcc2bfc9fc84f30ec02728e25649cb4eb902e892d60705"
+      },
+      {
+        "_path": "bin/nvcc",
+        "path_type": "hardlink",
+        "sha256": "29ee3666b40a4c2856949b23f1b29aab568a168b75413540e227cf7a7de53a0f",
+        "size_in_bytes": 24807976,
+        "sha256_in_prefix": "29ee3666b40a4c2856949b23f1b29aab568a168b75413540e227cf7a7de53a0f"
+      },
+      {
+        "_path": "bin/nvcc.profile",
+        "path_type": "hardlink",
+        "sha256": "e1b4f625e08a0217d23ccc6f25e47517600ca77e35c41b06b1604d5e83f29402",
+        "size_in_bytes": 413,
+        "sha256_in_prefix": "e1b4f625e08a0217d23ccc6f25e47517600ca77e35c41b06b1604d5e83f29402"
+      },
+      {
+        "_path": "bin/nvlink",
+        "path_type": "hardlink",
+        "sha256": "593f5c1df93c43d73984e81ff479353e3f92a974348b18e17c00a5f660b56e45",
+        "size_in_bytes": 32356456,
+        "sha256_in_prefix": "593f5c1df93c43d73984e81ff479353e3f92a974348b18e17c00a5f660b56e45"
+      },
+      {
+        "_path": "bin/ptxas",
+        "path_type": "hardlink",
+        "sha256": "8c132e41273587085295d779ea822bb22d0923e646bbdc3f3b921ac60a2b740d",
+        "size_in_bytes": 31891664,
+        "sha256_in_prefix": "8c132e41273587085295d779ea822bb22d0923e646bbdc3f3b921ac60a2b740d"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-nvcc-tools-12.8.61-0",
+    "type": 1
+  }
+}

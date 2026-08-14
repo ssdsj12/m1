@@ -1,0 +1,112 @@
+{
+  "name": "libcusparse-dev",
+  "version": "12.5.8.93",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcusparse-dev-12.5.8.93-0.conda",
+  "md5": "d86474567adae191bc2d8714b095a276",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcusparse-dev-12.5.8.93-0.conda",
+  "sha256": "67b7bb7e0bb43e412161aa9a83f506a8935be198612fda2120bb1fb416ec9029",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libcusparse 12.5.8.93 0",
+    "libgcc-ng >=11.2.0",
+    "libnvjitlink",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "libcusparse-static >=12.5.8.93"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1740557069121,
+  "size": 47807,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcusparse-dev-12.5.8.93-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcusparse-dev-12.5.8.93-0",
+  "files": [
+    "lib/libcusparse.so",
+    "lib/pkgconfig/cusparse-12.8.pc",
+    "targets/x86_64-linux/include/cusparse.h",
+    "targets/x86_64-linux/include/cusparse_v2.h",
+    "targets/x86_64-linux/lib/libcusparse.so",
+    "targets/x86_64-linux/lib/stubs/libcusparse.so",
+    "targets/x86_64-linux/libcusparse/src/cusparse_fortran.c",
+    "targets/x86_64-linux/libcusparse/src/cusparse_fortran.h",
+    "targets/x86_64-linux/libcusparse/src/cusparse_fortran_common.h"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcusparse.so",
+        "path_type": "softlink",
+        "sha256": "f1f0328372d42d1ed6183f3164d9e6ba44a6e82151b4590c9708eaf4300c3a91",
+        "size_in_bytes": 386594784
+      },
+      {
+        "_path": "lib/pkgconfig/cusparse-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libcusparse_1740556723219/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_plac",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "12d228260eccba9668ec513550f00cbf32cb805bb019aeb684e960ef6771bb63",
+        "size_in_bytes": 484,
+        "sha256_in_prefix": "7387faebc1e1fc7fb0105811a3811862f64a5c699994e55ef1c45a6dabb1b069"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cusparse.h",
+        "path_type": "hardlink",
+        "sha256": "f0c0c32b3fba778ac5aaeca30fe83ec9665b109083f7b42ae3f0afe6087b7ee9",
+        "size_in_bytes": 296787,
+        "sha256_in_prefix": "f0c0c32b3fba778ac5aaeca30fe83ec9665b109083f7b42ae3f0afe6087b7ee9"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cusparse_v2.h",
+        "path_type": "hardlink",
+        "sha256": "8e41f603d85873e4c4174bee43f4aeadb84f3441e460650846ec4a5e1140aa7c",
+        "size_in_bytes": 2587,
+        "sha256_in_prefix": "8e41f603d85873e4c4174bee43f4aeadb84f3441e460650846ec4a5e1140aa7c"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusparse.so",
+        "path_type": "softlink",
+        "sha256": "f1f0328372d42d1ed6183f3164d9e6ba44a6e82151b4590c9708eaf4300c3a91",
+        "size_in_bytes": 386594784
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libcusparse.so",
+        "path_type": "hardlink",
+        "sha256": "5ae631711c7fb5c96e93c07eff9161f53b9510cb913a8e4d26bb98bd8e5e95b4",
+        "size_in_bytes": 71345,
+        "sha256_in_prefix": "5ae631711c7fb5c96e93c07eff9161f53b9510cb913a8e4d26bb98bd8e5e95b4"
+      },
+      {
+        "_path": "targets/x86_64-linux/libcusparse/src/cusparse_fortran.c",
+        "path_type": "hardlink",
+        "sha256": "de7519662c6ee75325684ef3cc01f867bd45a683e3a708b5020ce1977f762788",
+        "size_in_bytes": 56504,
+        "sha256_in_prefix": "de7519662c6ee75325684ef3cc01f867bd45a683e3a708b5020ce1977f762788"
+      },
+      {
+        "_path": "targets/x86_64-linux/libcusparse/src/cusparse_fortran.h",
+        "path_type": "hardlink",
+        "sha256": "fd5c65ddde03ec7c6bafcabfdf08b6e6940489b77b6931fd669022ed039cb655",
+        "size_in_bytes": 35273,
+        "sha256_in_prefix": "fd5c65ddde03ec7c6bafcabfdf08b6e6940489b77b6931fd669022ed039cb655"
+      },
+      {
+        "_path": "targets/x86_64-linux/libcusparse/src/cusparse_fortran_common.h",
+        "path_type": "hardlink",
+        "sha256": "628bb27a9f6fefeb756f31ffa1bce173a030521dcf6be8ba84b856c88a166745",
+        "size_in_bytes": 15466,
+        "sha256_in_prefix": "628bb27a9f6fefeb756f31ffa1bce173a030521dcf6be8ba84b856c88a166745"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcusparse-dev-12.5.8.93-0",
+    "type": 1
+  }
+}

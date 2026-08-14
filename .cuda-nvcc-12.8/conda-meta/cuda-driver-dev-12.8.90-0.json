@@ -1,0 +1,44 @@
+{
+  "name": "cuda-driver-dev",
+  "version": "12.8.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-driver-dev-12.8.90-0.conda",
+  "md5": "525b873de52e89c7b2b8be6102d4f97e",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-driver-dev-12.8.90-0.conda",
+  "sha256": "d7639193c934c15b50e74f61e780e2df823baf05f6349e6f5ca8003407badd5f",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-driver-dev_linux-64",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739446217003,
+  "size": 17185,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-driver-dev-12.8.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-driver-dev-12.8.90-0",
+  "files": [
+    "lib/stubs/libcuda.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/stubs/libcuda.so",
+        "path_type": "softlink",
+        "sha256": "055e044be132c1e3037739a194b137072fe6117aaeccd63eb86ffd53c20a15e8",
+        "size_in_bytes": 66272
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-driver-dev-12.8.90-0",
+    "type": 1
+  }
+}

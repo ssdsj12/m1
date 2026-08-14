@@ -1,0 +1,49 @@
+{
+  "name": "cuda-crt-tools",
+  "version": "12.8.61",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "cuda-crt-tools-12.8.61-0.conda",
+  "md5": "49f37aefe6d3311726aa68137da41456",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/cuda-crt-tools-12.8.61-0.conda",
+  "sha256": "c74949541ce6fe4de8419edb45045028a593c723e663a159c56c98329bd7a86f",
+  "depends": [
+    "cuda-version >=12.8,<12.9.0a0"
+  ],
+  "constrains": [],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1737006815808,
+  "size": 19255,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/cuda-crt-tools-12.8.61-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/cuda-crt-tools-12.8.61-0",
+  "files": [
+    "bin/crt/link.stub",
+    "bin/crt/prelink.stub"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "bin/crt/link.stub",
+        "path_type": "hardlink",
+        "sha256": "d552ae287e4e22ebb7312397574b464779a56f279c613ebbfecfdf122791cf19",
+        "size_in_bytes": 6451,
+        "sha256_in_prefix": "d552ae287e4e22ebb7312397574b464779a56f279c613ebbfecfdf122791cf19"
+      },
+      {
+        "_path": "bin/crt/prelink.stub",
+        "path_type": "hardlink",
+        "sha256": "fbe3b4d360e6eb77f1bbc7328146522adce98e2ce5045b4aaeaf96eaadea10f3",
+        "size_in_bytes": 3974,
+        "sha256_in_prefix": "fbe3b4d360e6eb77f1bbc7328146522adce98e2ce5045b4aaeaf96eaadea10f3"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/cuda-crt-tools-12.8.61-0",
+    "type": 1
+  }
+}

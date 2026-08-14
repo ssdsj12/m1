@@ -1,0 +1,180 @@
+.TH "CUfileOpError.h" 3 "Wed Feb 12 2025" "GPUDirect Storage" \" -*- nroff -*-
+.ad l
+.nh
+.SH NAME
+CUfileOpError.h
+.SH SYNOPSIS
+.br
+.PP
+.SS "Typedefs"
+
+.in +1c
+.ti -1c
+.RI "typedef enum \fBCUfileOpError\fP \fBCUfileOpError\fP"
+.br
+.RI "cufileop status enum\&. "
+.in -1c
+.SS "Enumerations"
+
+.in +1c
+.ti -1c
+.RI "enum \fBCUfileOpError\fP { \fBCU_FILE_SUCCESS\fP = 0, \fBCU_FILE_DRIVER_NOT_INITIALIZED\fP = 5001, \fBCU_FILE_DRIVER_INVALID_PROPS\fP = 5002, \fBCU_FILE_DRIVER_UNSUPPORTED_LIMIT\fP = 5003, \fBCU_FILE_DRIVER_VERSION_MISMATCH\fP = 5004, \fBCU_FILE_DRIVER_VERSION_READ_ERROR\fP = 5005, \fBCU_FILE_DRIVER_CLOSING\fP = 5006, \fBCU_FILE_PLATFORM_NOT_SUPPORTED\fP = 5007, \fBCU_FILE_IO_NOT_SUPPORTED\fP = 5008, \fBCU_FILE_DEVICE_NOT_SUPPORTED\fP = 5009, \fBCU_FILE_NVFS_DRIVER_ERROR\fP = 5010, \fBCU_FILE_CUDA_DRIVER_ERROR\fP = 5011, \fBCU_FILE_CUDA_POINTER_INVALID\fP = 5012, \fBCU_FILE_CUDA_MEMORY_TYPE_INVALID\fP = 5013, \fBCU_FILE_CUDA_POINTER_RANGE_ERROR\fP = 5014, \fBCU_FILE_CUDA_CONTEXT_MISMATCH\fP = 5015, \fBCU_FILE_INVALID_MAPPING_SIZE\fP = 5016, \fBCU_FILE_INVALID_MAPPING_RANGE\fP = 5017, \fBCU_FILE_INVALID_FILE_TYPE\fP = 5018, \fBCU_FILE_INVALID_FILE_OPEN_FLAG\fP = 5019, \fBCU_FILE_DIO_NOT_SET\fP = 5020, \fBCU_FILE_EXPECTED_FILE_MODE\fP = 5021, \fBCU_FILE_INVALID_VALUE\fP = 5022, \fBCU_FILE_MEMORY_ALREADY_REGISTERED\fP = 5023, \fBCU_FILE_MEMORY_NOT_REGISTERED\fP = 5024, \fBCU_FILE_PERMISSION_DENIED\fP = 5025, \fBCU_FILE_DRIVER_ALREADY_OPEN\fP = 5026, \fBCU_FILE_HANDLE_NOT_REGISTERED\fP = 5027, \fBCU_FILE_HANDLE_ALREADY_REGISTERED\fP = 5028, \fBCU_FILE_DEVICE_NOT_FOUND\fP = 5029, \fBCU_FILE_INTERNAL_ERROR\fP = 5030, \fBCU_FILE_GETNEWFD_FAILED\fP = 5031, \fBCU_FILE_NVFS_SETUP_ERROR\fP = 5033, \fBCU_FILE_IO_DISABLED\fP = 5034, \fBCU_FILE_BATCH_SUBMIT_FAILED\fP = 5035, \fBCU_FILE_GPU_MEMORY_PINNING_FAILED\fP = 5036 }
+.RI "cufileop status enum\&. ""
+.br
+.in -1c
+.SH "Typedef Documentation"
+.PP 
+.SS "typedef enum \fBCUfileOpError\fP  \fBCUfileOpError\fP"
+
+.PP
+cufileop status enum\&. 
+.PP
+\fBNote:\fP
+.RS 4
+This file contains all the CUfileOpError error codes from GPUDirect Storage supported APIs 
+.PP
+on success the error code is set to \fBCU_FILE_SUCCESS\fP\&. 
+.PP
+The error code can be inspected using \fBIS_CUFILE_ERR\fP and \fBCUFILE_ERRSTR\fP\&. 
+.PP
+The error code if set to \fBCU_FILE_CUDA_DRIVER_ERROR\fP, then cuda error can be inspected using \fBIS_CUDA_ERR\fP and \fBCU_FILE_CUDA_ERR\fP\&. 
+.PP
+Data path errors are captured via standard error codes 
+.RE
+.PP
+
+.SH "Enumeration Type Documentation"
+.PP 
+.SS "enum \fBCUfileOpError\fP"
+
+.PP
+cufileop status enum\&. 
+.PP
+\fBNote:\fP
+.RS 4
+This file contains all the CUfileOpError error codes from GPUDirect Storage supported APIs 
+.PP
+on success the error code is set to \fBCU_FILE_SUCCESS\fP\&. 
+.PP
+The error code can be inspected using \fBIS_CUFILE_ERR\fP and \fBCUFILE_ERRSTR\fP\&. 
+.PP
+The error code if set to \fBCU_FILE_CUDA_DRIVER_ERROR\fP, then cuda error can be inspected using \fBIS_CUDA_ERR\fP and \fBCU_FILE_CUDA_ERR\fP\&. 
+.PP
+Data path errors are captured via standard error codes 
+.RE
+.PP
+
+.PP
+\fBEnumerator\fP
+.in +1c
+.TP
+\fB\fICU_FILE_SUCCESS \fP\fP
+cufile success 
+.TP
+\fB\fICU_FILE_DRIVER_NOT_INITIALIZED \fP\fP
+nvidia-fs driver is not loaded\&. Set allow_compat_mode to true in cufile\&.json file to enable compatible mode 
+.TP
+\fB\fICU_FILE_DRIVER_INVALID_PROPS \fP\fP
+invalid property 
+.TP
+\fB\fICU_FILE_DRIVER_UNSUPPORTED_LIMIT \fP\fP
+property range error 
+.TP
+\fB\fICU_FILE_DRIVER_VERSION_MISMATCH \fP\fP
+nvidia-fs driver version mismatch 
+.TP
+\fB\fICU_FILE_DRIVER_VERSION_READ_ERROR \fP\fP
+nvidia-fs driver version read error 
+.TP
+\fB\fICU_FILE_DRIVER_CLOSING \fP\fP
+driver shutdown in progress 
+.TP
+\fB\fICU_FILE_PLATFORM_NOT_SUPPORTED \fP\fP
+GPUDirect Storage not supported on current platform 
+.TP
+\fB\fICU_FILE_IO_NOT_SUPPORTED \fP\fP
+GPUDirect Storage not supported on current file 
+.TP
+\fB\fICU_FILE_DEVICE_NOT_SUPPORTED \fP\fP
+GPUDirect Storage not supported on current GPU 
+.TP
+\fB\fICU_FILE_NVFS_DRIVER_ERROR \fP\fP
+nvidia-fs driver ioctl error 
+.TP
+\fB\fICU_FILE_CUDA_DRIVER_ERROR \fP\fP
+CUDA Driver API error 
+.TP
+\fB\fICU_FILE_CUDA_POINTER_INVALID \fP\fP
+invalid device pointer 
+.TP
+\fB\fICU_FILE_CUDA_MEMORY_TYPE_INVALID \fP\fP
+invalid pointer memory type 
+.TP
+\fB\fICU_FILE_CUDA_POINTER_RANGE_ERROR \fP\fP
+pointer range exceeds allocated address range 
+.TP
+\fB\fICU_FILE_CUDA_CONTEXT_MISMATCH \fP\fP
+cuda context mismatch 
+.TP
+\fB\fICU_FILE_INVALID_MAPPING_SIZE \fP\fP
+access beyond maximum pinned size 
+.TP
+\fB\fICU_FILE_INVALID_MAPPING_RANGE \fP\fP
+access beyond mapped size 
+.TP
+\fB\fICU_FILE_INVALID_FILE_TYPE \fP\fP
+unsupported file type 
+.TP
+\fB\fICU_FILE_INVALID_FILE_OPEN_FLAG \fP\fP
+unsupported file open flags 
+.TP
+\fB\fICU_FILE_DIO_NOT_SET \fP\fP
+fd direct IO not set 
+.TP
+\fB\fICU_FILE_EXPECTED_FILE_MODE \fP\fP
+file open needs mode 
+.TP
+\fB\fICU_FILE_INVALID_VALUE \fP\fP
+invalid api arguments 
+.TP
+\fB\fICU_FILE_MEMORY_ALREADY_REGISTERED \fP\fP
+device pointer already registered 
+.TP
+\fB\fICU_FILE_MEMORY_NOT_REGISTERED \fP\fP
+device pointer lookup failure 
+.TP
+\fB\fICU_FILE_PERMISSION_DENIED \fP\fP
+driver or file access error 
+.TP
+\fB\fICU_FILE_DRIVER_ALREADY_OPEN \fP\fP
+driver is already open 
+.TP
+\fB\fICU_FILE_HANDLE_NOT_REGISTERED \fP\fP
+file descriptor is not registered 
+.TP
+\fB\fICU_FILE_HANDLE_ALREADY_REGISTERED \fP\fP
+file descriptor is already registered 
+.TP
+\fB\fICU_FILE_DEVICE_NOT_FOUND \fP\fP
+GPU device not found 
+.TP
+\fB\fICU_FILE_INTERNAL_ERROR \fP\fP
+internal error 
+.TP
+\fB\fICU_FILE_GETNEWFD_FAILED \fP\fP
+failed to obtain new file descriptor 
+.TP
+\fB\fICU_FILE_NVFS_SETUP_ERROR \fP\fP
+NVFS driver initialization error 
+.TP
+\fB\fICU_FILE_IO_DISABLED \fP\fP
+GPUDirect Storage disabled by config on current file 
+.TP
+\fB\fICU_FILE_BATCH_SUBMIT_FAILED \fP\fP
+Batch IO Submit Failure 
+.TP
+\fB\fICU_FILE_GPU_MEMORY_PINNING_FAILED \fP\fP
+Buf Register Failed due to Bar memory Constraints 
+.SH "Author"
+.PP 
+Generated automatically by Doxygen for GPUDirect Storage from the source code\&.

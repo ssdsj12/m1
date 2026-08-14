@@ -1,0 +1,113 @@
+{
+  "name": "ocl-icd",
+  "version": "2.3.4",
+  "build": "hb03c661_1",
+  "build_number": 1,
+  "channel": "https://conda.anaconda.org/conda-forge/linux-64",
+  "subdir": "linux-64",
+  "fn": "ocl-icd-2.3.4-hb03c661_1.conda",
+  "md5": "c2871ba95727fd1382c05db66048b64c",
+  "url": "https://conda.anaconda.org/conda-forge/linux-64/ocl-icd-2.3.4-hb03c661_1.conda",
+  "sha256": "75f3bf733523a338f73d6c276c4a26634877cd970edb558f2769d9fa52b100a9",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "libgcc >=14",
+    "opencl-headers >=2025.6.13"
+  ],
+  "constrains": [],
+  "license": "BSD-2-Clause",
+  "timestamp": 1780362789611,
+  "size": 109598,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/ocl-icd-2.3.4-hb03c661_1.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/ocl-icd-2.3.4-hb03c661_1",
+  "files": [
+    "bin/cllayerinfo",
+    "etc/OpenCL/vendors/.conda_keep",
+    "include/ocl_icd.h",
+    "lib/libOpenCL.so",
+    "lib/libOpenCL.so.1",
+    "lib/libOpenCL.so.1.0.0",
+    "lib/pkgconfig/OpenCL.pc",
+    "lib/pkgconfig/ocl-icd.pc",
+    "share/doc/ocl-icd/examples/ocl_icd_bindings.c"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "bin/cllayerinfo",
+        "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/ocl-icd_1780362670338/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pla",
+        "file_mode": "binary",
+        "path_type": "hardlink",
+        "sha256": "80467eec0b55416d4e8c9ca1e01d0af041d4dd88a3accd1b733a0425d6636bc4",
+        "size_in_bytes": 266640,
+        "sha256_in_prefix": "dc0f44c3597a80c508852f0cb05bb81959ead35541f0172150bd074e6f35eb56"
+      },
+      {
+        "_path": "etc/OpenCL/vendors/.conda_keep",
+        "path_type": "hardlink",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size_in_bytes": 0,
+        "sha256_in_prefix": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "_path": "include/ocl_icd.h",
+        "path_type": "hardlink",
+        "sha256": "99411df5a6198d52b62e351783744a552cc4595448a31ff8a888d30190e6b50b",
+        "size_in_bytes": 57902,
+        "sha256_in_prefix": "99411df5a6198d52b62e351783744a552cc4595448a31ff8a888d30190e6b50b"
+      },
+      {
+        "_path": "lib/libOpenCL.so",
+        "path_type": "softlink",
+        "sha256": "6d2903ff55bdbf6755b4c8fb8bac158f816b9d6fe1b29921507be770d6ba39c9",
+        "size_in_bytes": 277968
+      },
+      {
+        "_path": "lib/libOpenCL.so.1",
+        "path_type": "softlink",
+        "sha256": "6d2903ff55bdbf6755b4c8fb8bac158f816b9d6fe1b29921507be770d6ba39c9",
+        "size_in_bytes": 277968
+      },
+      {
+        "_path": "lib/libOpenCL.so.1.0.0",
+        "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/ocl-icd_1780362670338/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pla",
+        "file_mode": "binary",
+        "path_type": "hardlink",
+        "sha256": "6d2903ff55bdbf6755b4c8fb8bac158f816b9d6fe1b29921507be770d6ba39c9",
+        "size_in_bytes": 277968,
+        "sha256_in_prefix": "d59159505cd6cdcb26d565ddb7d297e7f17ea5f5b992f073bd5b55355964febb"
+      },
+      {
+        "_path": "lib/pkgconfig/OpenCL.pc",
+        "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/ocl-icd_1780362670338/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pla",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "a9cff3736927514a533ad7fbd31e91e6e1c0a9dc3bb12463a608f179ad761ed2",
+        "size_in_bytes": 497,
+        "sha256_in_prefix": "2512f369fc2507499c6b5370f9d60d1f168846b7da216f61b87baeae101b162a"
+      },
+      {
+        "_path": "lib/pkgconfig/ocl-icd.pc",
+        "prefix_placeholder": "/home/conda/feedstock_root/build_artifacts/ocl-icd_1780362670338/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_pla",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "996d46747cb3a995a3c5a698b2f4346d1ac1e1cdd601d6124705439f0e2b88ed",
+        "size_in_bytes": 516,
+        "sha256_in_prefix": "0a76a096923dfe685d0ca2152047fe6381952848b9dff50e787c7d8985bf2038"
+      },
+      {
+        "_path": "share/doc/ocl-icd/examples/ocl_icd_bindings.c",
+        "path_type": "hardlink",
+        "sha256": "c5710dc8d196799ef33836dc091e543b99da55340f1d8eccf23f17553dc72fca",
+        "size_in_bytes": 8813,
+        "sha256_in_prefix": "c5710dc8d196799ef33836dc091e543b99da55340f1d8eccf23f17553dc72fca"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/ocl-icd-2.3.4-hb03c661_1",
+    "type": 1
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "name": "libcusolver-dev",
+  "version": "11.7.3.90",
+  "build": "0",
+  "build_number": 0,
+  "channel": "https://conda.anaconda.org/nvidia/linux-64",
+  "subdir": "linux-64",
+  "fn": "libcusolver-dev-11.7.3.90-0.conda",
+  "md5": "371f8306b1d47b6329a71a698e0ed3fe",
+  "url": "https://conda.anaconda.org/nvidia/linux-64/libcusolver-dev-11.7.3.90-0.conda",
+  "sha256": "d2363546c2dfb6a3ecd1e0906be9c8d8bc5f8e9be19194bf788cf08d5bdad790",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "cuda-version >=12.8,<12.9.0a0",
+    "libcusolver 11.7.3.90 0",
+    "libgcc-ng >=11.2.0",
+    "libstdcxx-ng >=11.2.0"
+  ],
+  "constrains": [
+    "libcusolver-static >=11.7.3.90"
+  ],
+  "license": "LicenseRef-NVIDIA-End-User-License-Agreement",
+  "timestamp": 1739450506827,
+  "size": 56453,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libcusolver-dev-11.7.3.90-0.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libcusolver-dev-11.7.3.90-0",
+  "files": [
+    "lib/libcusolver.so",
+    "lib/libcusolverMg.so",
+    "lib/pkgconfig/cusolver-12.8.pc",
+    "targets/x86_64-linux/include/cusolverDn.h",
+    "targets/x86_64-linux/include/cusolverMg.h",
+    "targets/x86_64-linux/include/cusolverRf.h",
+    "targets/x86_64-linux/include/cusolverSp.h",
+    "targets/x86_64-linux/include/cusolverSp_LOWLEVEL_PREVIEW.h",
+    "targets/x86_64-linux/include/cusolver_common.h",
+    "targets/x86_64-linux/lib/libcusolver.so",
+    "targets/x86_64-linux/lib/libcusolverMg.so",
+    "targets/x86_64-linux/lib/stubs/libcusolver.so",
+    "targets/x86_64-linux/lib/stubs/libcusolverMg.so"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libcusolver.so",
+        "path_type": "softlink",
+        "sha256": "fd4739395116a33f7a7899e600020ae2127ba2671e8b533911fdab5ad23f38cc",
+        "size_in_bytes": 241587952
+      },
+      {
+        "_path": "lib/libcusolverMg.so",
+        "path_type": "softlink",
+        "sha256": "33e9b68ee0abf7c088f10939618f473f1a5b37de6b08fcad71557546c6194c90",
+        "size_in_bytes": 161239545
+      },
+      {
+        "_path": "lib/pkgconfig/cusolver-12.8.pc",
+        "prefix_placeholder": "/conda/miniconda3/conda-bld/libcusolver_1739450213129/_h_env_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_placehold_plac",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "c807e1ea734abe0cdb79aba88289a10e9d679da6b08c837627666ec09a9f3a78",
+        "size_in_bytes": 514,
+        "sha256_in_prefix": "a10a45b090ff0f1811757e48630d2dd89dfa5268ab3192f2a76414a7d5fc6d6d"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cusolverDn.h",
+        "path_type": "hardlink",
+        "sha256": "06a89787eb12965ecac70863a92b9526f483c5e072aa3db17c02b42b2a06dcab",
+        "size_in_bytes": 152029,
+        "sha256_in_prefix": "06a89787eb12965ecac70863a92b9526f483c5e072aa3db17c02b42b2a06dcab"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cusolverMg.h",
+        "path_type": "hardlink",
+        "sha256": "37cf7cf679d2d8195e78ccae7ed6d08010c9e2c30090b3d29e6cbf4bfedfc678",
+        "size_in_bytes": 11549,
+        "sha256_in_prefix": "37cf7cf679d2d8195e78ccae7ed6d08010c9e2c30090b3d29e6cbf4bfedfc678"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cusolverRf.h",
+        "path_type": "hardlink",
+        "sha256": "e0537aa3a1589a5d3da52e29f984f924a6f0819a8a2c4b5ff6d419af9d32668e",
+        "size_in_bytes": 14535,
+        "sha256_in_prefix": "e0537aa3a1589a5d3da52e29f984f924a6f0819a8a2c4b5ff6d419af9d32668e"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cusolverSp.h",
+        "path_type": "hardlink",
+        "sha256": "4b3207d86b77e9ffdc68dd708c5f0f9c2c182e1c2c7c9eb79f530f21cd3f026b",
+        "size_in_bytes": 32885,
+        "sha256_in_prefix": "4b3207d86b77e9ffdc68dd708c5f0f9c2c182e1c2c7c9eb79f530f21cd3f026b"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cusolverSp_LOWLEVEL_PREVIEW.h",
+        "path_type": "hardlink",
+        "sha256": "9a6997b97fe094705da604f322a85790b333f540b1c42d6e4136dc280d56e942",
+        "size_in_bytes": 39169,
+        "sha256_in_prefix": "9a6997b97fe094705da604f322a85790b333f540b1c42d6e4136dc280d56e942"
+      },
+      {
+        "_path": "targets/x86_64-linux/include/cusolver_common.h",
+        "path_type": "hardlink",
+        "sha256": "93984764465ca31c644c5a9b28958a1aec6e1cb692470588bd8760bd02746ddc",
+        "size_in_bytes": 8732,
+        "sha256_in_prefix": "93984764465ca31c644c5a9b28958a1aec6e1cb692470588bd8760bd02746ddc"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusolver.so",
+        "path_type": "softlink",
+        "sha256": "fd4739395116a33f7a7899e600020ae2127ba2671e8b533911fdab5ad23f38cc",
+        "size_in_bytes": 241587952
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/libcusolverMg.so",
+        "path_type": "softlink",
+        "sha256": "33e9b68ee0abf7c088f10939618f473f1a5b37de6b08fcad71557546c6194c90",
+        "size_in_bytes": 161239545
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libcusolver.so",
+        "path_type": "hardlink",
+        "sha256": "dc39b4e1790f165094e6d3d16b7870427f960fb760bd62c8d95e2fd2a7865615",
+        "size_in_bytes": 139185,
+        "sha256_in_prefix": "dc39b4e1790f165094e6d3d16b7870427f960fb760bd62c8d95e2fd2a7865615"
+      },
+      {
+        "_path": "targets/x86_64-linux/lib/stubs/libcusolverMg.so",
+        "path_type": "hardlink",
+        "sha256": "8cec73d32215f2d5b73aae3ddbbea14f233383c8b9691c2c4eadbb4533873674",
+        "size_in_bytes": 40449,
+        "sha256_in_prefix": "8cec73d32215f2d5b73aae3ddbbea14f233383c8b9691c2c4eadbb4533873674"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libcusolver-dev-11.7.3.90-0",
+    "type": 1
+  }
+}

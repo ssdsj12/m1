@@ -1,0 +1,66 @@
+{
+  "name": "libstdcxx",
+  "version": "15.2.0",
+  "build": "h934c35e_19",
+  "build_number": 19,
+  "channel": "https://conda.anaconda.org/conda-forge/linux-64",
+  "subdir": "linux-64",
+  "fn": "libstdcxx-15.2.0-h934c35e_19.conda",
+  "md5": "5794b3bdc38177caf969dabd3af08549",
+  "url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-15.2.0-h934c35e_19.conda",
+  "sha256": "dff1058c76ec6b8759e41cefa2508162d00e4a5e6721aa68ec3fd10094e702dc",
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "libgcc 15.2.0 he0feb66_19"
+  ],
+  "constrains": [
+    "libstdcxx-ng ==15.2.0 *_19"
+  ],
+  "license": "GPL-3.0-only WITH GCC-exception-3.1",
+  "timestamp": 1778269036376,
+  "size": 5852044,
+  "_requested_specs": [],
+  "package_tarball_full_path": "/home/xk/miniconda3/pkgs/libstdcxx-15.2.0-h934c35e_19.conda",
+  "extracted_package_dir": "/home/xk/miniconda3/pkgs/libstdcxx-15.2.0-h934c35e_19",
+  "files": [
+    "lib/libstdc++.so",
+    "lib/libstdc++.so.6",
+    "lib/libstdc++.so.6.0.34",
+    "share/licenses/libstdc++/RUNTIME.LIBRARY.EXCEPTION"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "lib/libstdc++.so",
+        "path_type": "softlink",
+        "sha256": "9581ad615b7c073423f57b69a3b148a89f8ea76fc909124211f9007909b807a6",
+        "size_in_bytes": 21295144
+      },
+      {
+        "_path": "lib/libstdc++.so.6",
+        "path_type": "softlink",
+        "sha256": "9581ad615b7c073423f57b69a3b148a89f8ea76fc909124211f9007909b807a6",
+        "size_in_bytes": 21295144
+      },
+      {
+        "_path": "lib/libstdc++.so.6.0.34",
+        "path_type": "hardlink",
+        "sha256": "9581ad615b7c073423f57b69a3b148a89f8ea76fc909124211f9007909b807a6",
+        "size_in_bytes": 21295144,
+        "sha256_in_prefix": "9581ad615b7c073423f57b69a3b148a89f8ea76fc909124211f9007909b807a6"
+      },
+      {
+        "_path": "share/licenses/libstdc++/RUNTIME.LIBRARY.EXCEPTION",
+        "path_type": "hardlink",
+        "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
+        "size_in_bytes": 3324,
+        "sha256_in_prefix": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+      }
+    ]
+  },
+  "link": {
+    "source": "/home/xk/miniconda3/pkgs/libstdcxx-15.2.0-h934c35e_19",
+    "type": 1
+  }
+}
