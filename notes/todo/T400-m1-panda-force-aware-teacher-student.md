@@ -40,6 +40,8 @@ T400.7 书面规格现已由用户复核确认，七任务单代理 TDD 实施�
 
 T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴覆盖、strict full-scale Play/sweep、隔离 fork 和 lineage manifest 均已实现。静态回归 `183 passed`、compile exit `0`；GPU0 64×500 满幅 Play 与 8-env 单 iteration fork 均 exit `0`，fork 从 `2700` 生成 `2701`，有效 std floor、课程进度、源/frozen SHA 均验证通过。当前进入 Task 7 正式四候选三 seed 筛选与 500-iteration 分块训练，尚未达到行为验收。
 
+T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_9700.pt` 的三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`；相比源模型显著改善但未通过 `0.80/0.10/0.10` 联合门。后 7 个 block 在 contact `0.22–0.27` 平台，没有继续相同 PPO 的充分依据；manifest stop reason 为 `recovery_plateau_requires_design_review`。下一步需要批准 reward/termination 或 curriculum redesign，T400.7 仍保持开放。
+
 ## Open Children
 
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
@@ -111,6 +113,7 @@ T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴�
 - [A1 recovery implementation plan](../../docs/superpowers/plans/2026-08-15-m1-panda-a1-recovery-training.md)
 - [A1 recovery plan log](../log/2026-08-15-m1-panda-a1-recovery-plan.md)
 - [A1 recovery implementation](../log/2026-08-15-m1-panda-a1-recovery-implementation.md)
+- [A1 recovery blocks](../log/2026-08-15-m1-panda-a1-recovery-blocks.md)
 
 ## Git Refs
 

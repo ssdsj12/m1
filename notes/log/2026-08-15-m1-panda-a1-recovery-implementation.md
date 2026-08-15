@@ -45,4 +45,4 @@ Isaac 输出仍包含 Panda root joint disjoint-transform snap warning；按已�
 
 ## Next
 
-保护五个源 checkpoint SHA，执行四候选 × seeds 42/43/44 × 64 env × 2000 steps 满幅 sweep；从 `ranking.json` fork winner，按 500 iteration block 训练并逐 block 复验。
+后续已完成正式筛选和 20 个 recovery blocks。最佳为 `model_9700.pt`，三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`，未通过 contact 与 timeout 联合门；详情见 [recovery blocks](2026-08-15-m1-panda-a1-recovery-blocks.md)。当前需要新的 reward/curriculum 设计批准，不能把最佳模型声明为 A1 验收通过。

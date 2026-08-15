@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.7 | T400 | runtime-active | P0 | Recovery implementation and GPU0 Play/fork smoke pass; four-candidate three-seed full-scale selection and monitored 500-iteration blocks remain. | [implementation evidence](log/2026-08-15-m1-panda-a1-recovery-implementation.md) |
+| T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | design-review | P0 | User approved changing Panda mount clearance from 10 mm to zero while preserving the fixed single articulation and rejecting mesh penetration. | [zero-clearance design](../docs/superpowers/specs/2026-08-15-m1-panda-zero-clearance-mount-design.md) |
 | T400.5d | T400 | done | P0 | Strict play complete: final `195 passed`; A0/A1 default plus A1 zero-disturbance GPU0 smokes exit `0`; frozen hash stable. | [GPU0 smoke](log/2026-08-14-m1-panda-teacher-play-gpu0-smoke.md) |
 | T400.3 | T400 | open | P0 | Panda mass, payload moment, dynamic load, sensor overload capacity and M1 structure must be verified independently before real maximum-load tests. | [T400 branch](todo/T400-m1-panda-force-aware-teacher-student.md#t4003-机械验算前置门) |
