@@ -157,6 +157,37 @@ def test_curriculum_reaches_full_scale_and_stays_there():
     assert scheduler.curriculum_scale == pytest.approx(1.0)
 
 
+def test_scheduler_can_start_at_full_curriculum_without_advancing():
+    cfg = stage_disturbance_cfg("A1")
+    scheduler = M1PandaDisturbanceScheduler(
+        cfg,
+        2,
+        "cpu",
+        0.02,
+        seed=3,
+        initial_global_step=cfg.curriculum_steps,
+    )
+
+    assert scheduler.global_step == 75_000
+    assert scheduler.curriculum_scale == pytest.approx(1.0)
+    first = scheduler.advance()
+    assert torch.all(first[:, :3].abs() <= 20.0)
+    assert torch.all(first[:, 3:].abs() <= 5.0)
+
+
+@pytest.mark.parametrize("value", [-1, True, 1.5])
+def test_scheduler_rejects_invalid_initial_global_step(value):
+    with pytest.raises((TypeError, ValueError), match="initial_global_step"):
+        M1PandaDisturbanceScheduler(
+            stage_disturbance_cfg("A1"),
+            1,
+            "cpu",
+            0.02,
+            seed=3,
+            initial_global_step=value,
+        )
+
+
 def test_reset_clears_only_selected_environments_without_rewinding_curriculum():
     scheduler = M1PandaDisturbanceScheduler(
         stage_disturbance_cfg("A1"), 4, "cpu", 0.02, seed=3
@@ -310,6 +341,36 @@ def test_clear_external_wrench_accepts_only_known_isaaclab_shape_bug():
             )
 
     clear_external_wrench(Robot())
+
+
+def test_clear_external_wrench_falls_back_to_full_zeros_for_warp_composer():
+    class Robot:
+        device = "cpu"
+        num_instances = 2
+        num_bodies = 3
+        has_external_wrench = True
+
+        def __init__(self):
+            self.shapes = []
+
+        def set_external_force_and_torque(self, forces, torques):
+            self.shapes.append((tuple(forces.shape), tuple(torques.shape)))
+            if len(self.shapes) == 1:
+                raise RuntimeError(
+                    "Error launching kernel 'set_forces_and_torques_at_position', "
+                    "argument 'forces' expects an array with 2 dimension(s) but "
+                    "the passed array has 1 dimension(s)."
+                )
+            assert torch.equal(forces, torch.zeros(2, 3, 3))
+            assert torch.equal(torques, torch.zeros(2, 3, 3))
+            self.has_external_wrench = False
+
+    robot = Robot()
+
+    clear_external_wrench(robot)
+
+    assert robot.shapes == [((0, 3), (0, 3)), ((2, 3, 3), (2, 3, 3))]
+    assert robot.has_external_wrench is False
 
 
 def test_clear_external_wrench_rejects_unrelated_runtime_error():

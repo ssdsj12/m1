@@ -88,11 +88,24 @@ def base_wrench_to_body_local(
 
 
 def clear_external_wrench(robot) -> None:
-    """Disable persistent wrenches across supported Isaac Lab 2.1 variants."""
+    """Disable persistent wrenches across supported Isaac Lab 2.1/5.1 APIs."""
     empty = torch.zeros(0, 3, device=robot.device)
     try:
         robot.set_external_force_and_torque(empty, empty)
     except RuntimeError as error:
+        warp_empty_assignment = (
+            "argument 'forces' expects an array with 2 dimension(s) but "
+            "the passed array has 1 dimension(s)"
+        ) in str(error)
+        if warp_empty_assignment:
+            zeros = torch.zeros(
+                robot.num_instances,
+                robot.num_bodies,
+                3,
+                device=robot.device,
+            )
+            robot.set_external_force_and_torque(zeros, zeros)
+            return
         known_empty_assignment = re.fullmatch(
             r"shape mismatch: value tensor of shape \[0\] cannot be broadcast to indexing result "
             r"of shape \[\d+, 3\]",
@@ -211,6 +224,7 @@ class M1PandaDisturbanceScheduler:
         *,
         seed: int,
         dtype: torch.dtype = torch.float32,
+        initial_global_step: int = 0,
     ) -> None:
         if not isinstance(cfg, M1PandaDisturbanceCfg):
             raise TypeError("cfg must be an M1PandaDisturbanceCfg")
@@ -229,6 +243,14 @@ class M1PandaDisturbanceScheduler:
             raise ValueError("step_dt must be finite and positive")
         if not isinstance(seed, int) or isinstance(seed, bool):
             raise ValueError("seed must be an integer")
+        if (
+            not isinstance(initial_global_step, int)
+            or isinstance(initial_global_step, bool)
+            or initial_global_step < 0
+        ):
+            raise ValueError(
+                "initial_global_step must be a nonnegative integer"
+            )
         if not isinstance(dtype, torch.dtype) or not dtype.is_floating_point:
             raise TypeError("dtype must be a floating torch.dtype")
 
@@ -248,7 +270,7 @@ class M1PandaDisturbanceScheduler:
         self._elapsed_steps = torch.zeros_like(self._duration_steps)
         self._remaining_steps = torch.zeros_like(self._duration_steps)
         self._mode = torch.full_like(self._duration_steps, HOLD_MODE)
-        self._global_step = 0
+        self._global_step = initial_global_step
         self._limits = torch.tensor(
             cfg.force_limit_n + cfg.torque_limit_nm,
             device=self.device,
@@ -271,6 +293,10 @@ class M1PandaDisturbanceScheduler:
         return self.cfg.curriculum_start_scale + (
             1.0 - self.cfg.curriculum_start_scale
         ) * progress
+
+    @property
+    def global_step(self) -> int:
+        return self._global_step
 
     def _sample_segments(self, env_ids: torch.Tensor) -> None:
         count = int(env_ids.numel())

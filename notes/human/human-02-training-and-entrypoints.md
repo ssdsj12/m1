@@ -392,11 +392,16 @@ python Go2Pvcnn/scripts/m1_checkpoint_eval.py \
 ## 当前推荐理解方式
 
 - M1 平地与原始语义图策略使用 `m1_train.py` / `m1_play.py`
+- M1 + Panda 六维受力平衡 Teacher 使用 `m1_panda_teacher_train.py` / `m1_panda_teacher_play.py`；后者默认启用 stage 对应扰动，A1 必须同时提供原始 A0 base checkpoint 和 A1 checkpoint
 - M1 官方 PVCNN 使用 `m1_pvcnn_pretrain.py` / `m1_pvcnn_train.py`，并仍由 `m1_play.py --perception-checkpoint` 回放
 - M1 非 wave 固定站姿、wave 自主越障使用 `m1_wave_distill.py` 训练，并用 `Isaac-M1-Pvcnn-Crossing-60mm-Distilled-Play-v0` 回放
 - `m1_checkpoint_eval.py` 是 Stage 1、Stage 2C 和 PVCNN accepted 提升前的统一门控入口
 - `train.py` / `play.py` 保留给原 Go2 teacher 系列，不是 M1 当前主入口
 - 旧 `train_go2_pvcnn.py` 不再作为 M1 可复现链的一部分
+
+### M1 + Panda Teacher 专用 Play
+
+`Go2Pvcnn/scripts/m1_panda_teacher_play.py` 是 60 维 Teacher checkpoint 的唯一专用回放入口，不能换成通用 `m1_play.py`。A0 使用 zero-base residual；A1 先从 `--base-checkpoint` 恢复并冻结 A0 actor，再加载 `--checkpoint` 指定的 A1 residual actor。GUI 和六维扰动默认开启，`--disable-disturbance` 仅作为零外力对照且不会绕过策略与 composer。完整 GPU0 命令见 [Teacher A0/A1 runbook](../../docs/superpowers/runbooks/2026-08-14-m1-panda-teacher-a0-a1-training.md)。当前 A1 只可诊断，不属于 accepted 策略。
 
 ## 上游输入
 

@@ -22,10 +22,34 @@ TASK_IDS = {
     "A0": "Isaac-M1-Panda-Teacher-A0-v0",
     "A1": "Isaac-M1-Panda-Teacher-A1-v0",
 }
+RECOVERY_LINEAGE_FIELDS = (
+    "recovery_source_checkpoint",
+    "recovery_source_checkpoint_sha256",
+    "recovery_source_iteration",
+    "optimizer_reset",
+    "recovery_learning_rate",
+    "noise_std_mode",
+    "minimum_effective_std",
+    "initial_curriculum_step",
+    "initial_curriculum_scale",
+)
 
 
 def validate_cli_contract(args) -> None:
     """Reject contradictory or non-positive training arguments before startup."""
+    fork_checkpoint = getattr(args, "fork_checkpoint", None)
+    reset_optimizer = getattr(args, "reset_optimizer", False)
+    if fork_checkpoint is not None:
+        if args.stage != "A1":
+            raise ValueError("--fork-checkpoint is A1-only")
+        if args.run_name is None:
+            raise ValueError("--fork-checkpoint requires --run_name")
+        if args.resume_checkpoint is not None:
+            raise ValueError("--fork-checkpoint cannot be combined with --resume-checkpoint")
+        if reset_optimizer:
+            raise ValueError(
+                "--reset-optimizer is implicit and forbidden with --fork-checkpoint"
+            )
     if args.stage == "A0" and args.base_checkpoint is not None:
         raise ValueError("A0 does not accept --base-checkpoint")
     if args.stage == "A1" and args.base_checkpoint is None:
@@ -43,6 +67,84 @@ def validate_cli_contract(args) -> None:
             raise ValueError(f"--{field} must be positive")
     if args.resume_checkpoint is not None and args.run_name is not None:
         raise ValueError("--run_name is forbidden with --resume-checkpoint")
+
+
+def recovery_initial_curriculum_step(
+    source_iteration: int,
+    num_steps_per_env: int,
+    curriculum_steps: int,
+) -> int:
+    """Restore scheduler progress from completed RSL-RL rollout iterations."""
+    values = {
+        "source_iteration": source_iteration,
+        "num_steps_per_env": num_steps_per_env,
+        "curriculum_steps": curriculum_steps,
+    }
+    for name, value in values.items():
+        minimum = 0 if name == "source_iteration" else 1
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < minimum
+        ):
+            qualifier = "nonnegative" if minimum == 0 else "positive"
+            raise ValueError(f"{name} must be a {qualifier} integer")
+    return min(source_iteration * num_steps_per_env, curriculum_steps)
+
+
+def preserve_recovery_resume_state(
+    current_manifest: dict[str, object],
+    previous_manifest: dict[str, object],
+) -> None:
+    """Carry immutable recovery lineage and evaluation history across resume."""
+    if "recovery_source_checkpoint" not in previous_manifest:
+        return
+    missing = [
+        field for field in RECOVERY_LINEAGE_FIELDS if field not in previous_manifest
+    ]
+    if missing:
+        raise ValueError(f"recovery resume manifest is missing fields: {missing}")
+    for field in RECOVERY_LINEAGE_FIELDS:
+        current_manifest[field] = previous_manifest[field]
+    artifacts = previous_manifest.get("evaluation_artifacts", [])
+    if not isinstance(artifacts, list):
+        raise ValueError("recovery evaluation_artifacts must be a list")
+    current_manifest.update(
+        {
+            "evaluation_artifacts": list(artifacts),
+            "best_checkpoint": previous_manifest.get("best_checkpoint"),
+            "best_metrics": previous_manifest.get("best_metrics"),
+            "stop_reason": None,
+            "consecutive_survival_regressions": previous_manifest.get(
+                "consecutive_survival_regressions", 0
+            ),
+        }
+    )
+
+
+def apply_recovery_resume_train_cfg(
+    train_cfg: dict[str, object], previous_manifest: dict[str, object]
+) -> None:
+    """Restore recovery hyperparameters before constructing a resumed runner."""
+    if "recovery_source_checkpoint" not in previous_manifest and (
+        "recovery_learning_rate" not in previous_manifest
+    ):
+        return
+    learning_rate = previous_manifest.get("recovery_learning_rate")
+    if not isinstance(learning_rate, (int, float)) or isinstance(
+        learning_rate, bool
+    ) or learning_rate <= 0.0:
+        raise ValueError("recovery_learning_rate must be positive")
+    algorithm = train_cfg.get("algorithm")
+    if not isinstance(algorithm, dict):
+        raise ValueError("train_cfg algorithm must be a dictionary")
+    algorithm["learning_rate"] = float(learning_rate)
+
+
+def mark_recovery_block_completed(manifest: dict[str, object]) -> None:
+    """Mark either a forked or resumed recovery block ready for evaluation."""
+    if "recovery_source_checkpoint" in manifest:
+        manifest["stop_reason"] = "block_completed_pending_evaluation"
 
 
 def build_log_dir(
@@ -115,6 +217,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--base-checkpoint", type=Path, default=None)
     parser.add_argument("--resume-checkpoint", type=Path, default=None)
+    parser.add_argument("--fork-checkpoint", type=Path, default=None)
     parser.add_argument("--reset-optimizer", action="store_true", default=False)
     parser.add_argument("--save-interval", type=int, default=100)
     parser.add_argument("--num-steps-per-env", type=int, default=24)
@@ -152,6 +255,7 @@ def main() -> int:
             TEACHER_OBSERVATION_DIM,
             atomic_write_manifest,
             build_run_manifest,
+            checkpoint_iteration,
             file_sha256,
             load_frozen_teacher_actor,
             module_sha256,
@@ -174,6 +278,37 @@ def main() -> int:
         train_cfg["num_steps_per_env"] = args.num_steps_per_env
         train_cfg["algorithm"]["num_learning_epochs"] = args.learning_epochs
         train_cfg["algorithm"]["num_mini_batches"] = args.num_mini_batches
+        disturbance_cfg = stage_disturbance_cfg(args.stage)
+
+        expected_base_hash = (
+            file_sha256(args.base_checkpoint) if args.stage == "A1" else None
+        )
+        selected_checkpoint = args.fork_checkpoint or args.resume_checkpoint
+        selected_manifest = None
+        source_iteration = None
+        initial_curriculum_step = 0
+        if selected_checkpoint is not None:
+            _, selected_manifest = validate_teacher_checkpoint(
+                selected_checkpoint,
+                expected_stage=args.stage,
+                expected_observation_dim=TEACHER_OBSERVATION_DIM,
+                expected_action_dim=TEACHER_ACTION_DIM,
+                expected_actor_hidden_dims=TEACHER_HIDDEN_DIMS,
+                expected_base_sha256=expected_base_hash,
+                require_optimizer=(
+                    args.resume_checkpoint is not None and not args.reset_optimizer
+                ),
+            )
+            source_iteration = checkpoint_iteration(selected_checkpoint)
+            initial_curriculum_step = recovery_initial_curriculum_step(
+                source_iteration,
+                args.num_steps_per_env,
+                disturbance_cfg.curriculum_steps,
+            )
+            if args.resume_checkpoint is not None:
+                apply_recovery_resume_train_cfg(train_cfg, selected_manifest)
+        if args.fork_checkpoint is not None:
+            train_cfg["algorithm"]["learning_rate"] = 1.0e-4
 
         if args.stage == "A1":
             frozen_actor = load_frozen_teacher_actor(
@@ -193,36 +328,49 @@ def main() -> int:
             stage=args.stage,
             base_actor=frozen_actor,
             seed=args.seed,
+            initial_curriculum_step=initial_curriculum_step,
         )
 
         log_dir = resolve_log_dir(args)
         dump_yaml(str(log_dir / "env_cfg.yaml"), env_cfg.to_dict())
         dump_yaml(str(log_dir / "train_cfg.yaml"), train_cfg)
 
-        expected_base_hash = (
-            file_sha256(args.base_checkpoint) if args.stage == "A1" else None
-        )
-        if args.resume_checkpoint is not None:
-            validate_teacher_checkpoint(
-                args.resume_checkpoint,
-                expected_stage=args.stage,
-                expected_observation_dim=TEACHER_OBSERVATION_DIM,
-                expected_action_dim=TEACHER_ACTION_DIM,
-                expected_actor_hidden_dims=TEACHER_HIDDEN_DIMS,
-                expected_base_sha256=expected_base_hash,
-                require_optimizer=not args.reset_optimizer,
-            )
-
         manifest = build_run_manifest(
             stage=args.stage,
             task_id=task_id,
             seed=args.seed,
             composer_cfg=M1ResidualActionComposerCfg(),
-            disturbance_cfg=stage_disturbance_cfg(args.stage),
+            disturbance_cfg=disturbance_cfg,
             base_checkpoint=args.base_checkpoint,
             frozen_actor=frozen_actor,
             resume_checkpoint=args.resume_checkpoint,
+            recovery_source_checkpoint=args.fork_checkpoint,
+            recovery_source_iteration=(
+                source_iteration if args.fork_checkpoint is not None else None
+            ),
+            initial_curriculum_step=(
+                initial_curriculum_step if args.fork_checkpoint is not None else None
+            ),
+            optimizer_reset=True if args.fork_checkpoint is not None else None,
+            recovery_learning_rate=(
+                1.0e-4 if args.fork_checkpoint is not None else None
+            ),
+            noise_std_mode=("scalar" if args.fork_checkpoint is not None else None),
+            minimum_effective_std=(
+                0.001 if args.fork_checkpoint is not None else None
+            ),
         )
+        if args.resume_checkpoint is not None and selected_manifest is not None:
+            preserve_recovery_resume_state(manifest, selected_manifest)
+        if args.fork_checkpoint is not None:
+            manifest.update(
+                {
+                    "evaluation_artifacts": [],
+                    "best_checkpoint": None,
+                    "best_metrics": None,
+                    "stop_reason": None,
+                }
+            )
         atomic_write_manifest(log_dir / MANIFEST_FILENAME, manifest)
 
         runner = OnPolicyRunner(
@@ -231,13 +379,17 @@ def main() -> int:
             log_dir=str(log_dir),
             device=env_cfg.sim.device,
         )
-        if args.resume_checkpoint is not None:
-            runner.load(
-                str(Path(args.resume_checkpoint).expanduser().resolve()),
-                load_optimizer=not args.reset_optimizer,
-                keep_std=True,
+        if selected_checkpoint is not None:
+            load_runner_checkpoint(
+                runner,
+                selected_checkpoint,
+                load_optimizer=(
+                    args.resume_checkpoint is not None and not args.reset_optimizer
+                ),
+                minimum_effective_std=(
+                    0.001 if args.fork_checkpoint is not None else None
+                ),
             )
-            advance_runner_after_resume(runner)
         runner.learn(
             num_learning_iterations=args.max_iterations,
             init_at_random_ep_len=True,
@@ -259,6 +411,7 @@ def main() -> int:
             module_sha256(frozen_actor) if frozen_actor is not None else None
         )
         manifest["runtime_contract"] = runtime_snapshot
+        mark_recovery_block_completed(manifest)
         atomic_write_manifest(log_dir / MANIFEST_FILENAME, manifest)
         return 0
     except BaseException as error:
@@ -295,6 +448,25 @@ def main() -> int:
             env.close()
         if simulation_app is not None:
             simulation_app.close()
+
+
+def load_runner_checkpoint(
+    runner,
+    checkpoint_path: str | os.PathLike[str],
+    *,
+    load_optimizer: bool,
+    minimum_effective_std: float | None = None,
+) -> None:
+    """Load one validated checkpoint and apply recovery-only policy resets."""
+    resolved = str(Path(checkpoint_path).expanduser().resolve())
+    runner.load(
+        resolved,
+        load_optimizer=load_optimizer,
+        keep_std=True,
+    )
+    advance_runner_after_resume(runner)
+    if minimum_effective_std is not None:
+        runner.alg.actor_critic.clip_std(min=minimum_effective_std)
 
 
 if __name__ == "__main__":

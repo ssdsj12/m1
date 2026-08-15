@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 from torch.distributions import Normal
@@ -21,6 +23,7 @@ class ActorCritic(nn.Module):
         critic_hidden_dims=[256, 256, 256],
         activation="elu",
         init_noise_std=1.0,
+        noise_std_type="scalar",
         **kwargs,
     ):
         if kwargs:
@@ -60,11 +63,23 @@ class ActorCritic(nn.Module):
         print(f"Actor MLP: {self.actor}")
         print(f"Critic MLP: {self.critic}")
 
-        # Action noise
-        self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        # Action noise.  Keep scalar mode compatible with legacy checkpoints
+        # whose state dictionaries contain a direct physical ``std`` tensor.
+        self.noise_std_type = noise_std_type
+        if noise_std_type == "scalar":
+            self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
+        elif noise_std_type == "log":
+            self.log_std = nn.Parameter(
+                torch.log(init_noise_std * torch.ones(num_actions))
+            )
+        else:
+            raise ValueError(
+                "noise_std_type must be 'scalar' or 'log', "
+                f"got {noise_std_type!r}"
+            )
         self.distribution = None
         # disable args validation for speedup
-        Normal.set_default_validate_args = False
+        Normal.set_default_validate_args(False)
 
         # seems that we get better performance without init
         # self.init_memory_weights(self.memory_a, 0.001, 0.)
@@ -96,20 +111,22 @@ class ActorCritic(nn.Module):
     def entropy(self):
         return self.distribution.entropy().sum(dim=-1)
 
+    @property
+    def noise_parameter(self):
+        if self.noise_std_type == "scalar":
+            return self.std
+        return self.log_std
+
+    @property
+    def effective_action_std(self):
+        if self.noise_std_type == "scalar":
+            return self.std
+        return torch.exp(self.log_std)
+
     def update_distribution(self, observations):
         mean = self.actor(observations)
-        # Ensure standard deviation is strictly non-negative. Use softplus to guarantee
-        # positivity and stable gradients in case std parameter becomes negative or
-        # receives invalid values during training.
-        try:
-            import torch.nn.functional as F
-
-            positive_std = F.softplus(self.std)
-        except Exception:
-            # Fallback to absolute value if softplus is unavailable for any reason
-            positive_std = torch.abs(self.std)
-
-        self.distribution = Normal(mean, mean * 0.0 + positive_std)
+        std = self.effective_action_std.expand_as(mean)
+        self.distribution = Normal(mean, std)
 
     def act(self, observations, **kwargs):
         self.update_distribution(observations)
@@ -128,7 +145,12 @@ class ActorCritic(nn.Module):
 
     @torch.no_grad()
     def clip_std(self, min=None, max=None):
-        self.std.copy_(self.std.clip(min=min, max=max))
+        if self.noise_std_type == "scalar":
+            self.std.copy_(self.std.clip(min=min, max=max))
+            return
+        log_min = None if min is None else math.log(float(min))
+        log_max = None if max is None else math.log(float(max))
+        self.log_std.copy_(self.log_std.clip(min=log_min, max=log_max))
 
 
 def get_activation(act_name):

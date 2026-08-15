@@ -51,9 +51,13 @@ def test_teacher_train_cfg_has_exact_small_mlp_ppo_contract_and_is_independent()
     assert left["policy"]["actor_hidden_dims"] == [256, 128]
     assert left["policy"]["critic_hidden_dims"] == [256, 128]
     assert left["policy"]["init_noise_std"] == 0.01
+    assert left["policy"]["noise_std_type"] == "scalar"
+    assert "state_dependent_std" not in left["policy"]
     assert left["algorithm"]["class_name"] == "PPO"
     assert left["algorithm"]["num_learning_epochs"] == 5
     assert left["algorithm"]["num_mini_batches"] == 4
+    assert left["algorithm"]["entropy_coef"] == 0.0
+    assert left["algorithm"]["clip_min_std"] == 0.001
 
     left["policy"]["actor_hidden_dims"].append(64)
     left["algorithm"]["num_learning_epochs"] = 99
@@ -154,6 +158,46 @@ def test_cli_contract_forbids_run_name_when_resuming():
         module.validate_cli_contract(args)
 
 
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"stage": "A0"}, "A1-only"),
+        ({"run_name": None}, "run_name"),
+        ({"resume_checkpoint": "/tmp/resume.pt"}, "resume"),
+        ({"reset_optimizer": True}, "reset-optimizer"),
+    ],
+)
+def test_fork_cli_requires_isolated_a1_run(updates, message):
+    module = _load_script()
+    values = {
+        "stage": "A1",
+        "base_checkpoint": "/tmp/base.pt",
+        "max_iterations": 1,
+        "num_envs": 1,
+        "save_interval": 1,
+        "num_steps_per_env": 24,
+        "learning_epochs": 1,
+        "num_mini_batches": 1,
+        "resume_checkpoint": None,
+        "fork_checkpoint": "/tmp/source.pt",
+        "reset_optimizer": False,
+        "run_name": "recovery-block-1",
+    }
+    values.update(updates)
+
+    with pytest.raises(ValueError, match=message):
+        module.validate_cli_contract(SimpleNamespace(**values))
+
+
+def test_recovery_curriculum_step_restores_rollout_progress_with_cap():
+    module = _load_script()
+
+    assert module.recovery_initial_curriculum_step(2700, 24, 75_000) == 64_800
+    assert module.recovery_initial_curriculum_step(3800, 24, 75_000) == 75_000
+    with pytest.raises(ValueError, match="source_iteration"):
+        module.recovery_initial_curriculum_step(-1, 24, 75_000)
+
+
 def test_build_log_dir_is_stage_scoped_and_refuses_existing_directory(tmp_path):
     module = _load_script()
 
@@ -181,6 +225,27 @@ def test_resume_reuses_checkpoint_parent_as_log_directory(tmp_path):
     assert module.resolve_log_dir(args) == run_dir.resolve()
 
 
+def test_fork_creates_fresh_stage_directory_without_mutating_source(tmp_path):
+    module = _load_script()
+    source = tmp_path / "source" / "model_2700.pt"
+    source.parent.mkdir()
+    source.write_bytes(b"immutable-source")
+    before = source.read_bytes()
+    args = SimpleNamespace(
+        resume_checkpoint=None,
+        fork_checkpoint=source,
+        log_root=tmp_path / "logs",
+        stage="A1",
+        run_name="recovery-block-1",
+    )
+
+    resolved = module.resolve_log_dir(args)
+
+    assert resolved == (tmp_path / "logs/a1/recovery-block-1").resolve()
+    assert resolved != source.parent.resolve()
+    assert source.read_bytes() == before
+
+
 def test_resume_advances_runner_to_iteration_after_loaded_checkpoint():
     module = _load_script()
     runner = SimpleNamespace(current_learning_iteration=7)
@@ -188,6 +253,94 @@ def test_resume_advances_runner_to_iteration_after_loaded_checkpoint():
     module.advance_runner_after_resume(runner)
 
     assert runner.current_learning_iteration == 8
+
+
+def test_fork_loads_without_optimizer_advances_and_clips_before_learning(tmp_path):
+    module = _load_script()
+    events = []
+
+    class Actor:
+        def clip_std(self, *, min):
+            events.append(("clip", min))
+
+    class Runner:
+        current_learning_iteration = 2700
+        alg = SimpleNamespace(actor_critic=Actor())
+
+        def load(self, path, *, load_optimizer, keep_std):
+            events.append(("load", path, load_optimizer, keep_std))
+
+    source = tmp_path / "model_2700.pt"
+    source.write_bytes(b"checkpoint")
+    runner = Runner()
+
+    module.load_runner_checkpoint(
+        runner,
+        source,
+        load_optimizer=False,
+        minimum_effective_std=0.001,
+    )
+    events.append(("learn", runner.current_learning_iteration))
+
+    assert events == [
+        ("load", str(source.resolve()), False, True),
+        ("clip", 0.001),
+        ("learn", 2701),
+    ]
+
+
+def test_recovery_resume_preserves_lineage_and_evaluation_state():
+    module = _load_script()
+    current = {
+        "status": "running",
+        "resume_checkpoint": "/new/model_3200.pt",
+    }
+    previous = {
+        "recovery_source_checkpoint": "/source/model_2700.pt",
+        "recovery_source_checkpoint_sha256": "source-sha",
+        "recovery_source_iteration": 2700,
+        "optimizer_reset": True,
+        "recovery_learning_rate": 1.0e-4,
+        "noise_std_mode": "scalar",
+        "minimum_effective_std": 0.001,
+        "initial_curriculum_step": 64_800,
+        "initial_curriculum_scale": 0.898,
+        "evaluation_artifacts": ["/eval/block1/ranking.json"],
+        "best_checkpoint": "/source/model_2700.pt",
+        "best_metrics": {"timeout_survival_rate": 0.4556},
+        "stop_reason": "block_completed_pending_evaluation",
+        "consecutive_survival_regressions": 1,
+    }
+
+    module.preserve_recovery_resume_state(current, previous)
+
+    assert current["resume_checkpoint"] == "/new/model_3200.pt"
+    assert current["recovery_source_checkpoint"] == "/source/model_2700.pt"
+    assert current["evaluation_artifacts"] == ["/eval/block1/ranking.json"]
+    assert current["best_checkpoint"] == "/source/model_2700.pt"
+    assert current["consecutive_survival_regressions"] == 1
+    assert current["stop_reason"] is None
+
+
+def test_recovery_resume_restores_recovery_learning_rate():
+    module = _load_script()
+    train_cfg = {"algorithm": {"learning_rate": 1.0e-3}}
+
+    module.apply_recovery_resume_train_cfg(
+        train_cfg,
+        {"recovery_learning_rate": 1.0e-4},
+    )
+
+    assert train_cfg["algorithm"]["learning_rate"] == pytest.approx(1.0e-4)
+
+
+def test_recovery_resume_marks_block_pending_evaluation():
+    module = _load_script()
+    manifest = {"recovery_source_checkpoint": "/source/model_2700.pt"}
+
+    module.mark_recovery_block_completed(manifest)
+
+    assert manifest["stop_reason"] == "block_completed_pending_evaluation"
 
 
 def test_runtime_snapshot_requires_exact_dimensions_and_nonzero_finite_wrench():
@@ -220,6 +373,7 @@ def test_training_script_declares_all_required_cli_flags():
         "--log-root",
         "--base-checkpoint",
         "--resume-checkpoint",
+        "--fork-checkpoint",
         "--reset-optimizer",
         "--save-interval",
         "--num-steps-per-env",
@@ -346,3 +500,16 @@ def test_teacher_runbook_contains_complete_formal_resume_and_monitoring_commands
     assert "runtime_contract.max_abs_wrench_b_seen > 0" in source
     assert "sm_120" in source and "sm_90" in source
     assert "Ctrl+C" in source
+    assert source.count("scripts/m1_panda_teacher_play.py") >= 3
+    assert "--stage A0 --checkpoint /ABS/A0/model_N.pt" in source
+    assert "--stage A1 --base-checkpoint /ABS/A0/model_N.pt" in source
+    assert "--checkpoint /ABS/A1/model_M.pt" in source
+    assert "--disable-disturbance" in source
+    assert "--device cuda:0" in source
+    assert "默认开启六维扰动" in source
+    assert "--full-scale-disturbance" in source
+    assert "scripts/m1_panda_teacher_eval_sweep.py" in source
+    assert '--fork-checkpoint "$RECOVERY_WINNER"' in source
+    assert "--max_iterations 500" in source
+    assert "Policy/mean_action_std" in source
+    assert "timeout survival >= 0.80" in source

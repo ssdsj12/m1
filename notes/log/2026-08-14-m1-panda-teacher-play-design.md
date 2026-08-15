@@ -34,5 +34,6 @@
 
 ## Git Refs
 
-- Repository state: `/home/xk/coding/M1` 不是 Git 工作树
-- Current Work Ref: filesystem working copy
+- Repository state correction at implementation handoff: Git worktree on `main`
+- Base HEAD: `8872421d02eb93b04b150d025148c8a93e78dd09`
+- Current Work Ref: uncommitted working tree

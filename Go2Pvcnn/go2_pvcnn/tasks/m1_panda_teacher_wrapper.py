@@ -12,6 +12,7 @@ from go2_pvcnn.tasks.m1_panda_teacher import (
     M1PandaDisturbanceCfg,
     M1PandaDisturbanceScheduler,
     base_wrench_to_body_local,
+    clear_external_wrench,
     stage_disturbance_cfg,
 )
 from go2_pvcnn.tasks.m1_panda_teacher_checkpoint import module_sha256
@@ -36,7 +37,11 @@ class M1PandaTeacherEnvWrapper(VecEnv):
         base_actor=None,
         disturbance_cfg: M1PandaDisturbanceCfg | None = None,
         seed: int = 0,
+        disturbance_enabled: bool = True,
+        initial_curriculum_step: int = 0,
     ) -> None:
+        if not isinstance(disturbance_enabled, bool):
+            raise TypeError("disturbance_enabled must be a bool")
         if stage not in {"A0", "A1"}:
             raise ValueError(f"stage must be 'A0' or 'A1', got {stage!r}")
         if getattr(env.cfg, "teacher_stage", None) != stage:
@@ -58,6 +63,7 @@ class M1PandaTeacherEnvWrapper(VecEnv):
 
         self.env = env
         self.stage = stage
+        self._disturbance_enabled = disturbance_enabled
         self.num_envs = env.num_envs
         self.device = torch.device(env.device)
         self.max_episode_length = env.max_episode_length
@@ -107,6 +113,7 @@ class M1PandaTeacherEnvWrapper(VecEnv):
             self.device,
             step_dt,
             seed=seed,
+            initial_global_step=initial_curriculum_step,
         )
         self._residual_composer = M1ResidualActionComposer(
             M1ResidualActionComposerCfg(), self.num_envs, self.device
@@ -141,6 +148,7 @@ class M1PandaTeacherEnvWrapper(VecEnv):
             self.num_envs, TEACHER_OBSERVATION_DIM, device=self.device
         )
         self._max_abs_wrench_seen = torch.zeros((), device=self.device)
+        self._axis_abs_wrench_seen = torch.zeros(6, device=self.device)
         self.reset()
 
     def _exact_body_id(self, name: str) -> int:
@@ -201,7 +209,7 @@ class M1PandaTeacherEnvWrapper(VecEnv):
     def reset(self):
         obs_dict, _ = self.env.reset()
         self._reset_state(None)
-        self._apply_wrench(self._disturbance.current_wrench_b)
+        self._apply_effective_wrench(advance=False)
         return self._format_observations(obs_dict)
 
     def _reset_state(self, env_ids: torch.Tensor | Sequence[int] | None) -> None:
@@ -246,6 +254,9 @@ class M1PandaTeacherEnvWrapper(VecEnv):
         self._max_abs_wrench_seen = torch.maximum(
             self._max_abs_wrench_seen, wrench_b.abs().max()
         )
+        self._axis_abs_wrench_seen = torch.maximum(
+            self._axis_abs_wrench_seen, wrench_b.abs().amax(dim=0)
+        )
         force_h, torque_h = base_wrench_to_body_local(
             wrench_b[:, :3],
             wrench_b[:, 3:],
@@ -257,6 +268,17 @@ class M1PandaTeacherEnvWrapper(VecEnv):
             torque_h.unsqueeze(1),
             body_ids=[self._hand_body_id],
         )
+
+    def _apply_effective_wrench(self, *, advance: bool) -> None:
+        if not self._disturbance_enabled:
+            clear_external_wrench(self._robot)
+            return
+        wrench_b = (
+            self._disturbance.advance()
+            if advance
+            else self._disturbance.current_wrench_b
+        )
+        self._apply_wrench(wrench_b)
 
     def step(self, actions: torch.Tensor):
         self._validate_action_tensor("actions", actions)
@@ -279,8 +301,7 @@ class M1PandaTeacherEnvWrapper(VecEnv):
         self._last_trainable_residual.copy_(clipped)
         final_action = self._residual_composer.compose(base_action, actions)
         self._last_final_action.copy_(final_action.detach())
-        wrench_b = self._disturbance.advance()
-        self._apply_wrench(wrench_b)
+        self._apply_effective_wrench(advance=True)
         obs_dict, rewards, terminated, truncated, extras = self.env.step(final_action)
         expected_vector_shape = (self.num_envs,)
         if (
@@ -304,7 +325,7 @@ class M1PandaTeacherEnvWrapper(VecEnv):
         if bool(dones.any()):
             done_ids = dones.nonzero(as_tuple=False).flatten()
             self._reset_state(done_ids)
-            self._apply_wrench(self._disturbance.current_wrench_b)
+            self._apply_effective_wrench(advance=False)
         extras["time_outs"] = truncated
         obs, obs_extras = self._format_observations(obs_dict)
         extras.setdefault("observations", {}).update(obs_extras["observations"])
@@ -320,11 +341,29 @@ class M1PandaTeacherEnvWrapper(VecEnv):
 
     @property
     def current_wrench_b(self) -> torch.Tensor:
+        if not self._disturbance_enabled:
+            return torch.zeros((self.num_envs, 6), device=self.device)
         return self._disturbance.current_wrench_b
+
+    @property
+    def disturbance_enabled(self) -> bool:
+        return self._disturbance_enabled
 
     @property
     def max_abs_wrench_seen(self) -> float:
         return float(self._max_abs_wrench_seen.item())
+
+    @property
+    def axis_abs_wrench_seen(self) -> torch.Tensor:
+        return self._axis_abs_wrench_seen.clone()
+
+    @property
+    def curriculum_scale(self) -> float:
+        return self._disturbance.curriculum_scale
+
+    @property
+    def global_disturbance_step(self) -> int:
+        return self._disturbance.global_step
 
     @property
     def residual_composer(self) -> M1ResidualActionComposer:

@@ -19,6 +19,7 @@ def get_m1_panda_teacher_train_cfg() -> dict:
             "lam": 0.95,
             "value_loss_coef": 1.0,
             "entropy_coef": 0.0,
+            "clip_min_std": 0.001,
             "max_grad_norm": 1.0,
             "use_clipped_value_loss": True,
             "schedule": "adaptive",
@@ -27,8 +28,7 @@ def get_m1_panda_teacher_train_cfg() -> dict:
         "policy": {
             "class_name": "ActorCritic",
             "init_noise_std": 0.01,
-            "noise_std_type": "log",
-            "state_dependent_std": False,
+            "noise_std_type": "scalar",
             "actor_hidden_dims": [256, 128],
             "critic_hidden_dims": [256, 128],
             "activation": "elu",

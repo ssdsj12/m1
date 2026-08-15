@@ -26,9 +26,24 @@ Task 7 已完成：最终静态 `214 passed`，四段真实 CPU smoke 全部 exi
 
 Teacher 专用 play 的书面规格已经用户复核确认，三任务单代理 TDD 实施计划已完成并自审：使用独立入口，A0 复现 zero-base residual，A1 严格加载 frozen A0 + A1 residual；GUI 和六维扰动默认开启，显式 `--disable-disturbance` 才进入零 wrench 对照。下一步按计划 inline 执行，当前尚未修改运行代码。
 
+T400.5d Task 1 已完成：有效 RED `5 failed, 19 passed`，GREEN wrapper `24 passed`，wrapper+disturbance+composer 回归 `109 passed`，pycompile exit `0`。wrapper 默认扰动语义不变；显式 disabled 会 clear 外力且不推进 scheduler，A1 动作链仍执行。下一步实现 strict play 入口。
+
+T400.5d Task 2 已完成：入口缺失有效 RED `13 failed`，GREEN focused `13 passed`；play+wrapper+checkpoint+train static 在项目 `rsl_rl` 绑定下 `97 passed`，pycompile 与禁止 learn/manifest-write scan exit `0`。下一步补齐 runbook/人机文档并运行全量静态与 GPU0 三段 smoke。
+
+T400.5d Task 3 已完成：runbook 文档 RED→GREEN；最终静态 `195 passed`，compile/placeholder/no-write scan exit `0`。RTX 5070 GPU0 三段真实 smoke 均最终 exit `0`：A0/A1 默认扰动历史最大 wrench 分别为 `2.449706/4.899412`，A1 零扰动六轴与历史最大值全部为零，三段均为 60/16、8 steps、0 reset，frozen actor SHA 不变。Isaac 5.1 empty-wrench Warp 兼容问题通过新增 RED 测试与 full-zero fallback 修复。
+
+T400.6 零间隙安装设计已获交互批准并写入书面规格：把构建 clearance 从 `0.01 m` 改为 `0.0 m`，保持单 articulation/fixed mount/25 DOF，不允许用零间隙掩盖网格穿透。当前等待书面规格复核，尚未修改构建脚本或资产。
+
+T400.7 A1 抗扰恢复训练设计已获交互批准并写入书面规格。既有 A1 在 `model_5999` 前出现明显后期退化；根因调查确认 vendored ActorCritic 把 raw std 经过 softplus 后形成约 `0.694` 的实际动作噪声，且 resume 会重置扰动课程。选定满幅三 seed checkpoint 筛选、独立 fork、scalar std 修复、课程进度恢复和 500-iteration 分块验收。当前等待书面规格复核，尚未修改训练代码或启动 recovery run。
+
+T400.7 书面规格现已由用户复核确认，七任务单代理 TDD 实施计划已写入。计划按噪声语义、课程/axis 诊断、纯评估、严格 Play/sweep、fork/manifest、静态+真实 smoke、GPU0 分块训练顺序执行。当前尚未修改运行代码或启动 recovery run。
+
+T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴覆盖、strict full-scale Play/sweep、隔离 fork 和 lineage manifest 均已实现。静态回归 `183 passed`、compile exit `0`；GPU0 64×500 满幅 Play 与 8-env 单 iteration fork 均 exit `0`，fork 从 `2700` 生成 `2701`，有效 std floor、课程进度、源/frozen SHA 均验证通过。当前进入 Task 7 正式四候选三 seed 筛选与 500-iteration 分块训练，尚未达到行为验收。
+
 ## Open Children
 
-- [ ] T400.5d 按已确认书面规格和三任务单代理 TDD 计划实现 Teacher A0/A1 play，并完成 GPU0 smoke。
+- [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
+- [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
 
 ## Closed Children Archive
@@ -55,6 +70,7 @@ Teacher 专用 play 的书面规格已经用户复核确认，三任务单代理
 - [x] T400.5a 完成 A0/A1 专项 spec 自审和逐文件实施计划。
 - [x] T400.5b TDD 完成扰动、奖励、wrapper、checkpoint/manifest 与训练入口。
 - [x] T400.5c 完成 A0→A1 CPU initial/resume 短程训练、冻结参数和 runtime contract 验证。
+- [x] T400.5d 完成 strict A0/A1 Teacher play、默认/零扰动开关、文档、静态回归与 GPU0 三段 smoke。
 
 ## Related Logs
 
@@ -85,12 +101,22 @@ Teacher 专用 play 的书面规格已经用户复核确认，三任务单代理
 - [Teacher play design log](../log/2026-08-14-m1-panda-teacher-play-design.md)
 - [Teacher play implementation plan](../../docs/superpowers/plans/2026-08-14-m1-panda-teacher-play.md)
 - [Teacher play plan log](../log/2026-08-14-m1-panda-teacher-play-plan.md)
+- [Teacher play wrapper disturbance gate](../log/2026-08-14-m1-panda-teacher-play-wrapper.md)
+- [Teacher play strict entrypoint](../log/2026-08-14-m1-panda-teacher-play-entrypoint.md)
+- [Teacher play GPU0 smoke](../log/2026-08-14-m1-panda-teacher-play-gpu0-smoke.md)
+- [Zero-clearance mount design](../../docs/superpowers/specs/2026-08-15-m1-panda-zero-clearance-mount-design.md)
+- [Zero-clearance mount design log](../log/2026-08-15-m1-panda-zero-clearance-mount-design.md)
+- [A1 recovery training design](../../docs/superpowers/specs/2026-08-15-m1-panda-a1-recovery-training-design.md)
+- [A1 recovery training design log](../log/2026-08-15-m1-panda-a1-recovery-training-design.md)
+- [A1 recovery implementation plan](../../docs/superpowers/plans/2026-08-15-m1-panda-a1-recovery-training.md)
+- [A1 recovery plan log](../log/2026-08-15-m1-panda-a1-recovery-plan.md)
+- [A1 recovery implementation](../log/2026-08-15-m1-panda-a1-recovery-implementation.md)
 
 ## Git Refs
 
-- Last Feature Commit: unavailable（`/home/xk/coding/M1` 不是 Git 工作树）
-- Last Verified Commit: unavailable
-- Current Work Ref: filesystem working copy
+- Last Feature Commit: not created by Codex
+- Last Verified Base: `8872421d02eb93b04b150d025148c8a93e78dd09`
+- Current Work Ref: `main` working tree（未提交）
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
   - [受限残差动作组合器设计](../../docs/superpowers/specs/2026-08-14-m1-panda-residual-action-composer-design.md)
@@ -106,10 +132,12 @@ Teacher 专用 play 的书面规格已经用户复核确认，三任务单代理
   - [Teacher A0/A1 实施计划](../../docs/superpowers/plans/2026-08-14-m1-panda-teacher-a0-a1-training.md)
   - [Teacher A0/A1 Play 设计](../../docs/superpowers/specs/2026-08-14-m1-panda-teacher-play-design.md)
   - [Teacher A0/A1 Play 实施计划](../../docs/superpowers/plans/2026-08-14-m1-panda-teacher-play.md)
+  - [Teacher A0/A1 Play 入口](../../Go2Pvcnn/scripts/m1_panda_teacher_play.py)
+  - [Teacher A0/A1 Play 测试](../../Go2Pvcnn/tests/test_m1_panda_teacher_play_static.py)
 
 ## Next Step
 
-按已确认计划单代理 TDD 实施 T400.5d Teacher A0/A1 play，并完成 GPU0 默认扰动与零扰动 smoke；随后回到 Student 估计/蒸馏。最大载荷实机测试前仍必须完成 T400.3 机械验算，Panda IK/OSC 与抓取任务保持开放。
+先复核并实施 T400.7 A1 抗扰恢复训练；其行为基线接受后再独立实施 T400.6 零间隙资产修订。Student、Panda IK/OSC 与抓取保持开放，最大载荷实机测试前仍必须完成 T400.3 机械验算。
 
 ## Node Details
 
@@ -133,4 +161,12 @@ Teacher 专用 play 的书面规格已经用户复核确认，三任务单代理
 
 ### T400.5d Teacher A0/A1 Play
 
-独立 play 入口严格复现训练 wrapper：A0 使用 zero-base，A1 要求 frozen A0 checkpoint 与 A1 checkpoint。默认开启 stage 对应六维扰动，`--disable-disturbance` 只用于零 wrench 对照；GUI 默认，有限 steps 支持 GPU0/headless smoke。书面设计和三任务实施计划均已确认，进入单代理 inline TDD。
+独立 play 入口严格复现训练 wrapper：A0 使用 zero-base，A1 要求 frozen A0 checkpoint 与 A1 checkpoint。默认开启 stage 对应六维扰动，`--disable-disturbance` 只用于零 wrench 对照；GUI 默认，有限 steps 支持 GPU0/headless smoke。实现、文档、`195 passed` 静态回归与 GPU0 三段 smoke 均已完成；当前 A1 仍只作为诊断 checkpoint，不升级行为验收状态。
+
+### T400.6 零间隙安装
+
+把 `MOUNT_CLEARANCE_M` 从 `0.01` 改为 `0.0`，使 Panda 安装原点直接对齐 M1 `BASE_LINK` 顶面。实施必须重建 USD/checksum，并复验单 articulation、25 DOF、fixed mount、网格无明显穿透、一步 no-snap 与 GPU0 Teacher Play。旧 checkpoint 只保持结构兼容，不自动获得行为验收。
+
+### T400.7 A1 抗扰恢复训练
+
+既有 A1 后期 survival 下降且 base contact 上升，不能从 `model_5999` 盲目续训。恢复路线先以三 seed 满幅 `20 N / 5 Nm` 评估选择 `2700/3800/4500/5999` 候选，再从胜者创建只写新目录的 fork。修复 vendored ActorCritic 的 scalar/log std 语义，恢复 disturbance global progress，重置 optimizer 为 `1e-4`，每 500 iterations 进行满幅复评。最终要求 timeout `>=80%`、base contact 和 bad orientation 各 `<=10%`。

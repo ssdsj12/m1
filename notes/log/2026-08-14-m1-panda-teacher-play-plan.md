@@ -23,9 +23,10 @@
 
 ## Self-review
 
-规格覆盖、类型一致性、执行顺序、禁止写盘、GPU0 验收和占位符均已逐项检查。计划中的 Git checkpoint 被明确替换为 notes/log checkpoint，因为仓库不是 Git 工作树。
+规格覆盖、类型一致性、执行顺序、禁止写盘、GPU0 验收和占位符均已逐项检查。执行期间最终确认 `/home/xk/coding/M1` 为 Git 工作树；Codex 未创建提交，测试证据仍同步写入 notes/log。
 
 ## Git Refs
 
-- Repository state: not a Git worktree
-- Current Work Ref: filesystem working copy
+- Branch: `main`
+- Base HEAD observed at final handoff: `8872421d02eb93b04b150d025148c8a93e78dd09`
+- Current Work Ref: uncommitted working tree

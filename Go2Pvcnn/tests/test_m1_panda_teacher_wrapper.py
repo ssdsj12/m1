@@ -12,6 +12,7 @@ from go2_pvcnn.tasks.m1_panda_teacher_wrapper import M1PandaTeacherEnvWrapper
 class _FakeRobot:
     def __init__(self, num_envs, events):
         self.device = torch.device("cpu")
+        self.num_envs = num_envs
         self._events = events
         self._body_names = ["BASE_LINK", "panda_hand"]
         identity = torch.tensor([1.0, 0.0, 0.0, 0.0])
@@ -31,6 +32,12 @@ class _FakeRobot:
         return [item[0] for item in matches], [item[1] for item in matches]
 
     def set_external_force_and_torque(self, forces, torques, body_ids=None):
+        if forces.numel() == 0 and torques.numel() == 0 and body_ids is None:
+            self.external_force = torch.zeros(self.num_envs, 1, 3)
+            self.external_torque = torch.zeros(self.num_envs, 1, 3)
+            self.external_wrench_calls += 1
+            self._events.append("clear_wrench")
+            return
         assert body_ids == [1]
         self.external_force = forces.detach().clone()
         self.external_torque = torques.detach().clone()
@@ -178,6 +185,77 @@ def test_a0_step_composes_from_zero_and_applies_wrench_before_physics():
     assert torch.equal(extras["time_outs"], torch.zeros(2, dtype=torch.bool))
 
 
+def test_disturbance_is_enabled_by_default():
+    env = _FakeEnv(num_envs=2, stage="A0")
+    wrapper = M1PandaTeacherEnvWrapper(env, stage="A0", seed=5)
+
+    wrapper.step(torch.zeros(2, 16))
+
+    assert wrapper.disturbance_enabled is True
+    assert torch.count_nonzero(wrapper.current_wrench_b) > 0
+    assert wrapper.max_abs_wrench_seen > 0.0
+
+
+def test_disabled_disturbance_never_advances_and_clears_external_wrench():
+    env = _FakeEnv(num_envs=2, stage="A0")
+    wrapper = M1PandaTeacherEnvWrapper(
+        env, stage="A0", seed=5, disturbance_enabled=False
+    )
+    env.events.clear()
+
+    wrapper.step(torch.full((2, 16), 0.5))
+
+    assert wrapper.disturbance_enabled is False
+    assert env.events == ["clear_wrench", "step"]
+    assert torch.equal(wrapper.current_wrench_b, torch.zeros(2, 6))
+    assert wrapper.max_abs_wrench_seen == 0.0
+    assert torch.equal(env.robot.external_force, torch.zeros(2, 1, 3))
+    assert torch.equal(env.robot.external_torque, torch.zeros(2, 1, 3))
+
+
+def test_disabled_disturbance_stays_zero_across_done_and_explicit_reset():
+    env = _FakeEnv(num_envs=2, stage="A0")
+    wrapper = M1PandaTeacherEnvWrapper(
+        env, stage="A0", seed=5, disturbance_enabled=False
+    )
+    env.next_terminated = torch.tensor([True, False])
+
+    wrapper.step(torch.ones(2, 16))
+    wrapper.reset()
+
+    assert torch.equal(wrapper.current_wrench_b, torch.zeros(2, 6))
+    assert wrapper.max_abs_wrench_seen == 0.0
+    assert torch.equal(env.robot.external_force, torch.zeros(2, 1, 3))
+    assert torch.equal(env.robot.external_torque, torch.zeros(2, 1, 3))
+
+
+def test_disabled_disturbance_keeps_a1_frozen_base_and_residual_composition():
+    env = _FakeEnv(num_envs=2, stage="A1")
+    frozen = _FakeFrozenActor()
+    wrapper = M1PandaTeacherEnvWrapper(
+        env,
+        stage="A1",
+        base_actor=frozen,
+        seed=5,
+        disturbance_enabled=False,
+    )
+
+    wrapper.step(torch.full((2, 16), -0.25))
+
+    assert frozen.last_observation is not None
+    assert torch.equal(wrapper.last_final_action, torch.zeros(2, 16))
+    assert torch.equal(wrapper.current_wrench_b, torch.zeros(2, 6))
+
+
+def test_constructor_rejects_non_bool_disturbance_enabled():
+    env = _FakeEnv(num_envs=2, stage="A0")
+
+    with pytest.raises(TypeError, match="disturbance_enabled must be a bool"):
+        M1PandaTeacherEnvWrapper(
+            env, stage="A0", disturbance_enabled=1
+        )
+
+
 def test_done_resets_only_selected_wrapper_and_wrench_state():
     env = _FakeEnv(num_envs=3, stage="A0")
     wrapper = M1PandaTeacherEnvWrapper(env, stage="A0", seed=9)
@@ -303,14 +381,36 @@ def test_wrapper_diagnostics_return_clones():
     final = wrapper.last_final_action
     residual = wrapper.last_trainable_residual
     wrench = wrapper.current_wrench_b
+    axis_max = wrapper.axis_abs_wrench_seen
 
     final.zero_()
     residual.zero_()
     wrench.zero_()
+    axis_max.zero_()
 
     assert torch.count_nonzero(wrapper.last_final_action) > 0
     assert torch.count_nonzero(wrapper.last_trainable_residual) > 0
     assert torch.count_nonzero(wrapper.current_wrench_b) > 0
+    assert torch.count_nonzero(wrapper.axis_abs_wrench_seen) > 0
+
+
+def test_a1_wrapper_can_restore_full_curriculum_and_tracks_axis_history():
+    env = _FakeEnv(num_envs=2, stage="A1")
+    frozen = _FakeFrozenActor()
+    wrapper = M1PandaTeacherEnvWrapper(
+        env,
+        stage="A1",
+        base_actor=frozen,
+        seed=7,
+        initial_curriculum_step=75_000,
+    )
+
+    assert wrapper.curriculum_scale == pytest.approx(1.0)
+    assert wrapper.global_disturbance_step == 75_000
+    wrapper.step(torch.zeros(wrapper.num_envs, 16))
+    assert wrapper.axis_abs_wrench_seen.shape == (6,)
+    assert torch.all(wrapper.axis_abs_wrench_seen >= 0)
+    assert wrapper.global_disturbance_step == 75_001
 
 
 def test_a1_composes_frozen_base_actor_then_trainable_residual():

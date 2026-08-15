@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Work only in `/home/xk/coding/M1`; this directory is not a Git worktree, so each nominal commit checkpoint is recorded in T400/log notes instead of running `git commit`.
+- Work only in `/home/xk/coding/M1`; final environment detection shows branch `main`. Do not create a commit unless the user explicitly requests one; record each checkpoint in T400/log notes.
 - Execute with one agent only; do not dispatch subagents.
 - Preserve the exact Teacher policy contract: 60 float32 observations and 16 M1 actions.
 - A0 must use zero base action; A1 must use the user-supplied frozen A0 checkpoint plus the A1 residual checkpoint.
@@ -223,7 +223,7 @@ cd /home/xk/coding/M1/Go2Pvcnn
   tests/test_m1_panda_teacher_wrapper.py
 ```
 
-Expected: exit `0`. Record the RED command/failure, GREEN counts, compile result, default-on/disabled semantics, and Git-unavailable state in `notes/log/2026-08-14-m1-panda-teacher-play-wrapper.md`; link it from the T400 branch, dashboard, and log index.
+Expected: exit `0`. Record the RED command/failure, GREEN counts, compile result, default-on/disabled semantics, and working-tree state in `notes/log/2026-08-14-m1-panda-teacher-play-wrapper.md`; link it from the T400 branch, dashboard, and log index.
 
 ---
 
@@ -503,7 +503,7 @@ cd /home/xk/coding/M1/Go2Pvcnn
   scripts/m1_panda_teacher_play.py
 ```
 
-Expected: both commands exit `0`. Record RED/GREEN counts, preflight ordering, no-write scan, compile result, and Git-unavailable state in `notes/log/2026-08-14-m1-panda-teacher-play-entrypoint.md`; update T400/dashboard/log index.
+Expected: both commands exit `0`. Record RED/GREEN counts, preflight ordering, no-write scan, compile result, and working-tree state in `notes/log/2026-08-14-m1-panda-teacher-play-entrypoint.md`; update T400/dashboard/log index.
 
 ---
 
@@ -679,7 +679,7 @@ If any real smoke fails, invoke `superpowers:systematic-debugging`, preserve std
 
 Invoke `superpowers:verification-before-completion`. Record exact commands, exit codes, test counts, wrench maxima, reset counts, device, checkpoint paths, base file SHA, and frozen actor hash in `notes/log/2026-08-14-m1-panda-teacher-play-gpu0-smoke.md`.
 
-Update T400.5d to complete only if the static suite and required GPU0 smokes pass. If GPU0 is externally incompatible, leave T400.5d open with the exact blocker and verified static/CPU evidence. Update `notes/todo.md` and `notes/log/index.md` in the same patch. Since Git is unavailable, record `Current Work Ref: filesystem working copy` rather than inventing a commit hash.
+Update T400.5d to complete only if the static suite and required GPU0 smokes pass. If GPU0 is externally incompatible, leave T400.5d open with the exact blocker and verified static/CPU evidence. Update `notes/todo.md` and `notes/log/index.md` in the same patch. Record the observed branch/base HEAD and leave the working tree uncommitted unless the user requests integration.
 
 ---
 

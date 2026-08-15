@@ -17,6 +17,7 @@ from go2_pvcnn.tasks.m1_residual_action import M1ResidualActionComposerCfg
 from go2_pvcnn.tasks.m1_panda_teacher_checkpoint import (
     atomic_write_manifest,
     build_run_manifest,
+    checkpoint_iteration,
     file_sha256,
     load_frozen_teacher_actor,
     load_manifest_for_checkpoint,
@@ -52,6 +53,26 @@ def test_load_manifest_uses_checkpoint_parent(tmp_path):
         "schema_version": 1,
         "stage": "A1",
     }
+
+
+def test_checkpoint_iteration_reads_nonnegative_rsl_iter(tmp_path):
+    path = _write_checkpoint(tmp_path)
+    payload = torch.load(path, weights_only=False)
+    payload["iter"] = 2700
+    torch.save(payload, path)
+
+    assert checkpoint_iteration(path) == 2700
+
+
+@pytest.mark.parametrize("iteration", [None, True, -1, 1.5])
+def test_checkpoint_iteration_rejects_invalid_rsl_iter(tmp_path, iteration):
+    path = _write_checkpoint(tmp_path)
+    payload = torch.load(path, weights_only=False)
+    payload["iter"] = iteration
+    torch.save(payload, path)
+
+    with pytest.raises(ValueError, match="iteration"):
+        checkpoint_iteration(path)
 
 
 @pytest.mark.parametrize("payload", [None, [], "A0", 1])
@@ -393,6 +414,79 @@ def test_build_a1_run_manifest_records_base_path_hash_and_frozen_hash(tmp_path):
     ).hexdigest()
     assert manifest["frozen_actor_initial_sha256"] == module_sha256(frozen)
     assert manifest["resume_checkpoint"] is None
+
+
+def test_recovery_manifest_records_source_and_noise_contract(tmp_path):
+    base = tmp_path / "base.pt"
+    base.write_bytes(b"base-checkpoint")
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    source = _write_checkpoint(
+        source_dir,
+        stage="A1",
+        base_checkpoint_sha256=file_sha256(base),
+    )
+
+    manifest = build_run_manifest(
+        stage="A1",
+        task_id="Isaac-M1-Panda-Teacher-A1-v0",
+        seed=42,
+        composer_cfg=M1ResidualActionComposerCfg(),
+        disturbance_cfg=stage_disturbance_cfg("A1"),
+        base_checkpoint=base,
+        frozen_actor=_actor(),
+        recovery_source_checkpoint=source,
+        recovery_source_iteration=2700,
+        initial_curriculum_step=64_800,
+        optimizer_reset=True,
+        recovery_learning_rate=1.0e-4,
+        noise_std_mode="scalar",
+        minimum_effective_std=0.001,
+    )
+
+    assert manifest["recovery_source_checkpoint"] == str(source.resolve())
+    assert manifest["recovery_source_checkpoint_sha256"] == file_sha256(source)
+    assert manifest["recovery_source_iteration"] == 2700
+    assert manifest["initial_curriculum_step"] == 64_800
+    assert manifest["initial_curriculum_scale"] == pytest.approx(0.898)
+    assert manifest["optimizer_reset"] is True
+    assert manifest["recovery_learning_rate"] == pytest.approx(1.0e-4)
+    assert manifest["noise_std_mode"] == "scalar"
+    assert manifest["minimum_effective_std"] == pytest.approx(0.001)
+
+
+def test_recovery_manifest_rejects_partial_or_non_a1_contract(tmp_path):
+    base = tmp_path / "base.pt"
+    base.write_bytes(b"base")
+    source = tmp_path / "source.pt"
+    source.write_bytes(b"source")
+
+    with pytest.raises(ValueError, match="all recovery fields"):
+        build_run_manifest(
+            stage="A1",
+            task_id="Isaac-M1-Panda-Teacher-A1-v0",
+            seed=42,
+            composer_cfg=M1ResidualActionComposerCfg(),
+            disturbance_cfg=stage_disturbance_cfg("A1"),
+            base_checkpoint=base,
+            frozen_actor=_actor(),
+            recovery_source_checkpoint=source,
+        )
+    with pytest.raises(ValueError, match="A1"):
+        build_run_manifest(
+            stage="A0",
+            task_id="Isaac-M1-Panda-Teacher-A0-v0",
+            seed=42,
+            composer_cfg=M1ResidualActionComposerCfg(),
+            disturbance_cfg=stage_disturbance_cfg("A0"),
+            recovery_source_checkpoint=source,
+            recovery_source_iteration=0,
+            initial_curriculum_step=0,
+            optimizer_reset=True,
+            recovery_learning_rate=1.0e-4,
+            noise_std_mode="scalar",
+            minimum_effective_std=0.001,
+        )
 
 
 def test_build_run_manifest_rejects_stage_and_config_mismatch(tmp_path):

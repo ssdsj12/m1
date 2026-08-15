@@ -17,6 +17,22 @@ from rsl_rl.modules import ActorCritic, ActorCriticCNN, ActorCriticRecurrent, Em
 from rsl_rl.utils import store_code_state
 
 
+def policy_noise_diagnostics(actor_critic):
+    """Return mean raw/effective policy noise with legacy-module fallback."""
+    if hasattr(actor_critic, "noise_parameter") and hasattr(
+        actor_critic, "effective_action_std"
+    ):
+        return (
+            actor_critic.noise_parameter.mean(),
+            actor_critic.effective_action_std.mean(),
+        )
+    std = getattr(actor_critic, "std", None)
+    if not isinstance(std, torch.Tensor):
+        raise AttributeError("actor_critic does not expose policy noise")
+    mean_std = std.mean()
+    return mean_std, mean_std
+
+
 class OnPolicyRunner:
     """On-policy runner for training and evaluation."""
 
@@ -265,13 +281,23 @@ class OnPolicyRunner:
                 else:
                     self.writer.add_scalar("Episode/" + key, value, locs["it"])
                     ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
-        mean_std = self.alg.actor_critic.std.mean()
+        mean_noise_parameter, mean_action_std = policy_noise_diagnostics(
+            self.alg.actor_critic
+        )
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs["collection_time"] + locs["learn_time"]))
 
         self.writer.add_scalar("Loss/value_function", locs["mean_value_loss"], locs["it"])
         self.writer.add_scalar("Loss/surrogate", locs["mean_surrogate_loss"], locs["it"])
         self.writer.add_scalar("Loss/learning_rate", self.alg.learning_rate, locs["it"])
-        self.writer.add_scalar("Policy/mean_noise_std", mean_std.item(), locs["it"])
+        self.writer.add_scalar(
+            "Policy/mean_noise_parameter", mean_noise_parameter.item(), locs["it"]
+        )
+        self.writer.add_scalar(
+            "Policy/mean_action_std", mean_action_std.item(), locs["it"]
+        )
+        self.writer.add_scalar(
+            "Policy/mean_noise_std", mean_action_std.item(), locs["it"]
+        )
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])
         self.writer.add_scalar("Perf/collection time", locs["collection_time"], locs["it"])
         self.writer.add_scalar("Perf/learning_time", locs["learn_time"], locs["it"])
@@ -294,7 +320,7 @@ class OnPolicyRunner:
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                 f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                 f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
-                f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
+                f"""{'Mean action noise std:':>{pad}} {mean_action_std.item():.2f}\n"""
                 f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
                 f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n"""
             )
@@ -306,7 +332,7 @@ class OnPolicyRunner:
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
                 f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
                 f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
-                f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
+                f"""{'Mean action noise std:':>{pad}} {mean_action_std.item():.2f}\n"""
             )
 
         log_string += ep_string

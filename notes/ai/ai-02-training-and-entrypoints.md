@@ -68,6 +68,8 @@ graph LR
 ## M1 + Panda Teacher A0/A1 Entrypoints
 
 - `Go2Pvcnn/scripts/m1_panda_teacher_train.py`: force-aware Teacher A0/A1 entrypoint. It resolves the string Gym cfg through `isaaclab_tasks.utils.parse_env_cfg`, enforces the exact 60-observation/16-action contract, writes `run_manifest.json`, and validates base/resume checkpoints before loading.
+- `Go2Pvcnn/scripts/m1_panda_teacher_play.py`: dedicated read-only inference entrypoint for the same exact 60/16 Teacher contract. Disturbance and GUI are on by default; `--disable-disturbance` clears external wrench without bypassing policy/composers. A1 requires both the original frozen A0 base checkpoint and the A1 checkpoint, with stage/tensor/base-SHA validation before runner load.
 - `Go2Pvcnn/scripts/m1_panda_teacher_smoke.py`: real CPU acceptance chain in the fixed order A0 initial → A0 resume → A1 initial → A1 resume. Child stdout/stderr are retained and checkpoint suffixes must advance on resume.
 - `Go2Pvcnn/agent/m1_panda_teacher_train_cfg.py`: independent fresh PPO config factory; do not reuse a dict already passed to `OnPolicyRunner`, because the runner pops class names.
 - Exact formal/resume commands are in [M1 + Panda Teacher runbook](../../docs/superpowers/runbooks/2026-08-14-m1-panda-teacher-a0-a1-training.md).
+- Do not route these checkpoints through generic `m1_play.py` / `M1RslRlEnvWrapper`; that path does not reconstruct A1's frozen-A0 plus second residual composer.

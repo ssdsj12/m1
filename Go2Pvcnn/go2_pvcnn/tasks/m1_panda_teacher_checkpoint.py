@@ -112,6 +112,17 @@ def _load_checkpoint(path: Path) -> dict[str, object]:
     return payload
 
 
+def checkpoint_iteration(path: str | os.PathLike[str]) -> int:
+    """Read and validate the RSL-RL iteration stored in a checkpoint."""
+    checkpoint_path = _require_file(path, label="checkpoint")
+    iteration = _load_checkpoint(checkpoint_path).get("iter")
+    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 0:
+        raise ValueError(
+            f"checkpoint iteration must be a nonnegative integer, got {iteration!r}"
+        )
+    return iteration
+
+
 def _expected_state_shapes(
     observation_dim: int,
     action_dim: int,
@@ -269,6 +280,13 @@ def build_run_manifest(
     base_checkpoint: str | os.PathLike[str] | None = None,
     frozen_actor: torch.nn.Module | None = None,
     resume_checkpoint: str | os.PathLike[str] | None = None,
+    recovery_source_checkpoint: str | os.PathLike[str] | None = None,
+    recovery_source_iteration: int | None = None,
+    initial_curriculum_step: int | None = None,
+    optimizer_reset: bool | None = None,
+    recovery_learning_rate: float | None = None,
+    noise_std_mode: str | None = None,
+    minimum_effective_std: float | None = None,
 ) -> dict[str, object]:
     """Build the complete JSON-compatible start manifest for one run."""
     expected_task_id = f"Isaac-M1-Panda-Teacher-{stage}-v0"
@@ -304,7 +322,68 @@ def build_run_manifest(
     if resume_checkpoint is not None:
         resume_path = _require_file(resume_checkpoint, label="resume checkpoint")
 
-    return {
+    recovery_values = (
+        recovery_source_checkpoint,
+        recovery_source_iteration,
+        initial_curriculum_step,
+        optimizer_reset,
+        recovery_learning_rate,
+        noise_std_mode,
+        minimum_effective_std,
+    )
+    has_recovery = any(value is not None for value in recovery_values)
+    if has_recovery and not all(value is not None for value in recovery_values):
+        raise ValueError("all recovery fields must be supplied together")
+    recovery_fields: dict[str, object] = {}
+    if has_recovery:
+        if stage != "A1":
+            raise ValueError("recovery fields are A1-only")
+        if resume_checkpoint is not None:
+            raise ValueError("recovery fork cannot also be a resume")
+        if (
+            not isinstance(recovery_source_iteration, int)
+            or isinstance(recovery_source_iteration, bool)
+            or recovery_source_iteration < 0
+        ):
+            raise ValueError("recovery_source_iteration must be nonnegative")
+        if (
+            not isinstance(initial_curriculum_step, int)
+            or isinstance(initial_curriculum_step, bool)
+            or initial_curriculum_step < 0
+        ):
+            raise ValueError("initial_curriculum_step must be nonnegative")
+        if optimizer_reset is not True:
+            raise ValueError("recovery requires optimizer_reset=True")
+        if recovery_learning_rate != 1.0e-4:
+            raise ValueError("recovery_learning_rate must be 1.0e-4")
+        if noise_std_mode != "scalar":
+            raise ValueError("recovery noise_std_mode must be 'scalar'")
+        if minimum_effective_std != 0.001:
+            raise ValueError("minimum_effective_std must be 0.001")
+        source_path = _require_file(
+            recovery_source_checkpoint, label="recovery source checkpoint"
+        )
+        approved_disturbance = stage_disturbance_cfg("A1")
+        progress = min(
+            initial_curriculum_step / approved_disturbance.curriculum_steps,
+            1.0,
+        )
+        initial_scale = approved_disturbance.curriculum_start_scale + (
+            1.0 - approved_disturbance.curriculum_start_scale
+        ) * progress
+        recovery_fields = {
+            "recovery_source_checkpoint": str(source_path),
+            "recovery_source_checkpoint_sha256": file_sha256(source_path),
+            "recovery_source_iteration": recovery_source_iteration,
+            "optimizer_reset": True,
+            "recovery_learning_rate": recovery_learning_rate,
+            "noise_std_mode": noise_std_mode,
+            "minimum_effective_std": minimum_effective_std,
+            "initial_curriculum_step": initial_curriculum_step,
+            "initial_curriculum_scale": initial_scale,
+        }
+
+    manifest = {
         "schema_version": TEACHER_SCHEMA_VERSION,
         "stage": stage,
         "task_id": task_id,
@@ -321,6 +400,8 @@ def build_run_manifest(
         "resume_checkpoint": str(resume_path) if resume_path is not None else None,
         "status": "running",
     }
+    manifest.update(recovery_fields)
+    return manifest
 
 
 __all__ = [
@@ -331,6 +412,7 @@ __all__ = [
     "TEACHER_HIDDEN_DIMS",
     "atomic_write_manifest",
     "build_run_manifest",
+    "checkpoint_iteration",
     "file_sha256",
     "load_frozen_teacher_actor",
     "load_manifest_for_checkpoint",
