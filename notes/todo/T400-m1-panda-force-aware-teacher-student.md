@@ -122,7 +122,7 @@ T400.8 论文优先级 WBC Teacher–Student 交互设计已获批准并写入�
 
 ## Git Refs
 
-- Last Feature Commit: not created by Codex
+- Last Feature Commit: `9effc43`
 - Last Verified Base: `8872421d02eb93b04b150d025148c8a93e78dd09`
 - Current Work Ref: `main` working tree（未提交）
 - Key Files:

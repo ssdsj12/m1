@@ -53,7 +53,7 @@ T400.8 / design
 ## Git Refs
 
 - Baseline Ref: `13dc83e`
-- Candidate Ref: pending design commit
+- Candidate Ref: `9effc43`
 - Key Files:
   - [设计规格](../../docs/superpowers/specs/2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md)
   - [T400](../todo/T400-m1-panda-force-aware-teacher-student.md)
