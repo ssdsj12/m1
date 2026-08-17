@@ -329,7 +329,7 @@ git commit -m "feat: add deterministic reference QP backend"
 - Create: `Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/standing_wbc.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_standing_wbc.py`
 
-- [ ] **Step 1: Write failing problem-construction tests**
+- [x] **Step 1: Write failing problem-construction tests**
 
 Define `StandingWbcInput`, `StandingWbcCfg`, and `StandingWbcResult`. The decision vector is exactly:
 
@@ -359,7 +359,7 @@ Tests must inspect the assembled matrices and verify:
 - external mount wrench maps through the supplied six-dimensional Jacobian term;
 - malformed shapes and batch size greater than one are rejected in C0.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 pytest -q tests/test_m1_panda_standing_wbc.py
@@ -367,7 +367,7 @@ pytest -q tests/test_m1_panda_standing_wbc.py
 
 Expected: missing standing WBC module.
 
-- [ ] **Step 3: Implement formulation and torque recovery**
+- [x] **Step 3: Implement formulation and torque recovery**
 
 The controller calls `solve_reference_qp` and recovers controlled torque using the actuated dynamics rows:
 
@@ -377,7 +377,7 @@ tau = (mass_matrix @ qdd + bias_force - contact_jacobian.transpose(-1, -2) @ for
 
 Track base height, roll, pitch, angular velocity, leg posture, zero wheel acceleration, and seven Panda targets. Return QP diagnostics plus task residuals. If the QP fails, return no new effort command and let the safety layer choose the fallback.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 ```bash
 pytest -q tests/test_m1_panda_qp_backend.py tests/test_m1_panda_standing_wbc.py
