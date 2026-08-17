@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T08:59:37.589898+00:00",
+  "generated_at": "2026-08-17T07:06:27.426992+00:00",
   "nodes": {
     "init_rationale_1": {
       "code_fingerprint": "79ea4d06377abf6f199ddd2c8e40c20b4927bd7f07e8eef2c512a2b1f2ffa219",
@@ -12,7 +12,7 @@
           "q": "Create>Robots>Franka Emika Panda Arm这个在isaaclab上存在的资源，能不能搭建在m1上"
         }
       ],
-      "score": 0.993885039,
+      "score": 0.929012913,
       "source_file": "__init__.py",
       "status": "tentative",
       "uses": 1
