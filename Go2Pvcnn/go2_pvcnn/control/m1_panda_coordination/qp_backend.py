@@ -158,15 +158,28 @@ def _solve_kkt(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     dimension = gradient.numel()
     count = constraint_matrix.shape[0]
+    # A single positive objective scale leaves the primal minimizer and the
+    # signs of inequality multipliers unchanged.  It prevents the C0 priority
+    # curvature (up to 1e6) from numerically overwhelming KKT constraint rows.
+    objective_scale = max(float(hessian.abs().max().item()), 1.0)
+    scaled_hessian = hessian / objective_scale
+    scaled_gradient = gradient / objective_scale
     if count == 0:
-        solution = torch.linalg.lstsq(hessian, -gradient, driver="gelsd").solution
+        solution = torch.linalg.lstsq(
+            scaled_hessian, -scaled_gradient, driver="gelsd"
+        ).solution
         return solution, torch.empty(0, dtype=torch.float64)
 
+    constraint_scale = torch.linalg.vector_norm(
+        constraint_matrix, dim=1
+    ).clamp_min(1.0)
+    scaled_constraint_matrix = constraint_matrix / constraint_scale.unsqueeze(1)
+    scaled_constraint_rhs = constraint_rhs / constraint_scale
     kkt = torch.zeros((dimension + count, dimension + count), dtype=torch.float64)
-    kkt[:dimension, :dimension] = hessian
-    kkt[:dimension, dimension:] = constraint_matrix.transpose(0, 1)
-    kkt[dimension:, :dimension] = constraint_matrix
-    rhs = torch.cat((-gradient, constraint_rhs))
+    kkt[:dimension, :dimension] = scaled_hessian
+    kkt[:dimension, dimension:] = scaled_constraint_matrix.transpose(0, 1)
+    kkt[dimension:, :dimension] = scaled_constraint_matrix
+    rhs = torch.cat((-scaled_gradient, scaled_constraint_rhs))
     solved = torch.linalg.lstsq(kkt, rhs, driver="gelsd").solution
     return solved[:dimension], solved[dimension:]
 
@@ -193,6 +206,14 @@ def _metrics(
     else:
         inequality_violation = 0.0
     return equality_residual, inequality_violation
+
+
+def _primal_feasible(
+    equality_residual: float,
+    inequality_violation: float,
+    tolerance: float,
+) -> bool:
+    return equality_residual <= tolerance and inequality_violation <= tolerance
 
 
 def solve_reference_qp(
@@ -339,9 +360,8 @@ def solve_reference_qp(
         )
         return DenseQpResult(
             solution=solution,
-            success=(
-                equality_residual <= tolerance
-                and inequality_violation <= tolerance
+            success=_primal_feasible(
+                equality_residual, inequality_violation, tolerance
             ),
             iterations=iteration,
             max_equality_residual=equality_residual,
@@ -358,7 +378,9 @@ def solve_reference_qp(
     )
     return DenseQpResult(
         solution=solution,
-        success=False,
+        success=_primal_feasible(
+            equality_residual, inequality_violation, tolerance
+        ),
         iterations=max_iterations,
         max_equality_residual=equality_residual,
         max_inequality_violation=inequality_violation,

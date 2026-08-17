@@ -4,6 +4,7 @@ import torch
 from go2_pvcnn.control.m1_panda_coordination.qp_backend import (
     DenseQpProblem,
     DenseQpResult,
+    _primal_feasible,
     solve_reference_qp,
 )
 
@@ -187,6 +188,41 @@ def test_repeated_solves_are_bitwise_deterministic():
     assert all(results[0].iterations == result.iterations for result in results[1:])
 
 
+def test_large_priority_curvature_does_not_destroy_equality_feasibility():
+    generator = torch.Generator().manual_seed(0)
+    dimension = 43
+    equality_count = 18
+    objective_rows = torch.randn(
+        30, dimension, generator=generator, dtype=torch.float64
+    )
+    weights = torch.logspace(6, -6, 30, dtype=torch.float64)
+    hessian = (
+        2.0 * objective_rows.transpose(0, 1) @ torch.diag(weights) @ objective_rows
+        + 2.0e-6 * torch.eye(dimension, dtype=torch.float64)
+    )
+    gradient = torch.randn(
+        dimension, generator=generator, dtype=torch.float64
+    ) * 1.0e6
+    equality_matrix = torch.randn(
+        equality_count, dimension, generator=generator, dtype=torch.float64
+    )
+    equality_matrix[:6] *= 20.0
+    feasible_seed = torch.randn(
+        dimension, generator=generator, dtype=torch.float64
+    )
+    problem = _problem(
+        hessian,
+        gradient,
+        equality_matrix=equality_matrix,
+        equality_rhs=equality_matrix @ feasible_seed,
+    )
+
+    result = solve_reference_qp(problem, tolerance=3.0e-5)
+
+    assert result.success
+    assert result.max_equality_residual <= 3.0e-5
+
+
 def test_infeasible_bounds_return_finite_unsuccessful_result():
     problem = _problem(
         torch.ones((1, 1), dtype=torch.float64),
@@ -215,6 +251,12 @@ def test_contradictory_inequalities_return_finite_unsuccessful_result():
     assert not result.success
     assert torch.isfinite(result.solution).all()
     assert result.max_inequality_violation > 0.0
+
+
+def test_primal_feasibility_requires_both_residuals_within_tolerance():
+    assert _primal_feasible(7.47e-8, 3.73e-8, 1.0e-5)
+    assert not _primal_feasible(1.1e-5, 0.0, 1.0e-5)
+    assert not _primal_feasible(0.0, 1.1e-5, 1.0e-5)
 
 
 @pytest.mark.parametrize("tolerance", [0.0, -1.0, float("nan"), float("inf")])

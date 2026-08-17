@@ -3,6 +3,8 @@ from dataclasses import replace
 import pytest
 import torch
 
+import go2_pvcnn.control.m1_panda_coordination.standing_wbc as standing_wbc_module
+from go2_pvcnn.control.m1_panda_coordination.qp_backend import DenseQpResult
 from go2_pvcnn.control.m1_panda_coordination.standing_wbc import (
     StandingWbcCfg,
     StandingWbcInput,
@@ -51,13 +53,35 @@ def test_standing_wbc_default_priority_weights_are_frozen():
 
     assert cfg.balance_weight == pytest.approx(1.0e6)
     assert cfg.base_pose_weight == pytest.approx(1.0e5)
-    assert cfg.leg_posture_weight == pytest.approx(1.0e4)
-    assert cfg.arm_tracking_weight == pytest.approx(1.0e3)
+    assert cfg.leg_posture_weight == pytest.approx(2.0e4)
+    assert cfg.arm_tracking_weight == pytest.approx(1.0e4)
     assert cfg.wheel_stop_weight == pytest.approx(1.0e3)
     assert cfg.force_equalization_weight == pytest.approx(10.0)
+    assert cfg.tangential_force_weight == pytest.approx(10.0)
     assert cfg.regularization == pytest.approx(1.0e-6)
+    assert cfg.qp_tolerance == pytest.approx(1.0e-5)
     assert cfg.balance_weight > cfg.base_pose_weight > cfg.leg_posture_weight
     assert cfg.leg_posture_weight > cfg.arm_tracking_weight
+
+
+def test_standing_wbc_forwards_its_physical_scale_qp_tolerance(monkeypatch):
+    captured = {}
+
+    def fake_solver(problem, *, tolerance):
+        captured["tolerance"] = tolerance
+        return DenseQpResult(
+            solution=torch.zeros(43, dtype=torch.float64),
+            success=True,
+            iterations=1,
+            max_equality_residual=0.0,
+            max_inequality_violation=0.0,
+            active_set=(),
+        )
+
+    monkeypatch.setattr(standing_wbc_module, "solve_reference_qp", fake_solver)
+    result = solve_standing_wbc(_input(), StandingWbcCfg(qp_tolerance=2.0e-7))
+    assert result.qp_result.success
+    assert captured == {"tolerance": 2.0e-7}
 
 
 def test_problem_has_31_accelerations_12_contact_forces_and_hard_equalities():
@@ -131,6 +155,19 @@ def test_each_contact_has_positive_normal_and_four_sided_friction_pyramid():
         force_slice = slice(31 + 3 * contact, 31 + 3 * contact + 3)
         row_slice = slice(5 * contact, 5 * contact + 5)
         assert torch.equal(inequalities[row_slice, force_slice], expected)
+
+
+def test_tangential_contact_forces_are_regularized_toward_zero():
+    cfg = StandingWbcCfg()
+    assembled = build_standing_wbc_problem(_input(), cfg)
+
+    expected_diagonal = 2.0 * (cfg.regularization + cfg.tangential_force_weight)
+    for contact in range(4):
+        for axis in (0, 1):
+            index = 31 + 3 * contact + axis
+            assert assembled.qp.hessian[index, index].item() == pytest.approx(
+                expected_diagonal
+            )
 
 
 def test_torque_recovery_matrix_and_limits_match_actuated_dynamics_rows():

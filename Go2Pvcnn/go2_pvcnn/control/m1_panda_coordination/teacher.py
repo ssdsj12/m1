@@ -24,8 +24,11 @@ from .trajectory import BandLimitedPoseTrajectory, TrajectorySample
 class TeacherCfg:
     physics_dt: float = 0.005
     distribution_interval: int = 4
+    warmup_steps: int = 0
     arm_position_gain: float = 20.0
     arm_velocity_gain: float = 5.0
+    wheel_integral_gain: float = 5.0
+    wheel_integral_limit: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,8 @@ class TeacherCommand:
     motion_distribution: MotionDistributionResult
     qp_result: DenseQpResult
     safety_state: SafetyState
+    safety_reason: str
+    motion_failure_reason: str | None
     terminate: bool
 
 
@@ -81,6 +86,18 @@ class M1PandaWbcTeacher:
         wbc_solver_fn: Callable[[StandingWbcInput], StandingWbcResult] | None = None,
     ):
         self.cfg = cfg or TeacherCfg()
+        if (
+            isinstance(self.cfg.warmup_steps, bool)
+            or not isinstance(self.cfg.warmup_steps, int)
+            or self.cfg.warmup_steps < 0
+        ):
+            raise ValueError("warmup_steps must be a non-negative integer")
+        for name, value in (
+            ("wheel_integral_gain", self.cfg.wheel_integral_gain),
+            ("wheel_integral_limit", self.cfg.wheel_integral_limit),
+        ):
+            if not math.isfinite(float(value)) or float(value) < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
         for name, value, trailing_shape in (
             ("kp", kp, (CONTROLLED_DOF,)),
             ("kd", kd, (CONTROLLED_DOF,)),
@@ -151,8 +168,14 @@ class M1PandaWbcTeacher:
     def reset(self, state: TeacherState, *, seed: int) -> None:
         self._validate_state(state)
         self._trajectory.reset(state.ee_pose, seed=seed)
+        self._trajectory_seed = seed
+        self._trajectory_time_s = 0.0
         self._safety.reset(state.controlled_q[-7:])
         self._coord_velocity = torch.zeros_like(state.coord_q)
+        self._wheel_velocity_integral = torch.zeros(
+            4, dtype=state.controlled_q.dtype, device=state.controlled_q.device
+        )
+        self._leg_target = state.controlled_q[:12].detach().clone()
         self._arm_target = state.controlled_q[-7:].detach().clone()
         self._last_verified_q_des = state.controlled_q.detach().clone()
         self._last_verified_qd_des = state.controlled_qd.detach().clone()
@@ -161,7 +184,7 @@ class M1PandaWbcTeacher:
 
     def _motion_update(
         self, state: TeacherState, sample: TrajectorySample
-    ) -> tuple[MotionDistributionResult, bool]:
+    ) -> tuple[MotionDistributionResult, str | None]:
         if self._safety.state == SafetyState.TRACK:
             twist_scale = 1.0
         elif self._safety.state == SafetyState.SCALE:
@@ -189,10 +212,10 @@ class M1PandaWbcTeacher:
                 result.qd_coord,
                 trailing_shape=(COORD_DOF,),
             )
-            return result, False
-        except (RuntimeError, ValueError, TypeError):
+            return result, None
+        except (RuntimeError, ValueError, TypeError) as error:
             fallback = self._last_distribution or self._zero_distribution(state)
-            return fallback, True
+            return fallback, f"{type(error).__name__}: {error}"
 
     def _build_wbc_input(
         self,
@@ -201,20 +224,21 @@ class M1PandaWbcTeacher:
         arm_target_override: torch.Tensor | None = None,
         stop_wheels: bool = False,
     ) -> StandingWbcInput:
+        distribution_dt = self.cfg.physics_dt * self.cfg.distribution_interval
         base_acceleration = state.wbc_input.base_acceleration.clone()
         base_acceleration[0] = (
             self._coord_velocity[0] - state.coord_qd[0]
-        ) / self.cfg.physics_dt
+        ) / distribution_dt
         base_acceleration[1] = (
             self._coord_velocity[1] - state.coord_qd[1]
-        ) / self.cfg.physics_dt
+        ) / distribution_dt
         base_acceleration[5] = (
             self._coord_velocity[2] - state.coord_qd[2]
-        ) / self.cfg.physics_dt
+        ) / distribution_dt
         if arm_target_override is None:
             arm_acceleration = (
                 self._coord_velocity[3:] - state.controlled_qd[-7:]
-            ) / self.cfg.physics_dt
+            ) / distribution_dt
         else:
             arm_acceleration = (
                 self.cfg.arm_position_gain
@@ -245,24 +269,48 @@ class M1PandaWbcTeacher:
         if not self._initialized:
             raise RuntimeError("teacher must be reset before step")
         self._validate_state(state)
-        sample = self._trajectory.sample(state.time_s)
-        motion_failed = False
-        if (
+        self._wheel_velocity_integral = torch.clamp(
+            self._wheel_velocity_integral
+            - state.controlled_qd[12:16] * self.cfg.physics_dt,
+            min=-self.cfg.wheel_integral_limit,
+            max=self.cfg.wheel_integral_limit,
+        )
+        warmup = state.physics_step < self.cfg.warmup_steps
+        sample = self._trajectory.sample(self._trajectory_time_s)
+        motion_failure_reason = None
+        prior_safety_state = self._safety.state
+        high_level_hold = prior_safety_state >= SafetyState.HOLD
+        if high_level_hold:
+            distribution = self._zero_distribution(state)
+            self._last_distribution = distribution
+            self._coord_velocity.zero_()
+        elif warmup:
+            distribution = self._zero_distribution(state)
+            self._last_distribution = distribution
+            self._coord_velocity.zero_()
+        elif (
             self._last_distribution is None
+            or state.physics_step == self.cfg.warmup_steps
             or state.physics_step % self.cfg.distribution_interval == 0
         ):
-            distribution, motion_failed = self._motion_update(state, sample)
+            distribution, motion_failure_reason = self._motion_update(state, sample)
             self._last_distribution = distribution
             self._coord_velocity = distribution.qd_coord.detach().clone()
         distribution = self._last_distribution
         assert distribution is not None
 
-        self._arm_target = (
-            self._arm_target + self._coord_velocity[3:] * self.cfg.physics_dt
+        if not warmup and not high_level_hold:
+            distribution_dt = self.cfg.physics_dt * self.cfg.distribution_interval
+            self._arm_target = (
+                state.controlled_q[-7:]
+                + self._coord_velocity[3:] * distribution_dt
+            )
+        wbc_input = self._build_wbc_input(
+            state,
+            arm_target_override=self._arm_target if warmup else None,
         )
-        wbc_input = self._build_wbc_input(state)
         wbc_result = self._wbc_solver_fn(wbc_input)
-        verified = self._wbc_is_verified(wbc_result) and not motion_failed
+        verified = self._wbc_is_verified(wbc_result) and motion_failure_reason is None
         decision = self._safety.update(
             roll=state.roll,
             pitch=state.pitch,
@@ -272,6 +320,19 @@ class M1PandaWbcTeacher:
             signals_finite=state.signals_finite,
             current_arm_target=self._arm_target,
         )
+        if decision.state >= SafetyState.HOLD and prior_safety_state < SafetyState.HOLD:
+            # A safety hold abandons the old time-indexed target.  Restarting
+            # from the measured pose prevents catch-up motion after recovery.
+            self._trajectory.reset(state.ee_pose, seed=self._trajectory_seed)
+            self._trajectory_time_s = 0.0
+            sample = self._trajectory.sample(0.0)
+        elif decision.state < SafetyState.HOLD and prior_safety_state >= SafetyState.HOLD:
+            # Re-center again on recovery because the measured arm can settle
+            # slightly while its verified joint target is frozen.
+            self._trajectory.reset(state.ee_pose, seed=self._trajectory_seed)
+            self._trajectory_time_s = 0.0
+            sample = self._trajectory.sample(0.0)
+            self._arm_target = state.controlled_q[-7:].detach().clone()
         if decision.state >= SafetyState.HOLD:
             self._arm_target = decision.arm_target.detach().clone()
             override_input = self._build_wbc_input(
@@ -280,25 +341,47 @@ class M1PandaWbcTeacher:
                 stop_wheels=decision.stop_wheels,
             )
             wbc_result = self._wbc_solver_fn(override_input)
-            verified = self._wbc_is_verified(wbc_result) and not motion_failed
+            verified = self._wbc_is_verified(wbc_result) and motion_failure_reason is None
 
+        if not warmup and decision.state < SafetyState.HOLD:
+            self._trajectory_time_s += self.cfg.physics_dt
+
+        controlled_indices = torch.cat(
+            (
+                state.wbc_input.leg_generalized_indices,
+                state.wbc_input.wheel_generalized_indices,
+                state.wbc_input.arm_generalized_indices,
+            )
+        ).to(device=state.controlled_q.device)
+        bias_effort = state.wbc_input.bias_force.index_select(
+            0, controlled_indices
+        ).to(device=state.controlled_q.device, dtype=state.controlled_q.dtype)
         if verified:
-            controlled_indices = torch.cat(
-                (
-                    state.wbc_input.leg_generalized_indices,
-                    state.wbc_input.wheel_generalized_indices,
-                    state.wbc_input.arm_generalized_indices,
-                )
-            ).to(device=wbc_result.qdd.device)
             qdd_controlled = wbc_result.qdd.index_select(0, controlled_indices).to(
                 device=state.controlled_q.device, dtype=state.controlled_q.dtype
             )
             qd_des = state.controlled_qd + qdd_controlled * self.cfg.physics_dt
+            # Anchor the support legs to the reset stance so model mismatch
+            # cannot accumulate through one-step acceleration integration.
+            qd_des[:12] = 0.0
+            # C0 is stationary: wheel velocity is an explicit zero-speed
+            # impedance target, not an integrated acceleration reference.
+            qd_des[12:16] = 0.0
+            qd_des[-7:] = (
+                torch.zeros_like(self._coord_velocity[3:])
+                if decision.state >= SafetyState.HOLD
+                else self._coord_velocity[3:]
+            )
             q_des = state.controlled_q + qd_des * self.cfg.physics_dt
+            q_des[:12] = self._leg_target
             q_des[-7:] = self._arm_target
             tau_ff = wbc_result.effort.to(
                 device=state.controlled_q.device, dtype=state.controlled_q.dtype
             )
+            # Wheel-ground reactions do not act through Panda joint columns.
+            # Use measured C+g for the arm and retain contact-WBC feed-forward
+            # for the M1 support joints.
+            tau_ff[-7:] = bias_effort[-7:]
             effort = apply_impedance(
                 state.controlled_q,
                 state.controlled_qd,
@@ -314,16 +397,26 @@ class M1PandaWbcTeacher:
         else:
             q_des = self._last_verified_q_des.clone()
             qd_des = self._last_verified_qd_des.clone()
+            fallback_feedforward = torch.zeros_like(state.controlled_q)
+            fallback_feedforward[-7:] = bias_effort[-7:]
             effort = apply_impedance(
                 state.controlled_q,
                 state.controlled_qd,
                 q_des,
                 qd_des,
-                torch.zeros_like(state.controlled_q),
+                fallback_feedforward,
                 self._kp,
                 self._kd,
                 self._effort_limit,
             )
+
+        effort = effort.clone()
+        effort[12:16] = torch.clamp(
+            effort[12:16]
+            + self.cfg.wheel_integral_gain * self._wheel_velocity_integral,
+            min=-self._effort_limit[12:16],
+            max=self._effort_limit[12:16],
+        )
 
         return TeacherCommand(
             effort=effort,
@@ -334,5 +427,7 @@ class M1PandaWbcTeacher:
             motion_distribution=distribution,
             qp_result=wbc_result.qp_result,
             safety_state=decision.state,
+            safety_reason=decision.reason,
+            motion_failure_reason=motion_failure_reason,
             terminate=decision.terminate,
         )

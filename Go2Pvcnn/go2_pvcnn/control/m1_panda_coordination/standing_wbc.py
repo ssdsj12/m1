@@ -21,11 +21,13 @@ DECISION_DOF = GENERALIZED_DOF + CONTACT_DOF
 class StandingWbcCfg:
     balance_weight: float = 1.0e6
     base_pose_weight: float = 1.0e5
-    leg_posture_weight: float = 1.0e4
-    arm_tracking_weight: float = 1.0e3
+    leg_posture_weight: float = 2.0e4
+    arm_tracking_weight: float = 1.0e4
     wheel_stop_weight: float = 1.0e3
     force_equalization_weight: float = 10.0
+    tangential_force_weight: float = 10.0
     regularization: float = 1.0e-6
+    qp_tolerance: float = 1.0e-5
 
 
 @dataclass(frozen=True)
@@ -310,6 +312,28 @@ def build_standing_wbc_problem(
         torch.zeros(CONTACT_COUNT, dtype=dtype, device=device),
         cfg.force_equalization_weight,
     )
+    tangential_force = torch.zeros(
+        (CONTACT_COUNT * 2, DECISION_DOF), dtype=dtype, device=device
+    )
+    tangential_indices = torch.tensor(
+        [
+            GENERALIZED_DOF + CONTACT_FORCE_DOF * contact + axis
+            for contact in range(CONTACT_COUNT)
+            for axis in (0, 1)
+        ],
+        dtype=torch.long,
+        device=device,
+    )
+    tangential_force[
+        torch.arange(CONTACT_COUNT * 2, device=device), tangential_indices
+    ] = 1.0
+    _add_objective(
+        hessian,
+        gradient,
+        tangential_force,
+        torch.zeros(CONTACT_COUNT * 2, dtype=dtype, device=device),
+        cfg.tangential_force_weight,
+    )
 
     lower_bound = torch.cat(
         (
@@ -349,8 +373,9 @@ def solve_standing_wbc(
 ) -> StandingWbcResult:
     """Build and solve one C0 standing WBC problem."""
 
+    cfg = cfg or StandingWbcCfg()
     assembled = build_standing_wbc_problem(state, cfg)
-    qp_result = solve_reference_qp(assembled.qp)
+    qp_result = solve_reference_qp(assembled.qp, tolerance=cfg.qp_tolerance)
     solution = qp_result.solution
     qdd = solution[:GENERALIZED_DOF]
     contact_force = solution[GENERALIZED_DOF:].reshape(CONTACT_COUNT, CONTACT_FORCE_DOF)

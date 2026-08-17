@@ -83,6 +83,13 @@ M1_PANDA_WBC_CONTROLLED_JOINT_NAMES = (
 # Keep the legacy combined asset untouched.  C0 writes torques directly to the
 # 23 controlled joints, while the fingers retain their existing position hold.
 M1_PANDA_WBC_CFG = M1_PANDA_CFG.copy()
+M1_PANDA_WBC_CFG.init_state.pos = (0.0, 0.0, 0.6115)
+M1_PANDA_WBC_CFG.spawn = M1_PANDA_WBC_CFG.spawn.replace(
+    articulation_props=M1_PANDA_WBC_CFG.spawn.articulation_props.replace(
+        solver_position_iteration_count=16,
+        solver_velocity_iteration_count=4,
+    )
+)
 M1_PANDA_WBC_CFG.actuators = {
     "legs": M1_PANDA_CFG.actuators["legs"].replace(stiffness=0.0, damping=0.0),
     "wheels": M1_PANDA_CFG.actuators["wheels"].replace(stiffness=0.0, damping=0.0),

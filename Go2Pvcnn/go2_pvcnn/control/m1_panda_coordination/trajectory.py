@@ -101,12 +101,14 @@ class BandLimitedPoseTrajectory:
 
         angular_frequency = 2.0 * math.pi * self._frequencies_hz
         phase = angular_frequency * time_s
-        offset = (self._amplitudes * torch.sin(phase)).sum(dim=-1)
+        # A half raised cosine preserves the configured amplitude bound while
+        # starting every episode with continuous zero Cartesian velocity.
+        offset = (0.5 * self._amplitudes * (1.0 - torch.cos(phase))).sum(dim=-1)
         twist = (
-            self._amplitudes * angular_frequency * torch.cos(phase)
+            0.5 * self._amplitudes * angular_frequency * torch.sin(phase)
         ).sum(dim=-1)
         acceleration = (
-            -self._amplitudes * angular_frequency.square() * torch.sin(phase)
+            0.5 * self._amplitudes * angular_frequency.square() * torch.cos(phase)
         ).sum(dim=-1)
         return TrajectorySample(
             pose=self._center + offset,

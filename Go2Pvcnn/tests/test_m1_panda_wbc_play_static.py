@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import sys
 
+import pytest
 import torch
 
 
@@ -23,6 +24,12 @@ SUMMARY_FIELDS = {
     "base_contacts",
     "self_collisions",
     "safety_state_counts",
+    "safety_reason_counts",
+    "base_activation_count",
+    "first_base_activation_step",
+    "first_singularity_crossing_step",
+    "max_arm_target_step_rad",
+    "arm_snap_count",
     "reset_count",
     "exit_reason",
 }
@@ -89,6 +96,19 @@ def test_runtime_builds_teacher_state_applies_effort_and_steps_once():
     ]
     assert len(env_steps) == 1
     assert ast.unparse(env_steps[0].args[0]) == "effort_action"
+    assert "position_amplitude=0.005" in source
+    assert "orientation_amplitude=0.01" in source
+
+
+def test_runtime_recenters_after_settling_before_counting_mission_steps():
+    source = _source()
+    assert "SETTLE_STEPS = 100" in source
+    assert "if not settled and physics_step == SETTLE_STEPS:" in source
+    assert "teacher.reset(state, seed=args.seed)" in source
+    assert "if settled:" in source
+    assert "_update_summary(summary, state, command, base_contact, adapter)" in source
+    assert "mission_step += 1" in source
+    assert "mission_step < args.steps" in source
 
 
 def test_diagnostics_and_atomic_summary_cover_all_acceptance_fields():
@@ -102,9 +122,15 @@ def test_diagnostics_and_atomic_summary_cover_all_acceptance_fields():
         "wheel_contacts",
         "lateral_slip",
         "safety",
+        "safety_reason",
+        "base_active",
         "reset_cause",
     ):
         assert token in source
+    assert "target_rotation" in source
+    assert "actual_rotation" in source
+    assert "predicted_twist" in source
+    assert "measured_twist" in source
     tree = ast.parse(source)
     summary = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "C0Summary")
     method = next(node for node in summary.body if isinstance(node, ast.FunctionDef) and node.name == "to_dict")
@@ -133,6 +159,58 @@ def test_teacher_gains_use_reference_qp_float64_contract():
     kp, kd = module.build_teacher_gains()
     assert kp.shape == kd.shape == (23,)
     assert kp.dtype == kd.dtype == torch.float64
+    assert torch.equal(kp[:12], torch.full((12,), 120.0, dtype=torch.float64))
+    assert torch.equal(kd[:12], torch.full((12,), 20.0, dtype=torch.float64))
+    assert torch.equal(kp[12:16], torch.zeros(4, dtype=torch.float64))
+    assert torch.equal(kd[12:16], torch.full((4,), 2.0, dtype=torch.float64))
+    assert torch.equal(kp[16:], torch.full((7,), 80.0, dtype=torch.float64))
+    assert torch.equal(
+        kd[16:],
+        torch.tensor([4.0, 4.0, 4.0, 4.0, 1.0, 1.0, 1.0], dtype=torch.float64),
+    )
+    assert "torch.full((7,), 100.0, dtype=torch.float64)" in _source()
+
+
+def test_relative_hand_orientation_uses_current_times_inverse_reference():
+    module = _load_script()
+
+    class FakeMath:
+        @staticmethod
+        def quat_inv(reference):
+            return reference + 10.0
+
+        @staticmethod
+        def quat_mul(current, inverse_reference):
+            assert torch.equal(current, torch.tensor([[1.0, 2.0, 3.0, 4.0]]))
+            assert torch.equal(inverse_reference, torch.tensor([[15.0, 16.0, 17.0, 18.0]]))
+            return torch.tensor([[9.0, 8.0, 7.0, 6.0]])
+
+        @staticmethod
+        def axis_angle_from_quat(relative):
+            assert torch.equal(relative, torch.tensor([[9.0, 8.0, 7.0, 6.0]]))
+            return torch.tensor([[0.1, 0.2, 0.3]])
+
+    result = module.relative_axis_angle(
+        FakeMath,
+        torch.tensor([[1.0, 2.0, 3.0, 4.0]]),
+        torch.tensor([[5.0, 6.0, 7.0, 8.0]]),
+    )
+    assert torch.equal(result, torch.tensor([[0.1, 0.2, 0.3]]))
+
+
+def test_adapter_captures_initial_hand_quaternion_for_relative_pose():
+    source = _source()
+    assert "self._initial_hand_quat" in source
+    assert "relative_axis_angle(" in source
+    assert "self._initial_arm_q" in source
+    assert "self._initial_arm_q - arm_q" in source
+
+
+def test_floating_base_body_jacobian_omits_root_link():
+    module = _load_script()
+    jacobians = torch.arange(1 * 4 * 6 * 3).reshape(1, 4, 6, 3)
+    selected = module.PhysxTeacherAdapter._body_jacobian(jacobians, body_id=2)
+    assert torch.equal(selected, jacobians[0, 1])
 
 
 def test_bias_reader_upgrades_legacy_joint_only_physx_forces_to_floating_base():
@@ -169,3 +247,16 @@ def test_bias_reader_upgrades_legacy_joint_only_physx_forces_to_floating_base():
         "full_coriolis",
         "full_gravity",
     ]
+
+
+def test_wheel_contact_jacobian_uses_bottom_point_not_wheel_center():
+    module = _load_script()
+    body_jacobian = torch.zeros(6, 1, dtype=torch.float64)
+    body_jacobian[4, 0] = 1.0  # unit angular velocity about world y
+
+    point_jacobian = module.contact_point_linear_jacobian(
+        body_jacobian, torch.tensor([0.0, 0.0, -0.0959], dtype=torch.float64)
+    )
+
+    assert point_jacobian.shape == (3, 1)
+    assert point_jacobian[:, 0].tolist() == pytest.approx([-0.0959, 0.0, 0.0])

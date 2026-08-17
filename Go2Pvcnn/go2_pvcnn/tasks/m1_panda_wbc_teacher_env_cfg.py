@@ -51,4 +51,5 @@ class M1PandaWbcTeacherEnvCfg(M1PandaSmokeEnvCfg):
         self.episode_length_s = 20.0
         self.sim.dt = 0.005
         self.sim.render_interval = 4
+        self.sim.physx.enable_external_forces_every_iteration = True
         self.scene.contact_forces.update_period = self.sim.dt

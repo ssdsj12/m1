@@ -47,6 +47,9 @@ def test_wbc_asset_is_an_isolated_copy_with_only_controlled_actuators_zeroed():
     source = ASSET_FILE.read_text()
     tree = ast.parse(source)
     assert "M1_PANDA_WBC_CFG = M1_PANDA_CFG.copy()" in source
+    assert "M1_PANDA_WBC_CFG.init_state.pos = (0.0, 0.0, 0.6115)" in source
+    assert "solver_position_iteration_count=16" in source
+    assert "solver_velocity_iteration_count=4" in source
     assert source.index("M1_PANDA_CFG.actuators.update(") < source.index("M1_PANDA_WBC_CFG =")
     assert ast.literal_eval(
         next(
@@ -90,6 +93,7 @@ def test_wbc_environment_exposes_one_exact_ordered_effort_action_and_c0_timing()
         "self.episode_length_s = 20.0",
         "self.sim.dt = 0.005",
         "self.sim.render_interval = 4",
+        "self.sim.physx.enable_external_forces_every_iteration = True",
         "self.scene.contact_forces.update_period = self.sim.dt",
     ):
         assert token in post_source

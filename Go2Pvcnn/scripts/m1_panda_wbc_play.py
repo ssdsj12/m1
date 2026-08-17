@@ -22,6 +22,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 TASK_ID = "Isaac-M1-Panda-Wbc-Teacher-C0-v0"
 PHYSICS_DT = 0.005
+SETTLE_STEPS = 100
+WHEEL_RADIUS_M = 0.0959
+MAX_CONTINUOUS_ARM_TARGET_STEP_RAD = 0.050001
 WHEEL_BODY_NAMES = (
     "FAR_FOOT_LINK",
     "FBL_FOOT_LINK",
@@ -79,6 +82,13 @@ class C0Summary:
     base_contacts: int = 0
     self_collisions: int = 0
     safety_state_counts: dict[str, int] = field(default_factory=dict)
+    safety_reason_counts: dict[str, int] = field(default_factory=dict)
+    base_activation_count: int = 0
+    first_base_activation_step: int | None = None
+    first_singularity_crossing_step: int | None = None
+    max_arm_target_step_rad: float = 0.0
+    arm_snap_count: int = 0
+    _previous_arm_target: torch.Tensor | None = field(default=None, repr=False)
     reset_count: int = 0
     exit_reason: str = "not_started"
 
@@ -102,6 +112,12 @@ class C0Summary:
             "base_contacts": self.base_contacts,
             "self_collisions": self.self_collisions,
             "safety_state_counts": dict(sorted(self.safety_state_counts.items())),
+            "safety_reason_counts": dict(sorted(self.safety_reason_counts.items())),
+            "base_activation_count": self.base_activation_count,
+            "first_base_activation_step": self.first_base_activation_step,
+            "first_singularity_crossing_step": self.first_singularity_crossing_step,
+            "max_arm_target_step_rad": self.max_arm_target_step_rad,
+            "arm_snap_count": self.arm_snap_count,
             "reset_count": self.reset_count,
             "exit_reason": self.exit_reason,
         }
@@ -141,16 +157,16 @@ def build_teacher_gains() -> tuple[torch.Tensor, torch.Tensor]:
 
     kp = torch.cat(
         (
-            torch.full((12,), 40.0, dtype=torch.float64),
+            torch.full((12,), 120.0, dtype=torch.float64),
             torch.zeros(4, dtype=torch.float64),
-            torch.full((7,), 20.0, dtype=torch.float64),
+            torch.full((7,), 80.0, dtype=torch.float64),
         )
     )
     kd = torch.cat(
         (
-            torch.full((12,), 4.0, dtype=torch.float64),
+            torch.full((12,), 20.0, dtype=torch.float64),
             torch.full((4,), 2.0, dtype=torch.float64),
-            torch.full((7,), 3.0, dtype=torch.float64),
+            torch.tensor([4.0, 4.0, 4.0, 4.0, 1.0, 1.0, 1.0], dtype=torch.float64),
         )
     )
     return kp, kd
@@ -178,6 +194,26 @@ def read_generalized_bias_force(root_view, *, generalized_dof: int) -> torch.Ten
     return bias_force
 
 
+def contact_point_linear_jacobian(
+    body_jacobian: torch.Tensor, point_offset_w: torch.Tensor
+) -> torch.Tensor:
+    """Map generalized velocity to a rigid body's offset-point linear velocity."""
+
+    x, y, z = point_offset_w
+    skew = point_offset_w.new_zeros((3, 3))
+    skew[0, 1], skew[0, 2] = -z, y
+    skew[1, 0], skew[1, 2] = z, -x
+    skew[2, 0], skew[2, 1] = -y, x
+    return body_jacobian[:3] - skew @ body_jacobian[3:]
+
+
+def relative_axis_angle(math_utils, current_quat: torch.Tensor, reference_quat: torch.Tensor) -> torch.Tensor:
+    """Express current orientation as a rotation from a fixed reference."""
+
+    relative_quat = math_utils.quat_mul(current_quat, math_utils.quat_inv(reference_quat))
+    return math_utils.axis_angle_from_quat(relative_quat)
+
+
 class PhysxTeacherAdapter:
     """Translate one live Isaac articulation into explicit C0 Teacher tensors."""
 
@@ -192,6 +228,13 @@ class PhysxTeacherAdapter:
         if robot.num_instances != 1:
             raise RuntimeError("C0 supports exactly one articulation instance")
         self.joint_map = WbcJointMap.resolve(robot.joint_names)
+        action_term = env.action_manager.get_term("joint_effort")
+        expected_action_names = [robot.joint_names[index] for index in self.joint_map.controlled.tolist()]
+        if list(action_term._joint_names) != expected_action_names:
+            raise RuntimeError(
+                "joint-effort action order does not match canonical WBC order: "
+                f"{action_term._joint_names} != {expected_action_names}"
+            )
         self.controlled_joint_ids_device = self.joint_map.controlled.to(robot.device)
         # This expression is intentionally explicit: PhysX generalized columns
         # prepend the six floating-base coordinates to articulation joint order.
@@ -220,15 +263,34 @@ class PhysxTeacherAdapter:
         self._previous_contact_jacobian = None
         self._initial_root_pos = _cpu64(robot.data.root_pos_w[0])
         self._initial_root_quat = robot.data.root_quat_w[0].detach().clone()
+        self._initial_hand_quat = robot.data.body_quat_w[
+            0, self.hand_body_id
+        ].detach().clone()
+        self._initial_arm_q = _cpu64(
+            robot.data.joint_pos[0].index_select(
+                0, self.joint_map.panda_arm.to(robot.device)
+            )
+        )
         initial_euler = self.math_utils.euler_xyz_from_quat(
             self._initial_root_quat.unsqueeze(0)
         )
         self._initial_rpy = _cpu64(torch.stack(initial_euler, dim=-1)[0])
+        self.latest_root_height = float(robot.data.root_pos_w[0, 2].item())
+        self.latest_wheel_heights = [
+            float(value)
+            for value in robot.data.body_pos_w[0]
+            .index_select(0, self.wheel_body_ids)[:, 2]
+            .detach()
+            .cpu()
+            .tolist()
+        ]
 
     @staticmethod
     def _body_jacobian(jacobians: torch.Tensor, body_id: int) -> torch.Tensor:
-        # Floating-base PhysX views include the root body in Jacobian body order.
-        return jacobians[0, body_id]
+        # Floating-base PhysX Jacobians omit the root link from body order.
+        if body_id <= 0:
+            raise ValueError("the floating root link has no PhysX body Jacobian row")
+        return jacobians[0, body_id - 1]
 
     def _generalized_velocity(self) -> torch.Tensor:
         data = self.robot.data
@@ -239,6 +301,7 @@ class PhysxTeacherAdapter:
     def _contact_metrics(self) -> tuple[int, float, int]:
         forces = self.contact_sensor.data.net_forces_w[0]
         wheel_forces = forces.index_select(0, self.wheel_sensor_ids)
+        self.latest_measured_wheel_forces = _cpu64(wheel_forces)
         wheel_contact = torch.linalg.vector_norm(wheel_forces, dim=-1) > 1.0
         wheel_vel_w = self.robot.data.body_lin_vel_w[0].index_select(0, self.wheel_body_ids)
         root_quat = self.robot.data.root_quat_w[0].expand(4, -1)
@@ -251,7 +314,13 @@ class PhysxTeacherAdapter:
         data = self.robot.data
         hand_position = _cpu64(data.body_pos_w[0, self.hand_body_id])
         hand_quat = data.body_quat_w[0, self.hand_body_id].unsqueeze(0)
-        hand_axis_angle = _cpu64(self.math_utils.axis_angle_from_quat(hand_quat)[0])
+        hand_axis_angle = _cpu64(
+            relative_axis_angle(
+                self.math_utils,
+                hand_quat,
+                self._initial_hand_quat.unsqueeze(0),
+            )[0]
+        )
         root_euler = self.math_utils.euler_xyz_from_quat(data.root_quat_w[0].unsqueeze(0))
         roll, pitch, yaw = (float(component[0].item()) for component in root_euler)
         return torch.cat((hand_position, hand_axis_angle)), roll, pitch, yaw
@@ -263,6 +332,15 @@ class PhysxTeacherAdapter:
 
         robot = self.robot
         data = robot.data
+        self.latest_root_height = float(data.root_pos_w[0, 2].item())
+        self.latest_wheel_heights = [
+            float(value)
+            for value in data.body_pos_w[0]
+            .index_select(0, self.wheel_body_ids)[:, 2]
+            .detach()
+            .cpu()
+            .tolist()
+        ]
         root_view = robot.root_physx_view
         mass_matrix = _cpu64(root_view.get_generalized_mass_matrices()[0])
         bias_force = read_generalized_bias_force(
@@ -272,8 +350,17 @@ class PhysxTeacherAdapter:
         jacobians = _cpu64(jacobians_device)
         generalized_velocity = self._generalized_velocity()
 
+        contact_offset_w = torch.tensor(
+            [0.0, 0.0, -WHEEL_RADIUS_M], dtype=torch.float64
+        )
         wheel_jacobians = torch.stack(
-            [self._body_jacobian(jacobians, int(index))[:3] for index in self.wheel_body_ids.cpu()],
+            [
+                contact_point_linear_jacobian(
+                    self._body_jacobian(jacobians, int(index)),
+                    contact_offset_w,
+                )
+                for index in self.wheel_body_ids.cpu()
+            ],
             dim=0,
         )
         contact_jacobian = wheel_jacobians.reshape(12, 31)
@@ -286,6 +373,7 @@ class PhysxTeacherAdapter:
         self._previous_contact_jacobian = contact_jacobian.clone()
 
         hand_jacobian = self._body_jacobian(jacobians, self.hand_body_id)
+        self.latest_hand_base_jacobian = hand_jacobian[:, :6].clone()
         mount_jacobian = self._body_jacobian(jacobians, self.mount_body_id)
         panda_jacobian = hand_jacobian.index_select(1, self.arm_generalized_indices)
         coordinated_columns = torch.cat(
@@ -293,6 +381,22 @@ class PhysxTeacherAdapter:
         )
         coordinated_jacobian = hand_jacobian.index_select(1, coordinated_columns)
         sigma_min, _ = singularity_metrics(panda_jacobian)
+        self.latest_arm_jacobian_twist = panda_jacobian @ _cpu64(
+            data.joint_vel[0].index_select(0, self.joint_map.panda_arm.to(robot.device))
+        )
+        hand_offset_w = _cpu64(
+            data.body_pos_w[0, self.hand_body_id] - data.root_pos_w[0]
+        )
+        base_linear_at_hand = _cpu64(data.root_lin_vel_w[0]) + torch.linalg.cross(
+            _cpu64(data.root_ang_vel_w[0]), hand_offset_w
+        )
+        self.latest_measured_arm_twist = torch.cat(
+            (
+                _cpu64(data.body_lin_vel_w[0, self.hand_body_id]) - base_linear_at_hand,
+                _cpu64(data.body_ang_vel_w[0, self.hand_body_id])
+                - _cpu64(data.root_ang_vel_w[0]),
+            )
+        )
 
         ee_pose, roll, pitch, yaw = self._pose_and_orientation()
         root_position = _cpu64(data.root_pos_w[0])
@@ -323,7 +427,7 @@ class PhysxTeacherAdapter:
         coord_a_max = torch.cat(
             (
                 torch.tensor([3.0, 3.0, 4.0], dtype=torch.float64),
-                torch.full((7,), 15.0, dtype=torch.float64),
+                torch.full((7,), 100.0, dtype=torch.float64),
             )
         )
 
@@ -387,7 +491,12 @@ class PhysxTeacherAdapter:
             coord_q_max=coord_q_max,
             coord_v_max=coord_v_max,
             coord_a_max=coord_a_max,
-            manipulability_gradient=torch.zeros(10, dtype=torch.float64),
+            manipulability_gradient=torch.cat(
+                (
+                    torch.zeros(3, dtype=torch.float64),
+                    self._initial_arm_q - arm_q,
+                )
+            ),
             sigma_min=sigma_min,
             wbc_input=wbc_input,
             controlled_q=controlled_q,
@@ -444,18 +553,65 @@ def _update_summary(summary: C0Summary, state, command, base_contact: int, adapt
     summary.base_contacts += base_contact
     safety = command.safety_state.name
     summary.safety_state_counts[safety] = summary.safety_state_counts.get(safety, 0) + 1
+    reason = command.safety_reason
+    summary.safety_reason_counts[reason] = summary.safety_reason_counts.get(reason, 0) + 1
+    if bool(command.motion_distribution.base_active.item()):
+        summary.base_activation_count += 1
+        if summary.first_base_activation_step is None:
+            summary.first_base_activation_step = summary.steps
+    if sigma_min < 0.1 and summary.first_singularity_crossing_step is None:
+        summary.first_singularity_crossing_step = summary.steps
+    arm_target = command.q_des[-7:].detach().cpu()
+    if summary._previous_arm_target is not None:
+        target_step = float(
+            torch.max(torch.abs(arm_target - summary._previous_arm_target)).item()
+        )
+        summary.max_arm_target_step_rad = max(
+            summary.max_arm_target_step_rad, target_step
+        )
+        summary.arm_snap_count += int(
+            target_step > MAX_CONTINUOUS_ARM_TARGET_STEP_RAD
+        )
+    summary._previous_arm_target = arm_target.clone()
 
 
-def _format_diagnostics(step: int, state, command, reset_cause: str) -> str:
+def _format_diagnostics(step: int, state, command, reset_cause: str, adapter) -> str:
     ee_error = float(torch.linalg.vector_norm(command.target_pose[:3] - state.ee_pose[:3]).item())
+    fastest_joint = int(torch.argmax(state.controlled_qd.abs()).item())
+    effort_peak = int(torch.argmax(command.effort.abs()).item())
+    target_xyz = command.target_pose[:3].detach().cpu().tolist()
+    actual_xyz = state.ee_pose[:3].detach().cpu().tolist()
+    target_rotation = command.target_pose[3:].detach().cpu().tolist()
+    actual_rotation = state.ee_pose[3:].detach().cpu().tolist()
+    predicted_twist = (
+        state.coordinated_jacobian @ command.motion_distribution.qd_coord
+    ).detach().cpu().tolist()
+    measured_twist = (
+        state.coordinated_jacobian @ state.coord_qd
+    ).detach().cpu().tolist()
     return (
         f"[WBC C0] step={step} ee_error={ee_error:.5f} "
         f"sigma_min={float(state.sigma_min.item()):.5f} "
         f"qp_feasible={bool(command.qp_result.success)} "
+        f"qp_eq={command.qp_result.max_equality_residual:.3e} "
+        f"qp_ineq={command.qp_result.max_inequality_violation:.3e} "
+        f"qp_iter={command.qp_result.iterations} "
+        f"joint_speed={float(state.controlled_qd.abs().max().item()):.3e}@{fastest_joint} "
+        f"effort={float(command.effort.abs().max().item()):.3e}@{effort_peak} "
+        f"target_xyz={[round(value, 4) for value in target_xyz]} "
+        f"actual_xyz={[round(value, 4) for value in actual_xyz]} "
+        f"target_rotation={[round(value, 4) for value in target_rotation]} "
+        f"actual_rotation={[round(value, 4) for value in actual_rotation]} "
+        f"predicted_twist={[round(value, 4) for value in predicted_twist]} "
+        f"measured_twist={[round(value, 4) for value in measured_twist]} "
+        f"root_z={adapter.latest_root_height:.5f} "
         f"roll={state.roll:.5f} pitch={state.pitch:.5f} "
         f"wheel_contacts={state.wheel_contact_count} "
         f"lateral_slip={state.max_lateral_slip:.5f} "
-        f"safety={command.safety_state.name} reset_cause={reset_cause}"
+        f"base_active={bool(command.motion_distribution.base_active.item())} "
+        f"safety={command.safety_state.name} safety_reason={command.safety_reason} "
+        f"motion_failure={command.motion_failure_reason or 'none'} "
+        f"reset_cause={reset_cause}"
     )
 
 
@@ -475,7 +631,11 @@ def main() -> int:
         from isaaclab_tasks.utils import parse_env_cfg
 
         import go2_pvcnn.tasks  # noqa: F401
-        from go2_pvcnn.control.m1_panda_coordination.teacher import M1PandaWbcTeacher
+        from go2_pvcnn.control.m1_panda_coordination.teacher import M1PandaWbcTeacher, TeacherCfg
+        from go2_pvcnn.control.m1_panda_coordination.trajectory import (
+            BandLimitedPoseTrajectory,
+            BandLimitedTrajectoryCfg,
+        )
 
         torch.manual_seed(args.seed)
         env_cfg = parse_env_cfg(TASK_ID, device=args.device, num_envs=1)
@@ -486,30 +646,66 @@ def main() -> int:
         initial_state, _ = adapter.build_state(0)
         controlled_limits = initial_state.wbc_input.effort_limit
         kp, kd = build_teacher_gains()
-        trajectory = StaticPoseTrajectory() if args.disable_target_motion else None
+        trajectory = (
+            StaticPoseTrajectory()
+            if args.disable_target_motion
+            else BandLimitedPoseTrajectory(
+                BandLimitedTrajectoryCfg(
+                    position_amplitude=0.005,
+                    orientation_amplitude=0.01,
+                )
+            )
+        )
         teacher = M1PandaWbcTeacher(
             kp=kp,
             kd=kd,
             effort_limit=controlled_limits,
             safe_arm_target=initial_state.controlled_q[-7:],
+            cfg=TeacherCfg(warmup_steps=SETTLE_STEPS),
             trajectory=trajectory,
         )
         teacher.reset(initial_state, seed=args.seed)
 
         physics_step = 0
-        while simulation_app.is_running() and (args.steps == 0 or physics_step < args.steps):
+        mission_step = 0
+        settled = False
+        previous_safety = None
+        while simulation_app.is_running() and (args.steps == 0 or mission_step < args.steps):
             state, base_contact = adapter.build_state(physics_step)
+            if not settled and physics_step == SETTLE_STEPS:
+                # The floating composite settles onto its four wheels before
+                # the mission. Re-center both the EE trajectory and safe arm
+                # posture on that physically realized state.
+                teacher.reset(state, seed=args.seed)
+                settled = True
             command = teacher.step(state)
             effort_action = command.effort.to(device=env.device, dtype=torch.float32).unsqueeze(0)
             _, _, terminated, truncated, _ = env.step(effort_action)
             reset_cause = _termination_cause(env, terminated, truncated)
-            _update_summary(summary, state, command, base_contact, adapter)
             physics_step += 1
-            if physics_step % args.stats_interval == 0 or physics_step == 1 or reset_cause != "none":
-                print(_format_diagnostics(physics_step, state, command, reset_cause), flush=True)
+            if settled:
+                _update_summary(summary, state, command, base_contact, adapter)
+                mission_step += 1
+            display_step = mission_step if settled else physics_step
+            safety_changed = command.safety_state != previous_safety
+            if (
+                display_step % args.stats_interval == 0
+                or display_step == 1
+                or safety_changed
+                or command.motion_failure_reason is not None
+                or reset_cause != "none"
+            ):
+                print(
+                    _format_diagnostics(
+                        display_step, state, command, reset_cause, adapter
+                    ),
+                    flush=True,
+                )
+            previous_safety = command.safety_state
             did_reset = bool(torch.as_tensor(terminated | truncated).any().item())
             if did_reset:
-                summary.reset_count += 1
+                if settled:
+                    summary.reset_count += 1
                 reset_state, _ = adapter.build_state(physics_step)
                 teacher.reset(reset_state, seed=args.seed + summary.reset_count)
             if command.terminate:
@@ -518,7 +714,7 @@ def main() -> int:
         else:
             summary.exit_reason = (
                 "steps_complete"
-                if args.steps > 0 and physics_step >= args.steps
+                if args.steps > 0 and mission_step >= args.steps
                 else "app_closed"
             )
         if summary.exit_reason == "not_started":
