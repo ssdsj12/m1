@@ -42,7 +42,7 @@ T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴�
 
 T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_9700.pt` 的三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`；相比源模型显著改善但未通过 `0.80/0.10/0.10` 联合门。后 7 个 block 在 contact `0.22–0.27` 平台，没有继续相同 PPO 的充分依据；manifest stop reason 为 `recovery_plateau_requires_design_review`。下一步需要批准 reward/termination 或 curriculum redesign，T400.7 仍保持开放。
 
-T400.8 C0 Tasks 1–6 已按 TDD 完成。23 路前馈+阻抗限幅与 `TRACK→SCALE→HOLD→RETRACT→TERMINATE` 安全机已实现；一般风险 2 帧升级/20 帧恢复，非有限输入立即终止并复用最后有限目标。最终 Tasks 1–6 `100 passed`。下一项是带限轨迹与 deterministic Teacher 编排。
+T400.8 C0 Tasks 1–7 已按 TDD 完成。带限六维轨迹与 deterministic Teacher 已把 50 Hz 分配、200 Hz WBC、安全 re-solve 和阻抗串联；同 seed 可重复，失败只复用已验证目标。最终 Tasks 1–7 `110 passed`。下一项是独立 Isaac Lab effort 环境与 Gym ID。
 
 ## Open Children
 
@@ -54,7 +54,8 @@ T400.8 C0 Tasks 1–6 已按 TDD 完成。23 路前馈+阻抗限幅与 `TRACK→
   - [x] Task 4 实现项目自有 float64 参考 QP 后端。
   - [x] Task 5 实现 C0 standing WBC 动力学、接触和力矩恢复。
   - [x] Task 6 实现阻抗输出与 balance-first 安全状态机。
-  - [ ] Task 7 实现带限轨迹与 deterministic Teacher 编排。
+  - [x] Task 7 实现带限轨迹与 deterministic Teacher 编排。
+  - [ ] Task 8 实现独立 Isaac Lab effort 环境与 Gym 注册。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
@@ -135,11 +136,12 @@ T400.8 C0 Tasks 1–6 已按 TDD 完成。23 路前馈+阻抗限幅与 `TRACK→
 - [M1 + Panda reference QP](../log/2026-08-17-m1-panda-reference-qp.md)
 - [M1 + Panda standing WBC](../log/2026-08-17-m1-panda-standing-wbc.md)
 - [M1 + Panda WBC impedance and safety](../log/2026-08-17-m1-panda-wbc-safety.md)
+- [M1 + Panda deterministic WBC Teacher](../log/2026-08-17-m1-panda-wbc-teacher.md)
 
 ## Git Refs
 
-- Last Feature Commit: `8d96922`
-- Last Verified Base: `8d96922`
+- Last Feature Commit: `055d126`
+- Last Verified Base: `055d126`
 - Current Work Ref: `main` working tree（未提交）
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
@@ -174,10 +176,13 @@ T400.8 C0 Tasks 1–6 已按 TDD 完成。23 路前馈+阻抗限幅与 `TRACK→
   - [WBC 阻抗](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/impedance.py)
   - [WBC 安全监督](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/safety.py)
   - [WBC 安全测试](../../Go2Pvcnn/tests/test_m1_panda_wbc_safety.py)
+  - [带限轨迹](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/trajectory.py)
+  - [Deterministic Teacher](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/teacher.py)
+  - [Teacher 测试](../../Go2Pvcnn/tests/test_m1_panda_wbc_teacher.py)
 
 ## Next Step
 
-继续 C0 Task 7 带限轨迹与 deterministic Teacher 编排；控制器运行验收前冻结 T400.6 零间隙资产。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
+继续 C0 Task 8 独立 Isaac Lab effort 环境与 Gym 注册；运行验收前冻结 T400.6 零间隙资产。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
 
 ## Node Details
 

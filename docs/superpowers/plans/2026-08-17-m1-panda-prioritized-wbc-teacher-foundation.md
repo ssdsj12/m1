@@ -448,11 +448,11 @@ git commit -m "feat: add WBC impedance and safety supervision"
 - Create: `Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/teacher.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_wbc_teacher.py`
 
-- [ ] **Step 1: Write failing trajectory tests**
+- [x] **Step 1: Write failing trajectory tests**
 
 Implement a seeded sum-of-sinusoids trajectory with position amplitude at most `0.08 m`, orientation-vector amplitude at most `0.15 rad`, and frequency range `0.05–0.25 Hz`. Return pose, twist, and acceleration analytically. Tests cover seed repeatability, continuity, bounds, and finite derivatives.
 
-- [ ] **Step 2: Write failing scheduling and fallback tests**
+- [x] **Step 2: Write failing scheduling and fallback tests**
 
 Freeze:
 
@@ -464,7 +464,7 @@ class M1PandaWbcTeacher:
 
 The command contains `effort[23]`, target pose/twist, motion-distribution diagnostics, QP diagnostics, and safety state. Tests must show high-level updates at physics steps `0, 4, 8`, WBC updates every step, interpolation between high-level references, deterministic reset, and safety override without bypassing WBC.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_teacher.py
@@ -472,11 +472,11 @@ pytest -q tests/test_m1_panda_wbc_teacher.py
 
 Expected: missing trajectory/Teacher modules.
 
-- [ ] **Step 4: Implement the deterministic orchestration**
+- [x] **Step 4: Implement the deterministic orchestration**
 
 Use dependency injection for kinematics/dynamics snapshots so pure tests need no Isaac import. A failed motion-distribution or WBC cycle reuses only the last verified finite target, advances safety, and records the failure reason. Never reuse an unverified effort vector.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_contracts.py tests/test_m1_panda_wbc_kinematics.py tests/test_m1_panda_motion_distribution.py tests/test_m1_panda_qp_backend.py tests/test_m1_panda_standing_wbc.py tests/test_m1_panda_wbc_safety.py tests/test_m1_panda_wbc_teacher.py
