@@ -135,7 +135,7 @@ git commit -m "feat: define M1 Panda WBC contracts"
 - Create: `Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/kinematics.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_wbc_kinematics.py`
 
-- [ ] **Step 1: Write failing analytic and finite-difference tests**
+- [x] **Step 1: Write failing analytic and finite-difference tests**
 
 Define these interfaces:
 
@@ -157,7 +157,7 @@ angular yaw: [0, 0, 1]
 
 The coordinated Jacobian must be `[..., 6, 10]`. Compare the analytic base columns to central finite differences. Verify `J @ J_damped_pinv @ J` reconstructs a well-conditioned `J`, and verify minimum singular value plus product-of-singular-values manipulability on diagonal matrices.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_kinematics.py
@@ -165,11 +165,11 @@ pytest -q tests/test_m1_panda_wbc_kinematics.py
 
 Expected: import failure for the missing kinematics module.
 
-- [ ] **Step 3: Implement batched float-safe operations**
+- [x] **Step 3: Implement batched float-safe operations**
 
 Use `torch.linalg.svd`, preserve leading batch dimensions, accept float32 or float64 inputs, and reject non-finite inputs through `require_tensor`. Clamp only the product calculation against negative round-off; do not conceal a negative or non-finite singular value.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_contracts.py tests/test_m1_panda_wbc_kinematics.py

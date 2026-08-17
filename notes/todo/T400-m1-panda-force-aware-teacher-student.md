@@ -42,14 +42,15 @@ T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴�
 
 T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_9700.pt` 的三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`；相比源模型显著改善但未通过 `0.80/0.10/0.10` 联合门。后 7 个 block 在 contact `0.22–0.27` 平台，没有继续相同 PPO 的充分依据；manifest stop reason 为 `recovery_plateau_requires_design_review`。下一步需要批准 reward/termination 或 curriculum redesign，T400.7 仍保持开放。
 
-T400.8 论文优先级 WBC Teacher–Student 书面规格已由用户确认。C0 Task 1 已按 TDD 完成：10/31/23 维度、12 腿+4 轮+7 臂规范顺序、运行时关节映射和张量边界已冻结；focused `18 passed`，既有资产/烟测回归 `28 passed`。下一项是协调运动学与奇异性诊断。
+T400.8 C0 Tasks 1–2 已按 TDD 完成：10/31/23 合同与 23 关节规范顺序已冻结，平面基座+Panda 6×10 Jacobian、阻尼伪逆和奇异性指标已实现。自审新增零阻尼秩亏 RED 并修复 NaN；最终合同+运动学 `37 passed`。下一项是有界优先级运动分配。
 
 ## Open Children
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
 - [ ] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
   - [x] Task 1 冻结维度、关节名、规范控制顺序与张量合同。
-  - [ ] Task 2 实现协调运动学与奇异性诊断。
+  - [x] Task 2 实现协调运动学与奇异性诊断。
+  - [ ] Task 3 实现速度界交集与三级运动分配。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
@@ -125,11 +126,12 @@ T400.8 论文优先级 WBC Teacher–Student 书面规格已由用户确认。C0
 - [Prioritized WBC Teacher C0 implementation plan](../../docs/superpowers/plans/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation.md)
 - [Prioritized WBC Teacher C0 plan log](../log/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation-plan.md)
 - [M1 + Panda WBC contracts](../log/2026-08-17-m1-panda-wbc-contracts.md)
+- [M1 + Panda coordinated kinematics](../log/2026-08-17-m1-panda-wbc-kinematics.md)
 
 ## Git Refs
 
-- Last Feature Commit: `ac5c9fc`
-- Last Verified Base: `ac5c9fc`
+- Last Feature Commit: `11c34a1`
+- Last Verified Base: `11c34a1`
 - Current Work Ref: `main` working tree（未提交）
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
@@ -152,10 +154,12 @@ T400.8 论文优先级 WBC Teacher–Student 书面规格已由用户确认。C0
   - [优先级 WBC Teacher C0 实施计划](../../docs/superpowers/plans/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation.md)
   - [WBC 合同](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/contracts.py)
   - [WBC 合同测试](../../Go2Pvcnn/tests/test_m1_panda_wbc_contracts.py)
+  - [协调运动学](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/kinematics.py)
+  - [协调运动学测试](../../Go2Pvcnn/tests/test_m1_panda_wbc_kinematics.py)
 
 ## Next Step
 
-继续 C0 Task 2 协调运动学与奇异性诊断；控制器运行验收前冻结 T400.6 零间隙资产。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
+继续 C0 Task 3 有界优先级运动分配；控制器运行验收前冻结 T400.6 零间隙资产。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
 
 ## Node Details
 
