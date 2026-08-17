@@ -495,7 +495,7 @@ git commit -m "feat: compose deterministic M1 Panda WBC teacher"
 - Modify: `Go2Pvcnn/go2_pvcnn/tasks/register_m1_envs.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_wbc_env_static.py`
 
-- [ ] **Step 1: Write failing static tests**
+- [x] **Step 1: Write failing static tests**
 
 Parse/import the config and assert:
 
@@ -507,7 +507,7 @@ Parse/import the config and assert:
 - Gym ID `Isaac-M1-Panda-Wbc-Teacher-C0-v0` resolves lazily;
 - existing A0/A1 Gym registrations and 60/16 configs are byte-for-byte unaffected by imports.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_env_static.py
@@ -515,11 +515,11 @@ pytest -q tests/test_m1_panda_wbc_env_static.py
 
 Expected: the new asset/config/ID assertions fail.
 
-- [ ] **Step 3: Implement isolated integration**
+- [x] **Step 3: Implement isolated integration**
 
 Copy actuator config objects before changing gains. Reuse the local combined USD. Add only WBC-required scene sensors: contact data for the four wheels, base contact failure, and articulation state. The environment action is effort only; do not expose an RL observation/action contract or instantiate an RSL-RL runner.
 
-- [ ] **Step 4: Run GREEN plus A0/A1 regression**
+- [x] **Step 4: Run GREEN plus A0/A1 regression**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_env_static.py tests/test_m1_panda_asset_static.py tests/test_m1_panda_teacher_env_cfg_static.py tests/test_m1_panda_teacher_play_static.py
@@ -528,7 +528,7 @@ python -m py_compile go2_pvcnn/assets/m1_panda.py go2_pvcnn/tasks/m1_panda_wbc_t
 
 Expected: all selected tests pass and compilation exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/assets/m1_panda.py Go2Pvcnn/go2_pvcnn/tasks/m1_panda_wbc_teacher_env_cfg.py Go2Pvcnn/go2_pvcnn/tasks/register_m1_envs.py Go2Pvcnn/tests/test_m1_panda_wbc_env_static.py

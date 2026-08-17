@@ -42,7 +42,7 @@ T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴�
 
 T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_9700.pt` 的三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`；相比源模型显著改善但未通过 `0.80/0.10/0.10` 联合门。后 7 个 block 在 contact `0.22–0.27` 平台，没有继续相同 PPO 的充分依据；manifest stop reason 为 `recovery_plateau_requires_design_review`。下一步需要批准 reward/termination 或 curriculum redesign，T400.7 仍保持开放。
 
-T400.8 C0 Tasks 1–7 已按 TDD 完成。带限六维轨迹与 deterministic Teacher 已把 50 Hz 分配、200 Hz WBC、安全 re-solve 和阻抗串联；同 seed 可重复，失败只复用已验证目标。最终 Tasks 1–7 `110 passed`。下一项是独立 Isaac Lab effort 环境与 Gym ID。
+T400.8 C0 Tasks 1–8 已按 TDD 完成。独立的 23-effort Isaac Lab 环境和惰性 Gym ID 已接入，原 A0/A1 60/16 路线保持不变；Tasks 1–8 回归 `167 passed`。下一项是 PhysX 张量适配与 deterministic play 入口。
 
 ## Open Children
 
@@ -55,7 +55,7 @@ T400.8 C0 Tasks 1–7 已按 TDD 完成。带限六维轨迹与 deterministic Te
   - [x] Task 5 实现 C0 standing WBC 动力学、接触和力矩恢复。
   - [x] Task 6 实现阻抗输出与 balance-first 安全状态机。
   - [x] Task 7 实现带限轨迹与 deterministic Teacher 编排。
-  - [ ] Task 8 实现独立 Isaac Lab effort 环境与 Gym 注册。
+  - [x] Task 8 实现独立 Isaac Lab effort 环境与 Gym 注册。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
