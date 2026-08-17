@@ -27,6 +27,7 @@ EXPECTED_REGISTRATIONS = [
     ("Isaac-M1-Panda-Smoke-v0", "go2_pvcnn.tasks.m1_panda_smoke_env_cfg:M1PandaSmokeEnvCfg"),
     ("Isaac-M1-Panda-Teacher-A0-v0", "go2_pvcnn.tasks.m1_panda_teacher_env_cfg:M1PandaTeacherA0EnvCfg"),
     ("Isaac-M1-Panda-Teacher-A1-v0", "go2_pvcnn.tasks.m1_panda_teacher_env_cfg:M1PandaTeacherA1EnvCfg"),
+    ("Isaac-M1-Panda-Wbc-Teacher-C0-v0", "go2_pvcnn.tasks.m1_panda_wbc_teacher_env_cfg:M1PandaWbcTeacherEnvCfg"),
     ("Isaac-M1-Small-Obstacle-5mm-v0", "go2_pvcnn.tasks.m1_small_obstacle_env_cfg:M1SmallObstacle5mmEnvCfg"),
     ("Isaac-M1-Small-Obstacle-10mm-v0", "go2_pvcnn.tasks.m1_small_obstacle_env_cfg:M1SmallObstacle10mmEnvCfg"),
     ("Isaac-M1-Walk-v0", "go2_pvcnn.tasks.m1_walk_env_cfg:M1WalkEnvCfg"),

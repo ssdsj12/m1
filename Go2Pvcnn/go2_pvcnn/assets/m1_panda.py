@@ -51,3 +51,42 @@ M1_PANDA_CFG.actuators.update(
         ),
     }
 )
+
+# Explicit order used by the C0 whole-body controller.  The two gripper joints
+# deliberately remain outside this effort-control contract.
+M1_PANDA_WBC_CONTROLLED_JOINT_NAMES = (
+    "FAR_ABAD_JOINT",
+    "FAR_HIP_JOINT",
+    "FAR_KNEE_JOINT",
+    "FBL_ABAD_JOINT",
+    "FBL_HIP_JOINT",
+    "FBL_KNEE_JOINT",
+    "RAR_ABAD_JOINT",
+    "RAR_HIP_JOINT",
+    "RAR_KNEE_JOINT",
+    "RBL_ABAD_JOINT",
+    "RBL_HIP_JOINT",
+    "RBL_KNEE_JOINT",
+    "FAR_FOOT_JOINT",
+    "FBL_FOOT_JOINT",
+    "RAR_FOOT_JOINT",
+    "RBL_FOOT_JOINT",
+    "panda_joint1",
+    "panda_joint2",
+    "panda_joint3",
+    "panda_joint4",
+    "panda_joint5",
+    "panda_joint6",
+    "panda_joint7",
+)
+
+# Keep the legacy combined asset untouched.  C0 writes torques directly to the
+# 23 controlled joints, while the fingers retain their existing position hold.
+M1_PANDA_WBC_CFG = M1_PANDA_CFG.copy()
+M1_PANDA_WBC_CFG.actuators = {
+    "legs": M1_PANDA_CFG.actuators["legs"].replace(stiffness=0.0, damping=0.0),
+    "wheels": M1_PANDA_CFG.actuators["wheels"].replace(stiffness=0.0, damping=0.0),
+    "panda_shoulder": M1_PANDA_CFG.actuators["panda_shoulder"].replace(stiffness=0.0, damping=0.0),
+    "panda_forearm": M1_PANDA_CFG.actuators["panda_forearm"].replace(stiffness=0.0, damping=0.0),
+    "panda_hand": M1_PANDA_CFG.actuators["panda_hand"].copy(),
+}
