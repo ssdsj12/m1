@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | C0 Tasks 1–2 已完成合同、6×10 协调 Jacobian、阻尼伪逆与奇异性指标；旧 A0/A1 保持独立。 | 继续 Task 3 有界优先级运动分配；运行验收前冻结 T400.6 资产。 |
+| T400 | active | C0 Tasks 1–3 已完成合同、协调运动学和 Panda-first 有界运动分配；旧 A0/A1 保持独立。 | 继续 Task 4 float64 参考 QP；运行验收前冻结 T400.6 资产。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.8 | T400 | active | P0 | C0 Tasks 1–2 pass; 10/31/23 contracts and coordinated kinematics are implemented, including finite zero-damping rank-deficient behavior. | [Task 2 log](log/2026-08-17-m1-panda-wbc-kinematics.md) |
+| T400.8 | T400 | active | P0 | C0 Tasks 1–3 pass; bounded Panda-first redistribution activates M1 on rank, singularity, saturation or base acceleration constraints and degrades psi before phi. | [Task 3 log](log/2026-08-17-m1-panda-motion-distribution.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | design-review | P0 | User approved changing Panda mount clearance from 10 mm to zero while preserving the fixed single articulation and rejecting mesh penetration. | [zero-clearance design](../docs/superpowers/specs/2026-08-15-m1-panda-zero-clearance-mount-design.md) |
 | T400.5d | T400 | done | P0 | Strict play complete: final `195 passed`; A0/A1 default plus A1 zero-disturbance GPU0 smokes exit `0`; frozen hash stable. | [GPU0 smoke](log/2026-08-14-m1-panda-teacher-play-gpu0-smoke.md) |
@@ -211,6 +211,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Time | Topic | Result | Todo | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-17 | M1 + Panda prioritized motion distribution | valid RED and state-consistency RED; focused `19 passed`; Tasks 1–3 `56 passed`; compile/diff exit 0 | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-motion-distribution.md](log/2026-08-17-m1-panda-motion-distribution.md) |
 | 2026-08-17 | M1 + Panda coordinated kinematics | initial RED plus zero-damping NaN RED; final contracts+kinematics `37 passed`; compile/diff exit 0 | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-kinematics.md](log/2026-08-17-m1-panda-wbc-kinematics.md) |
 | 2026-08-17 | M1 + Panda WBC contracts | valid RED; focused `18 passed`; asset/smoke `28 passed`; 10/31/23 and canonical 23-joint order frozen | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-contracts.md](log/2026-08-17-m1-panda-wbc-contracts.md) |
 | 2026-08-17 | M1 + Panda prioritized WBC Teacher C0 plan | ten-task single-agent TDD plan ready: 10/31/23 contracts, 50/200 Hz control, reference QP, safety and GPU0 gates; no runtime code | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-prioritized-wbc-teacher-foundation-plan.md](log/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation-plan.md) |

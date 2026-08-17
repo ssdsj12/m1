@@ -189,7 +189,7 @@ Expected: both files pass.
 - Create: `Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/motion_distribution.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_motion_distribution.py`
 
-- [ ] **Step 1: Write failing bound-intersection tests**
+- [x] **Step 1: Write failing bound-intersection tests**
 
 Expose:
 
@@ -206,7 +206,7 @@ upper = torch.minimum(torch.minimum((q_max - q) / dt,  v_max), qd + a_max * dt)
 
 Reject `lower > upper`, non-positive `dt`, and non-finite values.
 
-- [ ] **Step 2: Write failing priority tests**
+- [x] **Step 2: Write failing priority tests**
 
 Freeze this config and result API:
 
@@ -239,7 +239,7 @@ Tests must prove:
 - infeasibility reduces `psi` before reducing end-effector `phi`;
 - the output is finite and within all velocity bounds.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 pytest -q tests/test_m1_panda_motion_distribution.py
@@ -247,11 +247,11 @@ pytest -q tests/test_m1_panda_motion_distribution.py
 
 Expected: missing module failures.
 
-- [ ] **Step 4: Implement deterministic active-set redistribution**
+- [x] **Step 4: Implement deterministic active-set redistribution**
 
 Start with a selection mask that disables the three base columns. Solve P1 with a damped pseudoinverse, freeze the most violated coordinate per pass, and re-solve for at most ten passes. Activate the base if the arm-only Jacobian loses task rank, violates a bound after saturation passes, or crosses the singularity threshold. Apply P3 through `N = I - J_pinv @ J`. Return explicit `phi`, `psi`, and saturation diagnostics.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_contracts.py tests/test_m1_panda_wbc_kinematics.py tests/test_m1_panda_motion_distribution.py
