@@ -42,11 +42,12 @@ T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴�
 
 T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_9700.pt` 的三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`；相比源模型显著改善但未通过 `0.80/0.10/0.10` 联合门。后 7 个 block 在 contact `0.22–0.27` 平台，没有继续相同 PPO 的充分依据；manifest stop reason 为 `recovery_plateau_requires_design_review`。下一步需要批准 reward/termination 或 curriculum redesign，T400.7 仍保持开放。
 
-T400.8 论文优先级 WBC Teacher–Student 交互设计已获批准并写入书面规格。新路线使用 50 Hz 三级运动分配、200 Hz 滚轮式动力学 WBC/QP、动态抗扰平衡最高执行优先级和后续 100-observation/23-action Student；现有 A0/A1 保持独立，不进行 shape 绕过或 checkpoint 冒充迁移。当前等待书面规格复核，尚未修改运行代码。
+T400.8 论文优先级 WBC Teacher–Student 书面规格已由用户确认。新路线使用 50 Hz 三级运动分配、200 Hz 滚轮式动力学 WBC/QP、动态抗扰平衡最高执行优先级和后续 100-observation/23-action Student；现有 A0/A1 保持独立，不进行 shape 绕过或 checkpoint 冒充迁移。C0 确定性 Teacher foundation 的十任务单代理 TDD 实施计划已经完成并自审，当前尚未修改运行代码。
 
 ## Open Children
 
-- [ ] T400.8 复核优先级 WBC Teacher–Student 书面规格，并生成逐文件 TDD 实施计划。
+- [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
+- [ ] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
@@ -119,6 +120,8 @@ T400.8 论文优先级 WBC Teacher–Student 交互设计已获批准并写入�
 - [A1 recovery blocks](../log/2026-08-15-m1-panda-a1-recovery-blocks.md)
 - [Prioritized WBC Teacher–Student design](../../docs/superpowers/specs/2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md)
 - [Prioritized WBC Teacher–Student design log](../log/2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md)
+- [Prioritized WBC Teacher C0 implementation plan](../../docs/superpowers/plans/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation.md)
+- [Prioritized WBC Teacher C0 plan log](../log/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation-plan.md)
 
 ## Git Refs
 
@@ -143,10 +146,11 @@ T400.8 论文优先级 WBC Teacher–Student 交互设计已获批准并写入�
   - [Teacher A0/A1 Play 入口](../../Go2Pvcnn/scripts/m1_panda_teacher_play.py)
   - [Teacher A0/A1 Play 测试](../../Go2Pvcnn/tests/test_m1_panda_teacher_play_static.py)
   - [优先级 WBC Teacher–Student 设计](../../docs/superpowers/specs/2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md)
+  - [优先级 WBC Teacher C0 实施计划](../../docs/superpowers/plans/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation.md)
 
 ## Next Step
 
-先复核 T400.8 优先级 WBC Teacher–Student 书面规格并生成实施计划；控制器实现前确定 T400.6 零间隙资产冻结点。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
+按已批准的 C0 计划以单代理 inline 方式实现 deterministic Teacher foundation；控制器运行验收前冻结 T400.6 零间隙资产。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
 
 ## Node Details
 
@@ -183,3 +187,5 @@ T400.8 论文优先级 WBC Teacher–Student 交互设计已获批准并写入�
 ### T400.8 优先级 WBC Teacher–Student
 
 采用论文的三级运动分配和动力学全身控制：Panda 优先跟踪六维末端轨迹，接近关节限制或奇异位形时激活 M1 平面运动；执行层以轮地接触和动态抗扰平衡为最高优先级。第一阶段实现确定性 WBC Teacher，随后用现实可得本体感知、安装六维力和末端目标蒸馏 23 维全身 Student。新任务、日志和 checkpoint contract 与旧 A0/A1 完全隔离。
+
+C0 实施计划已由单代理路线冻结为十个 TDD 任务：纯数学合同与运动分配、float64 参考 QP、standing WBC、安全监督、独立 Isaac 环境和 GPU0 验收。C1–C4 不在该计划内。

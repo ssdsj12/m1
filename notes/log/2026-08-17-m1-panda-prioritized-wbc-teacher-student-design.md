@@ -42,12 +42,12 @@ T400.8 / design
 
 ## Conclusion
 
-下一步是用户复核书面规格；批准后使用 writing-plans 编写逐文件 TDD 实施计划。不得从本日志推断论文 WBC 已实现或当前 checkpoint 可用于新 Student。
+用户现已确认书面规格，C0 逐文件 TDD 实施计划也已完成。下一步按单代理 inline 方式执行该计划。不得从本日志推断论文 WBC 已实现或当前 checkpoint 可用于新 Student。
 
 ## Follow-up
 
-- 用户书面复核规格。
-- 复核通过后生成实施计划。
+- 按 C0 实施计划逐任务执行 RED→GREEN→回归。
+- C0 通过后再分别规划 C1/C2、C3 和 Student。
 - 实施前协调 T400.6 零间隙资产冻结点和 T400.3 实机机械验算门。
 
 ## Git Refs
