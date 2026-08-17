@@ -592,7 +592,7 @@ git commit -m "feat: add M1 Panda WBC teacher play"
 - Modify: `notes/todo/T400-m1-panda-force-aware-teacher-student.md`
 - Modify: `notes/todo.md`
 
-- [ ] **Step 1: Run the complete pure/static regression**
+- [x] **Step 1: Run the complete pure/static regression**
 
 ```bash
 cd /home/xk/coding/M1/Go2Pvcnn
@@ -618,7 +618,7 @@ git diff --check
 
 Expected: all tests pass, compilation exits 0, and `git diff --check` prints nothing.
 
-- [ ] **Step 2: Run an 8-step GPU0 no-motion smoke**
+- [x] **Step 2: Run an 8-step GPU0 no-motion smoke**
 
 ```bash
 cd /home/xk/coding/M1/Go2Pvcnn
@@ -629,7 +629,7 @@ CUDA_VISIBLE_DEVICES=0 ./isaaclab.sh -p scripts/m1_panda_wbc_play.py \
 
 Expected: exit 0, eight finite steps, QP feasible rate 1.0, four wheel contacts, zero reset, zero base contact, and zero joint-limit violation.
 
-- [ ] **Step 3: Run the 2,000-step moving-target C0 acceptance**
+- [x] **Step 3: Run the 2,000-step moving-target C0 acceptance**
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 ./isaaclab.sh -p scripts/m1_panda_wbc_play.py \
@@ -648,11 +648,11 @@ Read the JSON and require all gates simultaneously:
 
 If a hard gate fails, stop. Record the exact metric and diagnose under `systematic-debugging`; do not weaken the gate in the same commit.
 
-- [ ] **Step 4: Write the operator runbook and evidence**
+- [x] **Step 4: Write the operator runbook and evidence**
 
 The runbook must include the exact GUI and headless commands, C0 limitations, summary fields, safety states, acceptance thresholds, and the statement that this is a deterministic Teacher play—not PPO training and not a Student. Record actual commands, exit codes, test counts, GPU identity, JSON metrics, and commit refs in the log. Update T400.8 to mark only the C0 foundation complete and name C1/C2 rolling constraints as the next design/plan.
 
-- [ ] **Step 5: Re-run documentation and repository checks**
+- [x] **Step 5: Re-run documentation and repository checks**
 
 ```bash
 cd /home/xk/coding/M1
@@ -662,7 +662,7 @@ git status --short
 
 Expected: no whitespace errors; only intended C0 implementation/docs plus pre-existing unrelated user/graph artifacts appear.
 
-- [ ] **Step 6: Commit the acceptance evidence**
+- [x] **Step 6: Commit the acceptance evidence**
 
 ```bash
 git add \

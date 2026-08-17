@@ -42,12 +42,12 @@ T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴�
 
 T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_9700.pt` 的三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`；相比源模型显著改善但未通过 `0.80/0.10/0.10` 联合门。后 7 个 block 在 contact `0.22–0.27` 平台，没有继续相同 PPO 的充分依据；manifest stop reason 为 `recovery_plateau_requires_design_review`。下一步需要批准 reward/termination 或 curriculum redesign，T400.7 仍保持开放。
 
-T400.8 C0 Tasks 1–9 已按 TDD 完成。deterministic play 已真实读取 31 维浮动基 PhysX 动力学并执行一次 23-effort `env.step`；静态相关回归 `20 passed`，1-step GPU0 有限并 exit `0`。动态验收尚未通过：首帧 QP `0/1`、轮接触 `3/4`，必须在 Task 10 诊断。
+T400.8 C0 Tasks 1–10 已按 TDD 完成并通过 GPU0 硬验收。最终纯/静态回归 `177 passed`；8-step 静止与 2000-step 六维小幅运动均 exit `0`。正式 2000-step 指标为 EE `0.009566 m`、sigma `0.141259`、QP `1.0`、slip `0.007126 m/s`、roll/pitch `0.028045/0.008563 rad`，且 limit/base/self-collision/reset/snap 全零、2000 步均为 TRACK/safe。C0 只证明驻停小幅操作基础；C1/C2 滚动约束是下一独立设计任务。
 
 ## Open Children
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
-- [ ] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
+- [x] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
   - [x] Task 1 冻结维度、关节名、规范控制顺序与张量合同。
   - [x] Task 2 实现协调运动学与奇异性诊断。
   - [x] Task 3 实现速度界交集与三级运动分配。
@@ -57,6 +57,7 @@ T400.8 C0 Tasks 1–9 已按 TDD 完成。deterministic play 已真实读取 31 
   - [x] Task 7 实现带限轨迹与 deterministic Teacher 编排。
   - [x] Task 8 实现独立 Isaac Lab effort 环境与 Gym 注册。
   - [x] Task 9 实现 PhysX 适配、deterministic play、诊断与原子摘要。
+  - [x] Task 10 完成 GPU0 8-step 静止与 2000-step 运动硬验收、runbook 和证据。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
@@ -138,11 +139,12 @@ T400.8 C0 Tasks 1–9 已按 TDD 完成。deterministic play 已真实读取 31 
 - [M1 + Panda standing WBC](../log/2026-08-17-m1-panda-standing-wbc.md)
 - [M1 + Panda WBC impedance and safety](../log/2026-08-17-m1-panda-wbc-safety.md)
 - [M1 + Panda deterministic WBC Teacher](../log/2026-08-17-m1-panda-wbc-teacher.md)
+- [M1 + Panda prioritized WBC Teacher C0 acceptance](../log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md)
 
 ## Git Refs
 
-- Last Feature Commit: `055d126`
-- Last Verified Base: `055d126`
+- Last Feature Commit: `7a2548f`
+- Last Verified Base: `7a2548f`
 - Current Work Ref: `main` working tree（未提交）
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
@@ -183,7 +185,7 @@ T400.8 C0 Tasks 1–9 已按 TDD 完成。deterministic play 已真实读取 31 
 
 ## Next Step
 
-继续 C0 Task 8 独立 Isaac Lab effort 环境与 Gym 注册；运行验收前冻结 T400.6 零间隙资产。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
+为 C1/C2 单独设计滚动约束与 planar-base 到轮速/接触的一致映射；不得把 C0 驻停验收外推为移动底盘能力。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
 
 ## Node Details
 
