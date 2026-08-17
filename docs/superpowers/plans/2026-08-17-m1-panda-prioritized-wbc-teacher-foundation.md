@@ -544,7 +544,7 @@ git commit -m "feat: register isolated M1 Panda WBC environment"
 - Create: `Go2Pvcnn/scripts/m1_panda_wbc_play.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_wbc_play_static.py`
 
-- [ ] **Step 1: Write failing entry-point tests**
+- [x] **Step 1: Write failing entry-point tests**
 
 Require CLI arguments `--steps` (default `0`, unlimited), `--seed`, `--summary-json`, `--headless`, `--device`, and `--disable-target-motion`. Enforce one environment in C0. Static tests must reject imports or calls for PPO runners, checkpoint loading, `learn`, optimizer steps, or manifest writes.
 
@@ -559,7 +559,7 @@ root_view.get_jacobians()
 
 It must combine Coriolis/centrifugal and gravity into `h`, convert tensors into the Teacher’s explicit ordering, call the Teacher, apply the 23 efforts, and then call `env.step` exactly once.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_play_static.py
@@ -567,11 +567,11 @@ pytest -q tests/test_m1_panda_wbc_play_static.py
 
 Expected: script/adapter assertions fail because the entry point is absent.
 
-- [ ] **Step 3: Implement runtime diagnostics and atomic summary**
+- [x] **Step 3: Implement runtime diagnostics and atomic summary**
 
 Print concise periodic diagnostics for end-effector error, minimum singular value, QP feasibility, roll/pitch, contact count, maximum lateral slip, safety state, and reset cause. If `--summary-json` is supplied, write through a sibling temporary file followed by `os.replace`. The summary schema must include seed, steps, finite flag, QP feasible count/rate, maximum end-effector position error, minimum singular value, maximum roll/pitch, maximum lateral slip, joint-limit violations, base contacts, self-collisions, safety-state counts, reset count, and exit reason.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_play_static.py tests/test_m1_panda_wbc_env_static.py tests/test_m1_panda_wbc_teacher.py

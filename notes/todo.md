@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | C0 Tasks 1–8 已完成纯控制栈、deterministic Teacher 与独立 23-effort 环境；旧 A0/A1 保持独立。 | 继续 Task 9 PhysX 适配与 deterministic play；运行验收前冻结 T400.6 资产。 |
+| T400 | active | C0 Tasks 1–9 已完成；1-step GPU0 已走通 31→23 effort 路径，但首帧 QP 0/1、轮接触 3/4。 | Task 10 先诊断 8-step no-motion 硬门，不通过则不启动 2000-step。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
@@ -136,7 +136,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Root | Status | Stage | Branch | Current | Refs |
 | --- | --- | --- | --- | --- | --- |
-| T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | C0 Tasks 1–8 pass; deterministic control core and isolated 23-effort Isaac Lab environment are implemented, with play wiring and GPU0 acceptance still open. | [Task 8 log](log/2026-08-17-m1-panda-wbc-environment.md); [C0 plan](../docs/superpowers/plans/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation.md) |
+| T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | C0 Tasks 1–9 implemented; real 1-step PhysX path is finite, while QP feasibility and fourth wheel contact remain open acceptance defects. | [Task 9 log](log/2026-08-17-m1-panda-wbc-play.md); [C0 plan](../docs/superpowers/plans/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation.md) |
 | T302q | active | flat small-obstacle avoidance RL reward | [T302q](todo/T302q-flat-small-avoidance-reward-plan.md) | Local implementation complete; focused regression, pycompile, fresh IsaacLab train smoke, and old-checkpoint resume smoke pass; small-collision eval smoke remains open. | design [2026-06-10](../docs/superpowers/specs/2026-06-10-flat-small-obstacle-avoidance-reward-design.html); latest log [2026-06-10 20:35](log/2026-06-10-2035-t302q-flat-small-local-implementation-and-smoke.md) |
 | T302r | active | Go2 geometry clearance reward | [T302r](todo/T302r-go2-geometry-clearance-reward-plan.md) | Local implementation, smoke, and radius/margin probe pass; signal-first params can produce nonzero reward, but TensorBoard sanity is still open. | design [2026-06-11](../docs/superpowers/specs/2026-06-11-go2-body-geometry-clearance-reward-design.html); latest log [2026-06-11 18:10](log/2026-06-11-1810-t302r-clearance-radius-margin-probe.md) |
 | T302p | active | MPC command-frame alignment | [T302p](todo/T302p-mpc-command-frame-alignment-plan.md) | Implementation local; command-source equality verified; low-small hard gates pass; flat-left root direction fixed (`root lateral 0.0200`), but strict per-leg whole-cache endpoint metric remains open. | design [2026-06-06](../docs/superpowers/specs/2026-06-06-mpc-command-frame-alignment-design.html); latest log [2026-06-07 12:11](log/2026-06-07-1211-t302p-direction-loss-wiring-and-metric-boundary.md) |
@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.8 | T400 | active | P0 | C0 Tasks 1–8 pass; isolated 23-effort Isaac Lab environment preserves legacy A0/A1 and is ready for PhysX play wiring. | [Task 8 log](log/2026-08-17-m1-panda-wbc-environment.md) |
+| T400.8 | T400 | active | P0 | C0 Tasks 1–9 implemented; 1-step GPU0 is finite but QP `0/1` and wheel contacts `3/4`, so Task 10 acceptance is open. | [Task 9 log](log/2026-08-17-m1-panda-wbc-play.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | design-review | P0 | User approved changing Panda mount clearance from 10 mm to zero while preserving the fixed single articulation and rejecting mesh penetration. | [zero-clearance design](../docs/superpowers/specs/2026-08-15-m1-panda-zero-clearance-mount-design.md) |
 | T400.5d | T400 | done | P0 | Strict play complete: final `195 passed`; A0/A1 default plus A1 zero-disturbance GPU0 smokes exit `0`; frozen hash stable. | [GPU0 smoke](log/2026-08-14-m1-panda-teacher-play-gpu0-smoke.md) |
@@ -211,6 +211,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Time | Topic | Result | Todo | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-17 | M1 + Panda deterministic WBC play | valid RED `5 failed`; focused `7 passed`; related `20 passed`; 1-step GPU0 exit 0/finite, QP `0/1`, contacts `3/4` | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-play.md](log/2026-08-17-m1-panda-wbc-play.md) |
 | 2026-08-17 | M1 + Panda isolated WBC effort environment | valid RED `3 failed`; focused `3 passed`; related `57 passed`; Tasks 1–8 `167 passed`; compile/diff exit 0; legacy A0/A1 SHA stable | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-environment.md](log/2026-08-17-m1-panda-wbc-environment.md) |
 | 2026-08-17 | M1 + Panda deterministic WBC Teacher | valid RED; focused `10 passed`; Tasks 1–7 `110 passed`; compile/diff exit 0; no Isaac import | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-teacher.md](log/2026-08-17-m1-panda-wbc-teacher.md) |
 | 2026-08-17 | M1 + Panda WBC impedance/safety | valid RED; non-finite fallback fixed; focused `15 passed`; Tasks 1–6 `100 passed`; compile/diff exit 0 | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-safety.md](log/2026-08-17-m1-panda-wbc-safety.md) |
