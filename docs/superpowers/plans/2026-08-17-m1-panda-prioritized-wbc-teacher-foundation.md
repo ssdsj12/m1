@@ -70,7 +70,7 @@ Go2Pvcnn/tests/test_m1_panda_wbc_play_static.py
 - Create: `Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/contracts.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_wbc_contracts.py`
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 Test these public values and behaviors:
 
@@ -92,7 +92,7 @@ Cover exact ordering, duplicate names, missing names, wrong last dimension, wron
 require_tensor(name, value, *, trailing_shape, dtype=None, device=None)
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -103,11 +103,11 @@ pytest -q tests/test_m1_panda_wbc_contracts.py
 
 Expected: collection fails because `go2_pvcnn.control.m1_panda_coordination` does not exist.
 
-- [ ] **Step 3: Implement the smallest contract module**
+- [x] **Step 3: Implement the smallest contract module**
 
 Use immutable dataclasses. Resolve indices from exact joint names at runtime; never assume USD joint order. Export the constants, `WbcJointMap`, and `require_tensor` from the package `__init__.py`. Error messages must name the rejected field and expected shape.
 
-- [ ] **Step 4: Run GREEN and regression**
+- [x] **Step 4: Run GREEN and regression**
 
 Run:
 
@@ -119,7 +119,7 @@ python -m py_compile go2_pvcnn/control/m1_panda_coordination/*.py
 
 Expected: all selected tests pass and compilation exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control Go2Pvcnn/tests/test_m1_panda_wbc_contracts.py

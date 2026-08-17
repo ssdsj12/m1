@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | 论文优先级 WBC Teacher–Student 规格已确认，C0 十任务单代理实施计划已完成；旧 A0/A1 保持独立诊断线。 | 冻结 T400.6 资产后，按计划 inline 执行 C0 deterministic Teacher foundation。 |
+| T400 | active | C0 Task 1 已冻结 10/31/23 维度、23 关节顺序与张量合同；旧 A0/A1 保持独立。 | 继续 Task 2 协调运动学与奇异性诊断；运行验收前冻结 T400.6 资产。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.8 | T400 | plan-ready | P0 | User confirmed the written design; the single-agent C0 plan freezes 10/31/23 contracts, 50/200 Hz control, balance-first safety and GPU0 acceptance. | [C0 plan](../docs/superpowers/plans/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation.md) |
+| T400.8 | T400 | active | P0 | C0 Task 1 passed: 10/31/23 dimensions, canonical 23-joint mapping and finite tensor gates are implemented; Task 2 is next. | [Task 1 log](log/2026-08-17-m1-panda-wbc-contracts.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | design-review | P0 | User approved changing Panda mount clearance from 10 mm to zero while preserving the fixed single articulation and rejecting mesh penetration. | [zero-clearance design](../docs/superpowers/specs/2026-08-15-m1-panda-zero-clearance-mount-design.md) |
 | T400.5d | T400 | done | P0 | Strict play complete: final `195 passed`; A0/A1 default plus A1 zero-disturbance GPU0 smokes exit `0`; frozen hash stable. | [GPU0 smoke](log/2026-08-14-m1-panda-teacher-play-gpu0-smoke.md) |
@@ -211,6 +211,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Time | Topic | Result | Todo | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-17 | M1 + Panda WBC contracts | valid RED; focused `18 passed`; asset/smoke `28 passed`; 10/31/23 and canonical 23-joint order frozen | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-contracts.md](log/2026-08-17-m1-panda-wbc-contracts.md) |
 | 2026-08-17 | M1 + Panda prioritized WBC Teacher C0 plan | ten-task single-agent TDD plan ready: 10/31/23 contracts, 50/200 Hz control, reference QP, safety and GPU0 gates; no runtime code | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-prioritized-wbc-teacher-foundation-plan.md](log/2026-08-17-m1-panda-prioritized-wbc-teacher-foundation-plan.md) |
 | 2026-08-17 | M1 + Panda prioritized WBC Teacher–Student design | approved interactive design written: 50 Hz prioritized distribution, 200 Hz rolling WBC/QP, balance-first safety, 23-action Student; no runtime code | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md](log/2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md) |
 | 2026-08-15 | M1 + Panda zero-clearance mount design | approved design written: clearance `0.01→0.0 m`, no topology change, penetration/no-snap/GPU0 gates; awaiting written review | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-15-m1-panda-zero-clearance-mount-design.md](log/2026-08-15-m1-panda-zero-clearance-mount-design.md) |
