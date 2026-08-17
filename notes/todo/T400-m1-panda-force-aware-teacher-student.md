@@ -42,8 +42,11 @@ T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴�
 
 T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_9700.pt` 的三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`；相比源模型显著改善但未通过 `0.80/0.10/0.10` 联合门。后 7 个 block 在 contact `0.22–0.27` 平台，没有继续相同 PPO 的充分依据；manifest stop reason 为 `recovery_plateau_requires_design_review`。下一步需要批准 reward/termination 或 curriculum redesign，T400.7 仍保持开放。
 
+T400.8 论文优先级 WBC Teacher–Student 交互设计已获批准并写入书面规格。新路线使用 50 Hz 三级运动分配、200 Hz 滚轮式动力学 WBC/QP、动态抗扰平衡最高执行优先级和后续 100-observation/23-action Student；现有 A0/A1 保持独立，不进行 shape 绕过或 checkpoint 冒充迁移。当前等待书面规格复核，尚未修改运行代码。
+
 ## Open Children
 
+- [ ] T400.8 复核优先级 WBC Teacher–Student 书面规格，并生成逐文件 TDD 实施计划。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
@@ -114,6 +117,8 @@ T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_970
 - [A1 recovery plan log](../log/2026-08-15-m1-panda-a1-recovery-plan.md)
 - [A1 recovery implementation](../log/2026-08-15-m1-panda-a1-recovery-implementation.md)
 - [A1 recovery blocks](../log/2026-08-15-m1-panda-a1-recovery-blocks.md)
+- [Prioritized WBC Teacher–Student design](../../docs/superpowers/specs/2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md)
+- [Prioritized WBC Teacher–Student design log](../log/2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md)
 
 ## Git Refs
 
@@ -137,10 +142,11 @@ T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_970
   - [Teacher A0/A1 Play 实施计划](../../docs/superpowers/plans/2026-08-14-m1-panda-teacher-play.md)
   - [Teacher A0/A1 Play 入口](../../Go2Pvcnn/scripts/m1_panda_teacher_play.py)
   - [Teacher A0/A1 Play 测试](../../Go2Pvcnn/tests/test_m1_panda_teacher_play_static.py)
+  - [优先级 WBC Teacher–Student 设计](../../docs/superpowers/specs/2026-08-17-m1-panda-prioritized-wbc-teacher-student-design.md)
 
 ## Next Step
 
-先复核并实施 T400.7 A1 抗扰恢复训练；其行为基线接受后再独立实施 T400.6 零间隙资产修订。Student、Panda IK/OSC 与抓取保持开放，最大载荷实机测试前仍必须完成 T400.3 机械验算。
+先复核 T400.8 优先级 WBC Teacher–Student 书面规格并生成实施计划；控制器实现前确定 T400.6 零间隙资产冻结点。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
 
 ## Node Details
 
@@ -173,3 +179,7 @@ T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_970
 ### T400.7 A1 抗扰恢复训练
 
 既有 A1 后期 survival 下降且 base contact 上升，不能从 `model_5999` 盲目续训。恢复路线先以三 seed 满幅 `20 N / 5 Nm` 评估选择 `2700/3800/4500/5999` 候选，再从胜者创建只写新目录的 fork。修复 vendored ActorCritic 的 scalar/log std 语义，恢复 disturbance global progress，重置 optimizer 为 `1e-4`，每 500 iterations 进行满幅复评。最终要求 timeout `>=80%`、base contact 和 bad orientation 各 `<=10%`。
+
+### T400.8 优先级 WBC Teacher–Student
+
+采用论文的三级运动分配和动力学全身控制：Panda 优先跟踪六维末端轨迹，接近关节限制或奇异位形时激活 M1 平面运动；执行层以轮地接触和动态抗扰平衡为最高优先级。第一阶段实现确定性 WBC Teacher，随后用现实可得本体感知、安装六维力和末端目标蒸馏 23 维全身 Student。新任务、日志和 checkpoint contract 与旧 A0/A1 完全隔离。
