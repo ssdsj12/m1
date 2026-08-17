@@ -270,7 +270,7 @@ Expected: all selected tests pass.
 - Create: `Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/qp_backend.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_qp_backend.py`
 
-- [ ] **Step 1: Write failing solver-contract tests**
+- [x] **Step 1: Write failing solver-contract tests**
 
 Freeze the shared problem/result structures:
 
@@ -300,7 +300,7 @@ def solve_reference_qp(problem: DenseQpProblem, *, tolerance=1.0e-9, max_iterati
 
 Test unconstrained quadratic minimization, equality-only KKT, box clipping, one active inequality, redundant inequalities, repeat determinism, and an infeasible case. Successful solutions require residual and violation at most `1e-8`; infeasible input must return `success=False` with a finite diagnostic solution.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 pytest -q tests/test_m1_panda_qp_backend.py
@@ -308,11 +308,11 @@ pytest -q tests/test_m1_panda_qp_backend.py
 
 Expected: missing backend module.
 
-- [ ] **Step 3: Implement a deterministic active-set solver**
+- [x] **Step 3: Implement a deterministic active-set solver**
 
 Convert inputs to CPU float64 inside the reference backend, symmetrize the Hessian, solve equality-constrained KKT systems with `torch.linalg.lstsq`, add the most violated constraint, and remove an active inequality only when its multiplier has the wrong sign. Include bounds as inequalities in stable index order. Never throw for ordinary infeasibility; reserve exceptions for malformed/non-finite problems.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_contracts.py tests/test_m1_panda_qp_backend.py

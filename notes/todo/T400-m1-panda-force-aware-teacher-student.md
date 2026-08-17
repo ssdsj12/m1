@@ -42,7 +42,7 @@ T400.7 Tasks 1–6 已完成：scalar/log 噪声语义、课程恢复、六轴�
 
 T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_9700.pt` 的三 seed timeout/contact/orientation 为 `0.701863/0.222360/0.075776`；相比源模型显著改善但未通过 `0.80/0.10/0.10` 联合门。后 7 个 block 在 contact `0.22–0.27` 平台，没有继续相同 PPO 的充分依据；manifest stop reason 为 `recovery_plateau_requires_design_review`。下一步需要批准 reward/termination 或 curriculum redesign，T400.7 仍保持开放。
 
-T400.8 C0 Tasks 1–3 已按 TDD 完成：10/31/23 合同、6×10 协调运动学和有界 Panda-first 运动分配已实现。Task 3 覆盖饱和再分配、秩/奇异/约束触发 M1、P1 零空间 P3 和 `psi→phi` 降级；最终 Tasks 1–3 `56 passed`。下一项是 float64 参考 QP。
+T400.8 C0 Tasks 1–4 已按 TDD 完成：合同、协调运动学、有界运动分配和项目自有 CPU float64 active-set QP 已实现。QP 覆盖等式/不等式/bounds、冗余约束、确定性与有限不可行诊断；最终 Tasks 1–4 `74 passed`。下一项是 standing WBC 问题构造与力矩恢复。
 
 ## Open Children
 
@@ -51,7 +51,8 @@ T400.8 C0 Tasks 1–3 已按 TDD 完成：10/31/23 合同、6×10 协调运动�
   - [x] Task 1 冻结维度、关节名、规范控制顺序与张量合同。
   - [x] Task 2 实现协调运动学与奇异性诊断。
   - [x] Task 3 实现速度界交集与三级运动分配。
-  - [ ] Task 4 实现项目自有 float64 参考 QP 后端。
+  - [x] Task 4 实现项目自有 float64 参考 QP 后端。
+  - [ ] Task 5 实现 C0 standing WBC 动力学、接触和力矩恢复。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
@@ -129,11 +130,12 @@ T400.8 C0 Tasks 1–3 已按 TDD 完成：10/31/23 合同、6×10 协调运动�
 - [M1 + Panda WBC contracts](../log/2026-08-17-m1-panda-wbc-contracts.md)
 - [M1 + Panda coordinated kinematics](../log/2026-08-17-m1-panda-wbc-kinematics.md)
 - [M1 + Panda prioritized motion distribution](../log/2026-08-17-m1-panda-motion-distribution.md)
+- [M1 + Panda reference QP](../log/2026-08-17-m1-panda-reference-qp.md)
 
 ## Git Refs
 
-- Last Feature Commit: `2a8cd9b`
-- Last Verified Base: `2a8cd9b`
+- Last Feature Commit: `e746eb9`
+- Last Verified Base: `e746eb9`
 - Current Work Ref: `main` working tree（未提交）
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
@@ -161,10 +163,12 @@ T400.8 C0 Tasks 1–3 已按 TDD 完成：10/31/23 合同、6×10 协调运动�
   - [运动约束](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/constraints.py)
   - [优先级运动分配](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/motion_distribution.py)
   - [运动分配测试](../../Go2Pvcnn/tests/test_m1_panda_motion_distribution.py)
+  - [参考 QP](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/qp_backend.py)
+  - [参考 QP 测试](../../Go2Pvcnn/tests/test_m1_panda_qp_backend.py)
 
 ## Next Step
 
-继续 C0 Task 4 项目自有 float64 参考 QP；控制器运行验收前冻结 T400.6 零间隙资产。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
+继续 C0 Task 5 standing WBC 动力学、接触与力矩恢复；控制器运行验收前冻结 T400.6 零间隙资产。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
 
 ## Node Details
 
