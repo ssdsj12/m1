@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | C0 Tasks 1–5 已完成合同、运动分配、参考 QP 与 standing WBC；旧 A0/A1 保持独立。 | 继续 Task 6 阻抗与 balance-first 安全监督；运行验收前冻结 T400.6 资产。 |
+| T400 | active | C0 Tasks 1–6 已完成合同、分配、WBC、23 路阻抗和 balance-first 安全机；旧 A0/A1 保持独立。 | 继续 Task 7 带限轨迹与 Teacher 编排；运行验收前冻结 T400.6 资产。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.8 | T400 | active | P0 | C0 Tasks 1–5 pass; standing WBC enforces floating dynamics, stationary contacts, friction, qdd/effort limits and balance-first weights. | [Task 5 log](log/2026-08-17-m1-panda-standing-wbc.md) |
+| T400.8 | T400 | active | P0 | C0 Tasks 1–6 pass; finite 23-effort impedance and hysteretic balance-first safety supervision now guard WBC output. | [Task 6 log](log/2026-08-17-m1-panda-wbc-safety.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | design-review | P0 | User approved changing Panda mount clearance from 10 mm to zero while preserving the fixed single articulation and rejecting mesh penetration. | [zero-clearance design](../docs/superpowers/specs/2026-08-15-m1-panda-zero-clearance-mount-design.md) |
 | T400.5d | T400 | done | P0 | Strict play complete: final `195 passed`; A0/A1 default plus A1 zero-disturbance GPU0 smokes exit `0`; frozen hash stable. | [GPU0 smoke](log/2026-08-14-m1-panda-teacher-play-gpu0-smoke.md) |
@@ -211,6 +211,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Time | Topic | Result | Todo | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-17 | M1 + Panda WBC impedance/safety | valid RED; non-finite fallback fixed; focused `15 passed`; Tasks 1–6 `100 passed`; compile/diff exit 0 | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-safety.md](log/2026-08-17-m1-panda-wbc-safety.md) |
 | 2026-08-17 | M1 + Panda standing WBC | valid RED; focused `11 passed`; QP+WBC `29 passed`; Tasks 1–5 `85 passed`; compile/diff exit 0 | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-standing-wbc.md](log/2026-08-17-m1-panda-standing-wbc.md) |
 | 2026-08-17 | M1 + Panda reference QP | valid RED; empty-inequality failure fixed; focused `18 passed`; Tasks 1–4 `74 passed`; compile/diff exit 0 | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-reference-qp.md](log/2026-08-17-m1-panda-reference-qp.md) |
 | 2026-08-17 | M1 + Panda prioritized motion distribution | valid RED and state-consistency RED; focused `19 passed`; Tasks 1–3 `56 passed`; compile/diff exit 0 | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-motion-distribution.md](log/2026-08-17-m1-panda-motion-distribution.md) |

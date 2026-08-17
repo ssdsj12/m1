@@ -395,7 +395,7 @@ git commit -m "feat: add standing M1 Panda whole-body QP"
 - Create: `Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/safety.py`
 - Test: `Go2Pvcnn/tests/test_m1_panda_wbc_safety.py`
 
-- [ ] **Step 1: Write failing impedance tests**
+- [x] **Step 1: Write failing impedance tests**
 
 Expose a pure function:
 
@@ -405,7 +405,7 @@ tau = apply_impedance(q, qd, q_des, qd_des, tau_ff, kp, kd, effort_limit)
 
 Verify `tau_ff + kp * (q_des - q) + kd * (qd_des - qd)`, symmetric effort clamping, 23-channel shape, and all-or-nothing rejection of non-finite inputs.
 
-- [ ] **Step 2: Write failing state-machine tests**
+- [x] **Step 2: Write failing state-machine tests**
 
 Freeze states `TRACK`, `SCALE`, `HOLD`, `RETRACT`, `TERMINATE`. Default thresholds:
 
@@ -418,7 +418,7 @@ Freeze states `TRACK`, `SCALE`, `HOLD`, `RETRACT`, `TERMINATE`. Default threshol
 
 Test QP failure, contact loss, slip, non-finite inputs, monotonic escalation, slow recovery, zero wheel command in hold/retract, smooth retract interpolation, and terminal latching until reset.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_safety.py
@@ -426,11 +426,11 @@ pytest -q tests/test_m1_panda_wbc_safety.py
 
 Expected: missing impedance and safety modules.
 
-- [ ] **Step 4: Implement and export**
+- [x] **Step 4: Implement and export**
 
 `SCALE` reduces end-effector twist; `HOLD` freezes the current safe arm target; `RETRACT` advances a rate-limited interpolation toward the bent Panda home pose; `TERMINATE` emits zero wheel target and an episode termination request. Reset must clear counters, latched state, interpolation, and last effort.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 pytest -q tests/test_m1_panda_wbc_safety.py tests/test_m1_panda_standing_wbc.py
