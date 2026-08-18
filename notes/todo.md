@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.9 | T400 | active | P0 | Student Tasks 1–4 complete: 100/10/23 contract, deployable mission, GRU actor, deterministic DAgger loss/replay; Tasks 1–4 combined `45 passed`. | [Student S1 DAgger replay](log/2026-08-18-m1-panda-student-s1-dagger-replay.md) |
+| T400.9 | T400 | active | P0 | Student Tasks 1–5 complete: 100/10/23 contract through deterministic DAgger plus strict checkpoint/manifest; Tasks 1–5 combined `62 passed`. | [Student S1 checkpoint](log/2026-08-18-m1-panda-student-s1-checkpoint.md) |
 | T400.8 | T400 | done | P0 | C0 Tasks 1–10 accepted: `177 passed`; GPU0 8+2000-step exits 0; all hard metrics pass with zero snap/reset/contact/limit failures. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | done | P0 | Accepted asset SHA `643fd061...`; local surface, topology, relocation, no-snap, visual, C0 2000 and both C1a 4000 GPU0 hard gates pass. | [rebaseline evidence](log/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md) |
@@ -212,6 +212,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Time | Topic | Result | Todo | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-18 | M1 + Panda Student S1 checkpoint | Task 5 pass: valid module RED; focused `17 passed`; Tasks 1–5 `62 passed`; strict model/optimizer/global-step round trip and atomic compatibility manifest | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-checkpoint.md](log/2026-08-18-m1-panda-student-s1-checkpoint.md) |
 | 2026-08-18 | M1 + Panda Student S1 DAgger replay | Task 4 pass: valid module RED; focused `24 passed`; Tasks 1–4 `45 passed`; deterministic safety override, six losses, hard reservoir and strict atomic versioned persistence | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-dagger-replay.md](log/2026-08-18-m1-panda-student-s1-dagger-replay.md) |
 | 2026-08-18 | M1 + Panda Student S1 temporal model | Task 3 pass: valid module RED; focused `9 passed`; Tasks 1–3 `21 passed`; explicit 10×100 history, 6+32 estimator, 23 actor, gradients/round-trip | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-model.md](log/2026-08-18-m1-panda-student-s1-model.md) |
 | 2026-08-18 | M1 + Panda Student S1 mission | Task 2 pass: valid module RED; focused `5 passed`; planned `31 passed`; deterministic isolated mission and external Teacher injection | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-mission.md](log/2026-08-18-m1-panda-student-s1-mission.md) |
