@@ -17,6 +17,7 @@ def _load_verifier_contract_helpers():
         "_articulation_root_errors",
         "_mount_joint_contract_errors",
         "_mount_plane_errors",
+        "_surface_gap_errors",
     }
     functions = {
         node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -105,6 +106,25 @@ def test_builder_uses_exact_zero_mount_clearance_and_top_plane_offset():
     assert namespace["mount_offset_z"](0.42, 0.17, 0.0) == pytest.approx(
         0.25
     )
+
+
+def test_builder_measures_the_local_visible_mount_patch_not_global_base_maximum():
+    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
+    assert "MOUNT_PATCH_HALF_EXTENTS_M = (0.11, 0.10)" in source
+    assert "def _mount_patch_top_z(" in source
+    assert '"/visuals/" not in mesh_path' in source
+    assert "base_top_z = _mount_patch_top_z(" in source
+    assert "base_top_z = _top_z(" not in source
+
+
+def test_surface_gap_predicate_rejects_both_air_gap_and_penetration():
+    errors = _load_verifier_contract_helpers()["_surface_gap_errors"]
+    assert errors(0.0, 1.0e-6) == []
+    assert errors(0.9e-6, 1.0e-6) == []
+    assert errors(-0.9e-6, 1.0e-6) == []
+    assert errors(2.0e-6, 1.0e-6)
+    assert errors(-2.0e-6, 1.0e-6)
+    assert errors(None, 1.0e-6)
 
 
 def test_builder_enables_robot_assembler_after_app_startup():

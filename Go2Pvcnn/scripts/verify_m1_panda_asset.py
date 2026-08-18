@@ -16,6 +16,8 @@ from isaaclab.app import AppLauncher
 EXPECTED_DOF_COUNT = 25
 MAX_MOUNT_RELATIVE_STEP_DELTA_M = 1.0e-4
 MOUNT_PLANE_TOLERANCE_M = 1.0e-6
+MOUNT_SURFACE_TOLERANCE_M = 1.0e-6
+MOUNT_PATCH_HALF_EXTENTS_M = (0.11, 0.10)
 REMOTE_PREFIXES = ("omniverse://", "http://", "https://")
 BUILTIN_MDL_ALLOWLIST = {"OmniPBR.mdl"}
 EXPECTED_ARTICULATION_ROOT = "/M1Panda/BASE_LINK"
@@ -125,6 +127,73 @@ def _mount_plane_errors(
     ]
 
 
+def _surface_gap_errors(surface_gap_m, tolerance_m):
+    if surface_gap_m is None:
+        return ["mount visible surface gap is unavailable"]
+    if abs(float(surface_gap_m)) <= tolerance_m:
+        return []
+    relation = "gap" if surface_gap_m > 0.0 else "penetration"
+    return [
+        f"mount visible surface {relation} {surface_gap_m} m exceeds +/-{tolerance_m} m"
+    ]
+
+
+def _visible_mesh_z_values(stage, prim_path, Usd, UsdGeom):
+    values = []
+    for mesh_prim in Usd.PrimRange.Stage(
+        stage, Usd.TraverseInstanceProxies()
+    ):
+        path = str(mesh_prim.GetPath())
+        if (
+            mesh_prim.IsA(UsdGeom.Mesh)
+            and path.startswith(f"{prim_path}/")
+            and "/visuals/" in path
+        ):
+            transform = UsdGeom.Xformable(
+                mesh_prim
+            ).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+            values.extend(
+                float(transform.Transform(point)[2])
+                for point in UsdGeom.Mesh(mesh_prim).GetPointsAttr().Get() or ()
+            )
+    _require(values, f"no visible mesh vertices under {prim_path}")
+    return values
+
+
+def _mount_patch_top_z(stage, prim_path, Usd, UsdGeom):
+    prim = stage.GetPrimAtPath(prim_path)
+    _require(prim.IsValid(), f"invalid mount parent prim: {prim_path}")
+    origin = (
+        UsdGeom.Xformable(prim)
+        .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        .ExtractTranslation()
+    )
+    half_x, half_y = MOUNT_PATCH_HALF_EXTENTS_M
+    candidates = []
+    for mesh_prim in Usd.PrimRange.Stage(
+        stage, Usd.TraverseInstanceProxies()
+    ):
+        path = str(mesh_prim.GetPath())
+        if not (
+            mesh_prim.IsA(UsdGeom.Mesh)
+            and path.startswith(f"{prim_path}/")
+            and "/visuals/" in path
+        ):
+            continue
+        transform = UsdGeom.Xformable(
+            mesh_prim
+        ).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        for point in UsdGeom.Mesh(mesh_prim).GetPointsAttr().Get() or ():
+            world = transform.Transform(point)
+            if (
+                abs(float(world[0] - origin[0])) <= half_x
+                and abs(float(world[1] - origin[1])) <= half_y
+            ):
+                candidates.append(float(world[2]))
+    _require(candidates, f"no visible mount-patch vertices under {prim_path}")
+    return max(candidates)
+
+
 def _independent_mount_parent_local_pos(asset_root, Usd, UsdGeom):
     m1_stage = Usd.Stage.Open(str(asset_root / "m1_floating.usda"))
     _require(m1_stage is not None, "failed to open independent M1 asset")
@@ -132,11 +201,11 @@ def _independent_mount_parent_local_pos(asset_root, Usd, UsdGeom):
         "/ZJ_V3_URDF_V1_0/BASE_LINK"
     )
     _require(base_prim.IsValid(), "independent M1 BASE_LINK is invalid")
-    bbox = UsdGeom.BBoxCache(
-        Usd.TimeCode.Default(), [UsdGeom.Tokens.default_]
-    )
-    top_z = float(
-        bbox.ComputeWorldBound(base_prim).ComputeAlignedBox().GetMax()[2]
+    top_z = _mount_patch_top_z(
+        m1_stage,
+        "/ZJ_V3_URDF_V1_0/BASE_LINK",
+        Usd,
+        UsdGeom,
     )
     origin_z = float(
         UsdGeom.Xformable(base_prim)
@@ -181,6 +250,20 @@ def _verify_asset(asset_path: Path, asset_root: Path, device: str) -> dict[str, 
     _require(stage is not None, f"failed to open USD stage: {asset_path}")
     dependency_result = _inspect_dependencies(asset_path, asset_root, UsdUtils)
     validation_errors: list[str] = []
+    mount_surface_top_z = _mount_patch_top_z(
+        stage, "/M1Panda/BASE_LINK", Usd, UsdGeom
+    )
+    panda_visible_bottom_z = min(
+        _visible_mesh_z_values(
+            stage, "/M1Panda/Panda/panda_link0", Usd, UsdGeom
+        )
+    )
+    mount_surface_gap_m = panda_visible_bottom_z - mount_surface_top_z
+    validation_errors.extend(
+        _surface_gap_errors(
+            mount_surface_gap_m, MOUNT_SURFACE_TOLERANCE_M
+        )
+    )
     if dependency_result["unresolved_dependencies"]:
         validation_errors.append(f"unresolved dependencies: {dependency_result['unresolved_dependencies']}")
     if dependency_result["remote_dependencies"]:
@@ -332,6 +415,9 @@ def _verify_asset(asset_path: Path, asset_root: Path, device: str) -> dict[str, 
         "mount_parent_local_pos": mount_parent_local_pos,
         "expected_mount_parent_local_pos": expected_mount_parent_local_pos,
         "mount_plane_error_m": mount_plane_error_m,
+        "mount_surface_top_z": mount_surface_top_z,
+        "panda_visible_bottom_z": panda_visible_bottom_z,
+        "mount_surface_gap_m": mount_surface_gap_m,
         "mount_child_local_pos": mount_child_local_pos,
         "mount_child_local_rot": mount_child_local_rot,
         "panda_root_joint_enabled": panda_root_joint_enabled,

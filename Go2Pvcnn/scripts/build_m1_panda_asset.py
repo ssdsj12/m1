@@ -34,6 +34,7 @@ BASE_MOUNT_FRAME = "/BASE_LINK"
 PANDA_MOUNT_FRAME = "/panda_link0"
 MOUNT_JOINT_PATH = f"{PANDA_PRIM}/panda_link0/AssemblerFixedJoint"
 MOUNT_CLEARANCE_M = 0.0
+MOUNT_PATCH_HALF_EXTENTS_M = (0.11, 0.10)
 EXPECTED_ARTICULATION_ROOT = f"{ROOT_PRIM}/BASE_LINK"
 EXPECTED_MOUNT_BODY0 = f"{ROOT_PRIM}/BASE_LINK"
 EXPECTED_MOUNT_BODY1 = f"{PANDA_PRIM}/panda_link0"
@@ -41,9 +42,43 @@ EXPECTED_MOUNT_CHILD_LOCAL_POS = (0.0, 0.0, 0.0)
 EXPECTED_MOUNT_CHILD_LOCAL_ROT = (1.0, 0.0, 0.0, 0.0)
 
 
-def _top_z(stage: Usd.Stage, prim_path: str) -> float:
-    bbox = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
-    return float(bbox.ComputeWorldBound(stage.GetPrimAtPath(prim_path)).ComputeAlignedBox().GetMax()[2])
+def _mount_patch_top_z(
+    stage: Usd.Stage,
+    prim_path: str,
+    half_extents_xy: tuple[float, float],
+) -> float:
+    """Return the visible top surface near the mount center, not the base-wide maximum."""
+    prim = stage.GetPrimAtPath(prim_path)
+    _require(prim.IsValid(), f"invalid mount parent prim: {prim_path}")
+    origin = (
+        UsdGeom.Xformable(prim)
+        .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        .ExtractTranslation()
+    )
+    half_x, half_y = half_extents_xy
+    candidates: list[float] = []
+    for mesh_prim in Usd.PrimRange.Stage(
+        stage, Usd.TraverseInstanceProxies()
+    ):
+        if not mesh_prim.IsA(UsdGeom.Mesh):
+            continue
+        mesh_path = str(mesh_prim.GetPath())
+        if not mesh_path.startswith(f"{prim_path}/"):
+            continue
+        if "/visuals/" not in mesh_path:
+            continue
+        transform = UsdGeom.Xformable(
+            mesh_prim
+        ).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        for point in UsdGeom.Mesh(mesh_prim).GetPointsAttr().Get() or ():
+            world = transform.Transform(point)
+            if (
+                abs(float(world[0] - origin[0])) <= half_x
+                and abs(float(world[1] - origin[1])) <= half_y
+            ):
+                candidates.append(float(world[2]))
+    _require(candidates, f"no visible mount-patch vertices under {prim_path}")
+    return max(candidates)
 
 
 def mount_offset_z(
@@ -239,7 +274,11 @@ def build_asset(
     prim_utils.create_prim(ROOT_PRIM, usd_path=str(asset_root / "m1_floating.usda"))
     prim_utils.create_prim(PANDA_PRIM, usd_path=str(panda_usd))
     stage = stage_utils.get_current_stage()
-    base_top_z = _top_z(stage, f"{ROOT_PRIM}/BASE_LINK")
+    base_top_z = _mount_patch_top_z(
+        stage,
+        f"{ROOT_PRIM}/BASE_LINK",
+        MOUNT_PATCH_HALF_EXTENTS_M,
+    )
     base_origin_z = float(
         UsdGeom.Xformable(stage.GetPrimAtPath(f"{ROOT_PRIM}/BASE_LINK"))
         .ComputeLocalToWorldTransform(Usd.TimeCode.Default())

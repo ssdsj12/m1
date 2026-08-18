@@ -23,6 +23,8 @@ BUILDER = ROOT / "scripts" / "build_m1_panda_asset.py"
 ASSET = ROOT / "assets" / "m1_panda" / "m1_panda.usd"
 M1_ASSET = ROOT / "assets" / "m1_panda" / "m1_floating.usda"
 MOUNT_PLANE_TOLERANCE_M = 1.0e-6
+MOUNT_SURFACE_TOLERANCE_M = 1.0e-6
+MOUNT_PATCH_HALF_EXTENTS_M = (0.11, 0.10)
 
 
 def _load_cleanup_helper():
@@ -58,16 +60,70 @@ def _all_asset_paths(proxy):
     return [item.assetPath for field in fields for item in field]
 
 
+def _mount_patch_top_z(stage, prim_path):
+    prim = stage.GetPrimAtPath(prim_path)
+    assert prim.IsValid()
+    origin = (
+        UsdGeom.Xformable(prim)
+        .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        .ExtractTranslation()
+    )
+    half_x, half_y = MOUNT_PATCH_HALF_EXTENTS_M
+    candidates = []
+    for mesh_prim in Usd.PrimRange.Stage(
+        stage, Usd.TraverseInstanceProxies()
+    ):
+        path = str(mesh_prim.GetPath())
+        if not (
+            mesh_prim.IsA(UsdGeom.Mesh)
+            and path.startswith(f"{prim_path}/")
+            and "/visuals/" in path
+        ):
+            continue
+        transform = UsdGeom.Xformable(
+            mesh_prim
+        ).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        for point in UsdGeom.Mesh(mesh_prim).GetPointsAttr().Get() or ():
+            world = transform.Transform(point)
+            if (
+                abs(float(world[0] - origin[0])) <= half_x
+                and abs(float(world[1] - origin[1])) <= half_y
+            ):
+                candidates.append(float(world[2]))
+    assert candidates
+    return max(candidates)
+
+
+def _visible_bottom_z(stage, prim_path):
+    candidates = []
+    for mesh_prim in Usd.PrimRange.Stage(
+        stage, Usd.TraverseInstanceProxies()
+    ):
+        path = str(mesh_prim.GetPath())
+        if not (
+            mesh_prim.IsA(UsdGeom.Mesh)
+            and path.startswith(f"{prim_path}/")
+            and "/visuals/" in path
+        ):
+            continue
+        transform = UsdGeom.Xformable(
+            mesh_prim
+        ).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        candidates.extend(
+            float(transform.Transform(point)[2])
+            for point in UsdGeom.Mesh(mesh_prim).GetPointsAttr().Get() or ()
+        )
+    assert candidates
+    return min(candidates)
+
+
 def _independent_mount_parent_local_pos():
     m1_stage = Usd.Stage.Open(str(M1_ASSET))
     assert m1_stage is not None
     base = m1_stage.GetPrimAtPath("/ZJ_V3_URDF_V1_0/BASE_LINK")
     assert base.IsValid()
-    bbox = UsdGeom.BBoxCache(
-        Usd.TimeCode.Default(), [UsdGeom.Tokens.default_]
-    )
-    top_z = float(
-        bbox.ComputeWorldBound(base).ComputeAlignedBox().GetMax()[2]
+    top_z = _mount_patch_top_z(
+        m1_stage, "/ZJ_V3_URDF_V1_0/BASE_LINK"
     )
     origin_z = float(
         UsdGeom.Xformable(base)
@@ -100,6 +156,14 @@ def main() -> None:
         str(prim.GetPath()) for prim in stage.Traverse() if prim.HasAPI(UsdPhysics.ArticulationRootAPI)
     ]
     assert roots == ["/M1Panda/BASE_LINK"]
+    mount_surface_top_z = _mount_patch_top_z(
+        stage, "/M1Panda/BASE_LINK"
+    )
+    panda_visible_bottom_z = _visible_bottom_z(
+        stage, "/M1Panda/Panda/panda_link0"
+    )
+    mount_surface_gap_m = panda_visible_bottom_z - mount_surface_top_z
+    assert abs(mount_surface_gap_m) <= MOUNT_SURFACE_TOLERANCE_M
     mount = stage.GetPrimAtPath("/M1Panda/Panda/panda_link0/AssemblerFixedJoint")
     assert mount.IsA(UsdPhysics.FixedJoint)
     joint = UsdPhysics.Joint(mount)
@@ -128,6 +192,9 @@ def main() -> None:
                 "mount_parent_local_pos": parent_local_pos,
                 "expected_mount_parent_local_pos": expected_parent_local_pos,
                 "mount_plane_error_m": mount_plane_error_m,
+                "mount_surface_top_z": mount_surface_top_z,
+                "panda_visible_bottom_z": panda_visible_bottom_z,
+                "mount_surface_gap_m": mount_surface_gap_m,
             },
             sort_keys=True,
         ),
