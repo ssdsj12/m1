@@ -2,6 +2,8 @@ import ast
 import json
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = ROOT / "assets" / "m1_panda"
@@ -69,6 +71,39 @@ def test_builder_declares_single_robot_mount_contract():
     assert "EXPECTED_MOUNT_CHILD_LOCAL_ROT = (1.0, 0.0, 0.0, 0.0)" in source
     assert "GetLocalPos1Attr().Get()" in source
     assert "GetLocalRot1Attr().Get()" in source
+
+
+def test_builder_uses_exact_zero_mount_clearance_and_top_plane_offset():
+    path = ROOT / "scripts" / "build_m1_panda_asset.py"
+    tree = ast.parse(path.read_text())
+    values = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "MOUNT_CLEARANCE_M"
+    }
+    assert values == {"MOUNT_CLEARANCE_M": 0.0}
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    namespace = {"np": __import__("numpy")}
+    exec(
+        compile(
+            ast.Module(
+                body=[functions["mount_offset_z"]], type_ignores=[]
+            ),
+            str(path),
+            "exec",
+        ),
+        namespace,
+    )
+    assert namespace["mount_offset_z"](0.42, 0.17, 0.0) == pytest.approx(
+        0.25
+    )
 
 
 def test_builder_enables_robot_assembler_after_app_startup():

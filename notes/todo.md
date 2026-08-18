@@ -211,6 +211,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Time | Topic | Result | Todo | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-18 | M1 + Panda zero-clearance builder contract | Task 1 source contract pass: valid RED on old `0.01`; focused `1 passed`; asset static `17 passed`; USD rebuild/Teacher gates remain open | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-zero-clearance-builder-contract.md](log/2026-08-18-m1-panda-zero-clearance-builder-contract.md) |
 | 2026-08-17 | M1 + Panda deterministic WBC play | valid RED `5 failed`; focused `7 passed`; related `20 passed`; 1-step GPU0 exit 0/finite, QP `0/1`, contacts `3/4` | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-play.md](log/2026-08-17-m1-panda-wbc-play.md) |
 | 2026-08-17 | M1 + Panda prioritized WBC Teacher C0 acceptance | `177 passed`; GPU0 static 8 + moving 2000 exit 0; EE `0.009566m`, sigma `0.141259`, QP `1.0`, zero snap/reset/limit/base contact | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | 2026-08-17 | M1 + Panda isolated WBC effort environment | valid RED `3 failed`; focused `3 passed`; related `57 passed`; Tasks 1–8 `167 passed`; compile/diff exit 0; legacy A0/A1 SHA stable | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-17-m1-panda-wbc-environment.md](log/2026-08-17-m1-panda-wbc-environment.md) |

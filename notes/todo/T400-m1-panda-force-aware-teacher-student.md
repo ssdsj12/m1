@@ -32,7 +32,7 @@ T400.5d Task 2 已完成：入口缺失有效 RED `13 failed`，GREEN focused `1
 
 T400.5d Task 3 已完成：runbook 文档 RED→GREEN；最终静态 `195 passed`，compile/placeholder/no-write scan exit `0`。RTX 5070 GPU0 三段真实 smoke 均最终 exit `0`：A0/A1 默认扰动历史最大 wrench 分别为 `2.449706/4.899412`，A1 零扰动六轴与历史最大值全部为零，三段均为 60/16、8 steps、0 reset，frozen actor SHA 不变。Isaac 5.1 empty-wrench Warp 兼容问题通过新增 RED 测试与 full-zero fallback 修复。
 
-T400.6 零间隙安装设计已获交互批准并写入书面规格：把构建 clearance 从 `0.01 m` 改为 `0.0 m`，保持单 articulation/fixed mount/25 DOF，不允许用零间隙掩盖网格穿透。当前等待书面规格复核，尚未修改构建脚本或资产。
+T400.6 零间隙安装已进入单代理执行。Task 1 完成有效 RED→GREEN：构建器现使用精确 `MOUNT_CLEARANCE_M = 0.0` 和有限/非负 `mount_offset_z(...)`；baseline `16 passed`，最终 asset static `17 passed`。组合 USD/checksum 尚未重建，拓扑、穿透、no-snap 和 GPU0 Teacher 门仍全部开放，因此 Student 数据采集继续锁定。
 
 T400.7 A1 抗扰恢复训练设计已获交互批准并写入书面规格。既有 A1 在 `model_5999` 前出现明显后期退化；根因调查确认 vendored ActorCritic 把 raw std 经过 softplus 后形成约 `0.694` 的实际动作噪声，且 resume 会重置扰动课程。选定满幅三 seed checkpoint 筛选、独立 fork、scalar std 修复、课程进度恢复和 500-iteration 分块验收。当前等待书面规格复核，尚未修改训练代码或启动 recovery run。
 
@@ -64,6 +64,9 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 - [ ] T400.8d 为 C1b 转向编写独立设计并取得用户批准（尚未授权实现）。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
+  - [x] T400.6a Task 1：冻结 `0.0 m` 构建器合同并通过 asset static RED→GREEN。
+  - [ ] T400.6b Task 2：独立验证父侧安装平面与 `1e-6 m` 容差。
+  - [ ] T400.6c Task 3–6：重建/checksum、拓扑/no-snap/视觉、C0/C1a GPU0 和证据门。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
 
 ## Closed Children Archive
@@ -126,6 +129,7 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 - [Teacher play GPU0 smoke](../log/2026-08-14-m1-panda-teacher-play-gpu0-smoke.md)
 - [Zero-clearance mount design](../../docs/superpowers/specs/2026-08-15-m1-panda-zero-clearance-mount-design.md)
 - [Zero-clearance mount design log](../log/2026-08-15-m1-panda-zero-clearance-mount-design.md)
+- [Zero-clearance builder contract](../log/2026-08-18-m1-panda-zero-clearance-builder-contract.md)
 - [A1 recovery training design](../../docs/superpowers/specs/2026-08-15-m1-panda-a1-recovery-training-design.md)
 - [A1 recovery training design log](../log/2026-08-15-m1-panda-a1-recovery-training-design.md)
 - [A1 recovery implementation plan](../../docs/superpowers/plans/2026-08-15-m1-panda-a1-recovery-training.md)

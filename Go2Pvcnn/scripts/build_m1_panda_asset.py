@@ -29,7 +29,7 @@ PANDA_PRIM = f"{ROOT_PRIM}/Panda"
 BASE_MOUNT_FRAME = "/BASE_LINK"
 PANDA_MOUNT_FRAME = "/panda_link0"
 MOUNT_JOINT_PATH = f"{PANDA_PRIM}/panda_link0/AssemblerFixedJoint"
-MOUNT_CLEARANCE_M = 0.01
+MOUNT_CLEARANCE_M = 0.0
 EXPECTED_ARTICULATION_ROOT = f"{ROOT_PRIM}/BASE_LINK"
 EXPECTED_MOUNT_BODY0 = f"{ROOT_PRIM}/BASE_LINK"
 EXPECTED_MOUNT_BODY1 = f"{PANDA_PRIM}/panda_link0"
@@ -40,6 +40,17 @@ EXPECTED_MOUNT_CHILD_LOCAL_ROT = (1.0, 0.0, 0.0, 0.0)
 def _top_z(stage: Usd.Stage, prim_path: str) -> float:
     bbox = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
     return float(bbox.ComputeWorldBound(stage.GetPrimAtPath(prim_path)).ComputeAlignedBox().GetMax()[2])
+
+
+def mount_offset_z(
+    base_top_z: float, base_origin_z: float, clearance_m: float
+) -> float:
+    values = (base_top_z, base_origin_z, clearance_m)
+    if not all(np.isfinite(value) for value in values):
+        raise ValueError("mount offset inputs must be finite")
+    if clearance_m < 0.0:
+        raise ValueError("mount clearance must be nonnegative")
+    return float(base_top_z - base_origin_z + clearance_m)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -163,7 +174,13 @@ def build_asset(asset_root: Path) -> Path:
         .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
         .ExtractTranslation()[2]
     )
-    mount_offset = np.array([0.0, 0.0, base_top_z - base_origin_z + MOUNT_CLEARANCE_M])
+    mount_offset = np.array(
+        [
+            0.0,
+            0.0,
+            mount_offset_z(base_top_z, base_origin_z, MOUNT_CLEARANCE_M),
+        ]
+    )
 
     assembled = RobotAssembler().assemble_articulations(
         ROOT_PRIM,
