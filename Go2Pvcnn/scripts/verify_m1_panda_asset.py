@@ -15,6 +15,7 @@ from isaaclab.app import AppLauncher
 
 EXPECTED_DOF_COUNT = 25
 MAX_MOUNT_RELATIVE_STEP_DELTA_M = 1.0e-4
+MOUNT_PLANE_TOLERANCE_M = 1.0e-6
 REMOTE_PREFIXES = ("omniverse://", "http://", "https://")
 BUILTIN_MDL_ALLOWLIST = {"OmniPBR.mdl"}
 EXPECTED_ARTICULATION_ROOT = "/M1Panda/BASE_LINK"
@@ -106,6 +107,45 @@ def _mount_joint_contract_errors(
     return errors
 
 
+def _mount_plane_errors(
+    parent_local_pos, expected_parent_local_pos, tolerance_m
+):
+    if parent_local_pos is None:
+        return ["mount parent local position is unavailable"]
+    error = max(
+        abs(float(actual) - float(expected))
+        for actual, expected in zip(
+            parent_local_pos, expected_parent_local_pos, strict=True
+        )
+    )
+    if error <= tolerance_m:
+        return []
+    return [
+        f"mount parent plane error {error} m exceeds {tolerance_m} m"
+    ]
+
+
+def _independent_mount_parent_local_pos(asset_root, Usd, UsdGeom):
+    m1_stage = Usd.Stage.Open(str(asset_root / "m1_floating.usda"))
+    _require(m1_stage is not None, "failed to open independent M1 asset")
+    base_prim = m1_stage.GetPrimAtPath(
+        "/ZJ_V3_URDF_V1_0/BASE_LINK"
+    )
+    _require(base_prim.IsValid(), "independent M1 BASE_LINK is invalid")
+    bbox = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(), [UsdGeom.Tokens.default_]
+    )
+    top_z = float(
+        bbox.ComputeWorldBound(base_prim).ComputeAlignedBox().GetMax()[2]
+    )
+    origin_z = float(
+        UsdGeom.Xformable(base_prim)
+        .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        .ExtractTranslation()[2]
+    )
+    return (0.0, 0.0, top_z - origin_z)
+
+
 def _inspect_dependencies(asset_path: Path, asset_root: Path, UsdUtils: Any) -> dict[str, list[str]]:
     layers, assets, unresolved = UsdUtils.ComputeAllDependencies(str(asset_path))
     dependencies = [str(layer.identifier) for layer in layers] + [_asset_path_text(asset) for asset in assets]
@@ -126,7 +166,7 @@ def _inspect_dependencies(asset_path: Path, asset_root: Path, UsdUtils: Any) -> 
 
 
 def _verify_asset(asset_path: Path, asset_root: Path, device: str) -> dict[str, Any]:
-    from pxr import Usd, UsdPhysics, UsdUtils
+    from pxr import Usd, UsdGeom, UsdPhysics, UsdUtils
 
     import isaaclab.sim as sim_utils
     from isaaclab.assets import Articulation, ArticulationCfg
@@ -159,6 +199,11 @@ def _verify_asset(asset_path: Path, asset_root: Path, device: str) -> dict[str, 
     mount_body1_targets: list[str] = []
     mount_joint_enabled: bool | None = None
     mount_joint_exclude_from_articulation: bool | None = None
+    mount_parent_local_pos: tuple[float, ...] | None = None
+    expected_mount_parent_local_pos = _independent_mount_parent_local_pos(
+        asset_root, Usd, UsdGeom
+    )
+    mount_plane_error_m: float | None = None
     mount_child_local_pos: tuple[float, ...] | None = None
     mount_child_local_rot: tuple[float, ...] | None = None
     if not mount_joint.IsValid():
@@ -172,6 +217,17 @@ def _verify_asset(asset_path: Path, asset_root: Path, device: str) -> dict[str, 
         mount_joint_enabled = mount_joint_schema.GetJointEnabledAttr().Get()
         exclude_attr = mount_joint.GetAttribute("physics:excludeFromArticulation")
         mount_joint_exclude_from_articulation = exclude_attr.Get() if exclude_attr.IsValid() else None
+        mount_parent_local_pos = tuple(
+            mount_joint_schema.GetLocalPos0Attr().Get()
+        )
+        mount_plane_error_m = max(
+            abs(float(actual) - float(expected))
+            for actual, expected in zip(
+                mount_parent_local_pos,
+                expected_mount_parent_local_pos,
+                strict=True,
+            )
+        )
         mount_child_local_pos = tuple(mount_joint_schema.GetLocalPos1Attr().Get())
         child_local_rot_value = mount_joint_schema.GetLocalRot1Attr().Get()
         mount_child_local_rot = (
@@ -186,6 +242,13 @@ def _verify_asset(asset_path: Path, asset_root: Path, device: str) -> dict[str, 
                 mount_joint_exclude_from_articulation,
                 mount_child_local_pos,
                 mount_child_local_rot,
+            )
+        )
+        validation_errors.extend(
+            _mount_plane_errors(
+                mount_parent_local_pos,
+                expected_mount_parent_local_pos,
+                MOUNT_PLANE_TOLERANCE_M,
             )
         )
     panda_root_joint = stage.GetPrimAtPath("/M1Panda/Panda/root_joint")
@@ -266,6 +329,9 @@ def _verify_asset(asset_path: Path, asset_root: Path, device: str) -> dict[str, 
         "mount_body1_targets": mount_body1_targets,
         "mount_joint_enabled": mount_joint_enabled,
         "mount_joint_exclude_from_articulation": mount_joint_exclude_from_articulation,
+        "mount_parent_local_pos": mount_parent_local_pos,
+        "expected_mount_parent_local_pos": expected_mount_parent_local_pos,
+        "mount_plane_error_m": mount_plane_error_m,
         "mount_child_local_pos": mount_child_local_pos,
         "mount_child_local_rot": mount_child_local_rot,
         "panda_root_joint_enabled": panda_root_joint_enabled,

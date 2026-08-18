@@ -16,6 +16,7 @@ def _load_verifier_contract_helpers():
         "_classify_unresolved_dependencies",
         "_articulation_root_errors",
         "_mount_joint_contract_errors",
+        "_mount_plane_errors",
     }
     functions = {
         node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -244,6 +245,17 @@ def test_mount_contract_predicate_checks_targets_enabled_and_inclusion():
     assert errors(*expected[:3], True, *expected[4:])
     assert errors(*expected[:4], (0.1, 0.0, 0.0), expected[5])
     assert errors(*expected[:5], (0.0, 1.0, 0.0, 0.0))
+
+
+def test_mount_plane_predicate_enforces_micrometer_tolerance():
+    errors = _load_verifier_contract_helpers()["_mount_plane_errors"]
+    assert errors(
+        (0.0, 0.0, 0.25), (0.0, 0.0, 0.25), 1.0e-6
+    ) == []
+    assert errors(
+        (0.0, 0.0, 0.250002), (0.0, 0.0, 0.25), 1.0e-6
+    )
+    assert errors(None, (0.0, 0.0, 0.25), 1.0e-6)
 
 
 def test_builder_exposes_behavioral_cleanup_and_serialized_validation_helpers():

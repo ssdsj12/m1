@@ -15,12 +15,14 @@ from isaaclab.app import AppLauncher
 
 app = AppLauncher({"headless": True}).app
 
-from pxr import Sdf, Usd, UsdPhysics
+from pxr import Sdf, Usd, UsdGeom, UsdPhysics
 
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_m1_panda_asset.py"
 ASSET = ROOT / "assets" / "m1_panda" / "m1_panda.usd"
+M1_ASSET = ROOT / "assets" / "m1_panda" / "m1_floating.usda"
+MOUNT_PLANE_TOLERANCE_M = 1.0e-6
 
 
 def _load_cleanup_helper():
@@ -56,6 +58,25 @@ def _all_asset_paths(proxy):
     return [item.assetPath for field in fields for item in field]
 
 
+def _independent_mount_parent_local_pos():
+    m1_stage = Usd.Stage.Open(str(M1_ASSET))
+    assert m1_stage is not None
+    base = m1_stage.GetPrimAtPath("/ZJ_V3_URDF_V1_0/BASE_LINK")
+    assert base.IsValid()
+    bbox = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(), [UsdGeom.Tokens.default_]
+    )
+    top_z = float(
+        bbox.ComputeWorldBound(base).ComputeAlignedBox().GetMax()[2]
+    )
+    origin_z = float(
+        UsdGeom.Xformable(base)
+        .ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        .ExtractTranslation()[2]
+    )
+    return (0.0, 0.0, top_z - origin_z)
+
+
 def main() -> None:
     cleanup = _load_cleanup_helper()
     layer = Sdf.Layer.CreateAnonymous("cleanup-test.usda")
@@ -86,10 +107,32 @@ def main() -> None:
     assert [str(path) for path in joint.GetBody1Rel().GetTargets()] == ["/M1Panda/Panda/panda_link0"]
     assert joint.GetJointEnabledAttr().Get() is True
     assert mount.GetAttribute("physics:excludeFromArticulation").Get() is False
+    parent_local_pos = tuple(joint.GetLocalPos0Attr().Get())
+    expected_parent_local_pos = _independent_mount_parent_local_pos()
+    mount_plane_error_m = max(
+        abs(float(actual) - float(expected))
+        for actual, expected in zip(
+            parent_local_pos, expected_parent_local_pos, strict=True
+        )
+    )
+    assert mount_plane_error_m <= MOUNT_PLANE_TOLERANCE_M
     assert tuple(joint.GetLocalPos1Attr().Get()) == (0.0, 0.0, 0.0)
     local_rot1 = joint.GetLocalRot1Attr().Get()
     assert (float(local_rot1.GetReal()), *tuple(local_rot1.GetImaginary())) == (1.0, 0.0, 0.0, 0.0)
-    print(json.dumps({"cleanup": "pass", "roots": roots, "mount": "pass"}, sort_keys=True), flush=True)
+    print(
+        json.dumps(
+            {
+                "cleanup": "pass",
+                "roots": roots,
+                "mount": "pass",
+                "mount_parent_local_pos": parent_local_pos,
+                "expected_mount_parent_local_pos": expected_parent_local_pos,
+                "mount_plane_error_m": mount_plane_error_m,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
