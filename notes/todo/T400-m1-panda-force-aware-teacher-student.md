@@ -32,7 +32,7 @@ T400.5d Task 2 已完成：入口缺失有效 RED `13 failed`，GREEN focused `1
 
 T400.5d Task 3 已完成：runbook 文档 RED→GREEN；最终静态 `195 passed`，compile/placeholder/no-write scan exit `0`。RTX 5070 GPU0 三段真实 smoke 均最终 exit `0`：A0/A1 默认扰动历史最大 wrench 分别为 `2.449706/4.899412`，A1 零扰动六轴与历史最大值全部为零，三段均为 60/16、8 steps、0 reset，frozen actor SHA 不变。Isaac 5.1 empty-wrench Warp 兼容问题通过新增 RED 测试与 full-zero fallback 修复。
 
-T400.6 零间隙安装 Tasks 1–4 已完成。首次视觉门揭示全局 `BASE_LINK` 最高点会造成约 `50.976 mm` 中央空隙；构建器与 verifier 已改为测量局部可见安装顶板，并用 `±1e-6 m` 同时拒绝空隙和穿透。最终 surface gap `-8.64e-07 m`、静态 `37 passed`、PXR 单 root、CPU/relocation 25 DOF、一步 delta `2.40e-05 m`，且用户明确确认视觉贴合。GPU0 C0/C1a Teacher 门仍开放，因此 Student 数据采集继续锁定。
+T400.6 零间隙重基线已完成。最终 surface gap `-8.64e-07 m`、PXR 单 root、CPU/relocation 25 DOF、一步 delta `2.40e-05 m`，且用户明确确认视觉贴合；完整回归 `184 passed`。GPU0 C0 2000 步和 C1a 无摆臂/联合两次 4000 步均 exit `0`，QP `1.0`、全程 TRACK，C1a `hard_gates_passed=true`。接受的组合 USD SHA 为 `643fd0616442a9c45642f81f1f9a5fb484c6e51616cc680fc27e1f8587e78f63`；Student S1 现仅按批准的 flat-ground DAgger 计划解锁。
 
 T400.7 A1 抗扰恢复训练设计已获交互批准并写入书面规格。既有 A1 在 `model_5999` 前出现明显后期退化；根因调查确认 vendored ActorCritic 把 raw std 经过 softplus 后形成约 `0.694` 的实际动作噪声，且 resume 会重置扰动课程。选定满幅三 seed checkpoint 筛选、独立 fork、scalar std 修复、课程进度恢复和 500-iteration 分块验收。当前等待书面规格复核，尚未修改训练代码或启动 recovery run。
 
@@ -63,12 +63,13 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 - [x] T400.8c 单代理完成 C1a deterministic Teacher 平地直线滚动、Panda 联合运动、GPU0 4000-step 硬验收、C0 回归与运行手册。
 - [ ] T400.8d 为 C1b 转向编写独立设计并取得用户批准（尚未授权实现）。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
-- [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
+- [x] T400.6 完成 M1 + Panda 零间隙资产、拓扑、穿透、no-snap、视觉和 GPU0 C0/C1a Teacher 重基线。
   - [x] T400.6a Task 1：冻结 `0.0 m` 构建器合同并通过 asset static RED→GREEN。
   - [x] T400.6b Task 2：独立验证父侧安装平面与 `1e-6 m` 容差。
   - [x] T400.6c Task 3：重建组合 USD/checksum，并通过 Isaac Sim 5.1 PXR 单 root/安装平面预检。
   - [x] T400.6d Task 4：通过局部可见表面、拓扑、relocation、no-snap 和用户确认视觉门。
-  - [ ] T400.6e Task 5–6：C0/C1a GPU0 和最终证据门。
+  - [x] T400.6e Task 5–6：C0/C1a GPU0 和最终证据门。
+- [ ] T400.9 按批准计划实施 100/10/23 online DAgger Student S1。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
 
 ## Closed Children Archive
@@ -135,6 +136,9 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 - [Zero-clearance mount-plane verifier](../log/2026-08-18-m1-panda-zero-clearance-mount-plane-verifier.md)
 - [Zero-clearance asset rebuild](../log/2026-08-18-m1-panda-zero-clearance-asset-rebuild.md)
 - [Zero-clearance runtime and visual gates](../log/2026-08-18-m1-panda-zero-clearance-runtime-visual-gates.md)
+- [Zero-clearance Teacher rebaseline](../log/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md)
+- [Zero-clearance Teacher runbook](../../docs/superpowers/runbooks/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md)
+- [Online DAgger Student S1 plan](../../docs/superpowers/plans/2026-08-18-m1-panda-dagger-student-s1.md)
 - [A1 recovery training design](../../docs/superpowers/specs/2026-08-15-m1-panda-a1-recovery-training-design.md)
 - [A1 recovery training design log](../log/2026-08-15-m1-panda-a1-recovery-training-design.md)
 - [A1 recovery implementation plan](../../docs/superpowers/plans/2026-08-15-m1-panda-a1-recovery-training.md)
@@ -160,8 +164,8 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 
 ## Git Refs
 
-- Last Feature Commit: `251b7af`
-- Last Verified Base: `251b7af`
+- Last Feature Commit: `eba7906`
+- Last Verified Base: `eba7906`
 - Current Work Ref: `main` working tree（未提交）
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
