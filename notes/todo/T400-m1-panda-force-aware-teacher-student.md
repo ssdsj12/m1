@@ -73,7 +73,8 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
   - [x] T400.9a Task 1：冻结 Student observation/history/action 和安全 residual 合同。
   - [x] T400.9b Task 2：抽取部署侧 C1a mission/nominal，并支持 Teacher 外部注入。
   - [x] T400.9c Task 3：实现显式历史缓冲、GRU estimator、安全头与 23 维 actor。
-  - [ ] T400.9d Tasks 4–12：观测、replay/loss、DAgger、环境、CLI、训练与验收。
+  - [x] T400.9d Task 4：实现确定性安全接管、六项监督损失和严格版本化 DAgger replay。
+  - [ ] T400.9e Tasks 5–12：checkpoint、观测、环境、CLI、训练与验收。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
 
 ## Closed Children Archive
@@ -146,6 +147,7 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 - [Student S1 contracts](../log/2026-08-18-m1-panda-student-s1-contracts.md)
 - [Student S1 deployable mission](../log/2026-08-18-m1-panda-student-s1-mission.md)
 - [Student S1 temporal model](../log/2026-08-18-m1-panda-student-s1-model.md)
+- [Student S1 DAgger replay](../log/2026-08-18-m1-panda-student-s1-dagger-replay.md)
 - [A1 recovery training design](../../docs/superpowers/specs/2026-08-15-m1-panda-a1-recovery-training-design.md)
 - [A1 recovery training design log](../log/2026-08-15-m1-panda-a1-recovery-training-design.md)
 - [A1 recovery implementation plan](../../docs/superpowers/plans/2026-08-15-m1-panda-a1-recovery-training.md)

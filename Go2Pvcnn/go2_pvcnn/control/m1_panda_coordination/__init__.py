@@ -28,6 +28,13 @@ from .student_model import (
     StudentNetworkCfg,
     StudentOutput,
 )
+from .dagger import (
+    DaggerSelection,
+    DaggerStageCfg,
+    StudentLossCfg,
+    select_dagger_action,
+    student_dagger_loss,
+)
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -53,4 +60,9 @@ __all__ = [
     "StudentHistoryBuffer",
     "StudentNetworkCfg",
     "StudentOutput",
+    "DaggerSelection",
+    "DaggerStageCfg",
+    "StudentLossCfg",
+    "select_dagger_action",
+    "student_dagger_loss",
 ]
