@@ -44,6 +44,8 @@ T400.7 Task 7 已执行 20 个 500-iteration recovery blocks。最佳 `model_970
 
 T400.8 C0 Tasks 1–10 已按 TDD 完成并通过 GPU0 硬验收。最终纯/静态回归 `177 passed`；8-step 静止与 2000-step 六维小幅运动均 exit `0`。正式 2000-step 指标为 EE `0.009566 m`、sigma `0.141259`、QP `1.0`、slip `0.007126 m/s`、roll/pitch `0.028045/0.008563 rad`，且 limit/base/self-collision/reset/snap 全零、2000 步均为 TRACK/safe。C0 只证明驻停小幅操作基础；C1/C2 滚动约束是下一独立设计任务。
 
+T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最终纯/静态回归 `184 passed`；GPU0 无 Panda 轨迹和默认联合轨迹的两次 4000-step 平地直线前进/停车/倒车均 exit `0`、`hard_gates_passed=true`，联合运行 QP 可行率 `1.0`、四轮持续接触、最大 EE 误差 `0.0016413305229732028 m`、最大滚动残差 `0.0016662825831554645 m/s`、最大侧滑 `0.0012335278538215793 m/s`，全程 `TRACK/safe`。C1a 只完成 deterministic Teacher 直线滚动；下一项 C1b 转向必须单独设计并获用户批准，不授权 C2/C3、Student、抓取或实机工作。
+
 ## Open Children
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
@@ -58,6 +60,8 @@ T400.8 C0 Tasks 1–10 已按 TDD 完成并通过 GPU0 硬验收。最终纯/静
   - [x] Task 8 实现独立 Isaac Lab effort 环境与 Gym 注册。
   - [x] Task 9 实现 PhysX 适配、deterministic play、诊断与原子摘要。
   - [x] Task 10 完成 GPU0 8-step 静止与 2000-step 运动硬验收、runbook 和证据。
+- [x] T400.8c 单代理完成 C1a deterministic Teacher 平地直线滚动、Panda 联合运动、GPU0 4000-step 硬验收、C0 回归与运行手册。
+- [ ] T400.8d 为 C1b 转向编写独立设计并取得用户批准（尚未授权实现）。
 - [ ] T400.7 完成正式满幅 checkpoint 筛选和 500-iteration 分块 GPU0 验收（恢复代码、独立 fork 与真实 smoke 已完成）。
 - [ ] T400.6 复核并实施 M1 + Panda 零间隙安装资产修订，完成拓扑、穿透、no-snap 和 GPU0 Play 复验。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
@@ -140,6 +144,10 @@ T400.8 C0 Tasks 1–10 已按 TDD 完成并通过 GPU0 硬验收。最终纯/静
 - [M1 + Panda WBC impedance and safety](../log/2026-08-17-m1-panda-wbc-safety.md)
 - [M1 + Panda deterministic WBC Teacher](../log/2026-08-17-m1-panda-wbc-teacher.md)
 - [M1 + Panda prioritized WBC Teacher C0 acceptance](../log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md)
+- [M1 + Panda rolling WBC Teacher C1a design](../../docs/superpowers/specs/2026-08-18-m1-panda-wbc-teacher-c1a-design.md)
+- [M1 + Panda rolling WBC Teacher C1a implementation plan](../../docs/superpowers/plans/2026-08-18-m1-panda-wbc-teacher-c1a.md)
+- [M1 + Panda rolling WBC Teacher C1a runbook](../../docs/superpowers/runbooks/2026-08-18-m1-panda-wbc-teacher-c1a.md)
+- [M1 + Panda rolling WBC Teacher C1a acceptance](../log/2026-08-18-m1-panda-wbc-teacher-c1a.md)
 
 ## Git Refs
 
@@ -223,4 +231,4 @@ T400.8 C0 Tasks 1–10 已按 TDD 完成并通过 GPU0 硬验收。最终纯/静
 
 采用论文的三级运动分配和动力学全身控制：Panda 优先跟踪六维末端轨迹，接近关节限制或奇异位形时激活 M1 平面运动；执行层以轮地接触和动态抗扰平衡为最高优先级。第一阶段实现确定性 WBC Teacher，随后用现实可得本体感知、安装六维力和末端目标蒸馏 23 维全身 Student。新任务、日志和 checkpoint contract 与旧 A0/A1 完全隔离。
 
-C0 实施计划已由单代理路线冻结为十个 TDD 任务：纯数学合同与运动分配、float64 参考 QP、standing WBC、安全监督、独立 Isaac 环境和 GPU0 验收。C1–C4 不在该计划内。
+C0 驻停 foundation 与 C1a 平地直线滚动 deterministic Teacher 均已完成硬验收。下一子阶段只允许先为 C1b 转向编写独立设计并取得用户批准；C2/C3、Student、抓取与实机工作仍不在授权范围内。
