@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import torch
 
@@ -27,6 +27,9 @@ from .trajectory import (
     BandLimitedTrajectoryCfg,
     TrajectorySample,
 )
+
+if TYPE_CHECKING:
+    from .student_mission import StudentMissionSample
 
 
 @dataclass(frozen=True)
@@ -520,24 +523,74 @@ class M1PandaRollingWbcTeacher:
             arm_acceleration=arm_acceleration,
         )
 
-    def step(self, state: RollingTeacherState) -> RollingTeacherCommand:
+    def step(
+        self,
+        state: RollingTeacherState,
+        *,
+        mission_sample: "StudentMissionSample | None" = None,
+    ) -> RollingTeacherCommand:
         if not self._initialized:
             raise RuntimeError("teacher must be reset before step")
         self._validate_state(state)
         teacher_state = state.teacher_state
         base_scale, twist_scale = self._prior_scale()
-        longitudinal = self._schedule.sample(state.mission_step, base_scale)
+        if mission_sample is None:
+            longitudinal = self._schedule.sample(
+                state.mission_step, base_scale
+            )
+            phase = longitudinal.phase
+            raw_base_velocity_mps = longitudinal.raw_target_mps
+            shaped_base_velocity_mps = longitudinal.shaped_target_mps
+        else:
+            if (
+                isinstance(mission_sample.phase, bool)
+                or not isinstance(mission_sample.phase, int)
+                or mission_sample.phase < 0
+                or mission_sample.phase >= len(
+                    self._schedule.cfg.phase_targets_mps
+                )
+            ):
+                raise ValueError("mission_sample.phase is invalid")
+            if not math.isfinite(float(mission_sample.shaped_vx)):
+                raise ValueError("mission_sample.shaped_vx must be finite")
+            for name, value in (
+                ("mission_sample.target_pose", mission_sample.target_pose),
+                ("mission_sample.target_twist", mission_sample.target_twist),
+            ):
+                require_tensor(name, value, trailing_shape=(6,))
+                if value.ndim != 1:
+                    raise ValueError(f"{name} must be one 6-vector")
+                if value.dtype != teacher_state.controlled_q.dtype:
+                    raise TypeError(f"{name} dtype must match controlled_q")
+                if value.device != teacher_state.controlled_q.device:
+                    raise ValueError(f"{name} device must match controlled_q")
+            phase = mission_sample.phase
+            raw_base_velocity_mps = self._schedule.cfg.phase_targets_mps[
+                phase
+            ]
+            shaped_base_velocity_mps = (
+                float(mission_sample.shaped_vx) * base_scale
+            )
         base_velocity = teacher_state.coord_q.new_tensor(
-            (longitudinal.shaped_target_mps, 0.0, 0.0)
+            (shaped_base_velocity_mps, 0.0, 0.0)
         )
         wheel_velocity = wheel_speed_from_base_velocity(
             base_velocity[0], self._rolling_contact_cfg
         )
-        sample = self._trajectory.sample(
-            self._trajectory_time_s,
-            state.root_xy_yaw,
-            base_velocity,
-        )
+        if mission_sample is None:
+            sample = self._trajectory.sample(
+                self._trajectory_time_s,
+                state.root_xy_yaw,
+                base_velocity,
+            )
+        else:
+            sample = TrajectorySample(
+                pose=mission_sample.target_pose,
+                twist=mission_sample.target_twist,
+                acceleration=torch.zeros_like(
+                    mission_sample.target_twist
+                ),
+            )
         prior_safety_state = self._safety.state
         high_level_hold = prior_safety_state >= SafetyState.HOLD
         motion_failure_reason = None
@@ -735,9 +788,9 @@ class M1PandaRollingWbcTeacher:
             safety_state=decision.state,
             safety_reason=decision.reason,
             motion_failure_reason=motion_failure_reason,
-            phase=longitudinal.phase,
-            raw_base_velocity_mps=longitudinal.raw_target_mps,
-            shaped_base_velocity_mps=longitudinal.shaped_target_mps,
+            phase=phase,
+            raw_base_velocity_mps=raw_base_velocity_mps,
+            shaped_base_velocity_mps=shaped_base_velocity_mps,
             wheel_velocity_target=wheel_velocity,
             terminate=decision.terminate,
         )

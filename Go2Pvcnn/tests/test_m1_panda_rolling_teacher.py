@@ -16,6 +16,12 @@ from go2_pvcnn.control.m1_panda_coordination.rolling_teacher import (
     RollingTeacherState,
 )
 from go2_pvcnn.control.m1_panda_coordination.safety import SafetyState
+from go2_pvcnn.control.m1_panda_coordination.student_contracts import (
+    StudentNominalCommand,
+)
+from go2_pvcnn.control.m1_panda_coordination.student_mission import (
+    StudentMissionSample,
+)
 from go2_pvcnn.control.m1_panda_coordination.standing_wbc import (
     StandingWbcInput,
     StandingWbcResult,
@@ -302,6 +308,40 @@ def _rolling_teacher(motion=None, wbc=None, trajectory=None):
         motion_distribution_fn=motion,
         wbc_solver_fn=wbc,
     )
+
+
+def test_injected_student_mission_drives_teacher_without_advancing_private_schedule():
+    teacher = _rolling_teacher(
+        _RecordingMotionDistributor(), _RecordingWbcSolver()
+    )
+    state = _rolling_state(0)
+    teacher.reset(state, seed=42)
+    target_pose = torch.tensor(
+        [0.4, 0.0, 0.8, 0.01, 0.0, 0.0], dtype=torch.float64
+    )
+    target_twist = torch.tensor(
+        [0.02, 0.0, 0.0, 0.0, 0.01, 0.0], dtype=torch.float64
+    )
+    injected = StudentMissionSample(
+        phase=3,
+        shaped_vx=0.02,
+        target_pose=target_pose,
+        target_twist=target_twist,
+        nominal=StudentNominalCommand(
+            position=torch.zeros(1, 23, dtype=torch.float64),
+            velocity=torch.zeros(1, 23, dtype=torch.float64),
+        ),
+    )
+
+    command = teacher.step(state, mission_sample=injected)
+
+    assert command.phase == 3
+    assert command.shaped_base_velocity_mps == pytest.approx(0.02)
+    torch.testing.assert_close(command.target_pose, target_pose)
+    torch.testing.assert_close(command.target_twist, target_twist)
+
+    private = teacher.step(state)
+    assert private.phase == 0
 
 
 def test_rolling_teacher_advects_body_trajectory_with_commanded_not_measured_base_velocity():

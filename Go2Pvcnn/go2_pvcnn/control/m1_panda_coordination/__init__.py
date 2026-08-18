@@ -21,6 +21,7 @@ from .student_contracts import (
     apply_student_residual,
     teacher_residual_label,
 )
+from .student_mission import StudentMissionSample, StudentS1Mission
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -40,4 +41,6 @@ __all__ = [
     "StudentNominalCommand",
     "apply_student_residual",
     "teacher_residual_label",
+    "StudentMissionSample",
+    "StudentS1Mission",
 ]
