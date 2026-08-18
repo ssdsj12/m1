@@ -388,6 +388,35 @@ def test_rolling_teacher_prescribes_base_and_nonzero_wheel_speed_after_phase_bou
     assert torch.equal(command.qd_des[12:16], command.wheel_velocity_target)
 
 
+def test_rolling_teacher_expands_only_longitudinal_position_bounds():
+    motion = _RecordingMotionDistributor()
+    teacher = _rolling_teacher(motion, _RecordingWbcSolver())
+    state = _rolling_state(0)
+    state = replace(
+        state,
+        teacher_state=replace(
+            state.teacher_state,
+            coord_q_min=torch.tensor(
+                [-0.25, -0.25, -0.5] + [-2.0] * 7,
+                dtype=torch.float64,
+            ),
+            coord_q_max=torch.tensor(
+                [0.25, 0.25, 0.5] + [2.0] * 7,
+                dtype=torch.float64,
+            ),
+        ),
+    )
+    teacher.reset(state, seed=42)
+
+    teacher.step(state)
+
+    inputs = motion.inputs[-1]
+    assert inputs["q_min"][0].item() == pytest.approx(-2.0)
+    assert inputs["q_max"][0].item() == pytest.approx(2.0)
+    assert torch.equal(inputs["q_min"][1:], state.teacher_state.coord_q_min[1:])
+    assert torch.equal(inputs["q_max"][1:], state.teacher_state.coord_q_max[1:])
+
+
 def test_hold_ramps_wheel_target_toward_zero_and_freezes_arm_target():
     teacher = _rolling_teacher(
         _RecordingMotionDistributor(), _RecordingWbcSolver()

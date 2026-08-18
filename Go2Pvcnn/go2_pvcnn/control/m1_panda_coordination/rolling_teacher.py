@@ -214,6 +214,7 @@ class RollingTeacherCfg:
     wheel_integral_gain: float = 5.0
     wheel_integral_limit: float = 2.0
     maximum_wheel_acceleration: float = 100.0
+    longitudinal_position_margin_m: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -271,6 +272,10 @@ class M1PandaRollingWbcTeacher:
             ("wheel_integral_gain", self.cfg.wheel_integral_gain),
             ("wheel_integral_limit", self.cfg.wheel_integral_limit),
             ("maximum_wheel_acceleration", self.cfg.maximum_wheel_acceleration),
+            (
+                "longitudinal_position_margin_m",
+                self.cfg.longitudinal_position_margin_m,
+            ),
         ):
             if not math.isfinite(float(value)) or float(value) < 0.0:
                 raise ValueError(f"{name} must be finite and non-negative")
@@ -383,6 +388,7 @@ class M1PandaRollingWbcTeacher:
         )
         self._trajectory_seed = seed
         self._trajectory_time_s = 0.0
+        self._root_x_center = state.root_xy_yaw[0].detach().clone()
         self._safety.reset(teacher_state.controlled_q[-7:])
         self._last_safety_decision: SafetyDecision | None = None
         self._coord_velocity = torch.zeros_like(teacher_state.coord_q)
@@ -412,6 +418,7 @@ class M1PandaRollingWbcTeacher:
         )
         self._trajectory_seed = seed
         self._trajectory_time_s = 0.0
+        self._root_x_center = state.root_xy_yaw[0].detach().clone()
         self._safety.reset(self._arm_target)
         self._last_safety_decision = None
 
@@ -431,6 +438,14 @@ class M1PandaRollingWbcTeacher:
         twist_scale: float,
     ) -> tuple[MotionDistributionResult, str | None]:
         teacher_state = state.teacher_state
+        coord_q_min = teacher_state.coord_q_min.clone()
+        coord_q_max = teacher_state.coord_q_max.clone()
+        coord_q_min[0] = (
+            self._root_x_center - self.cfg.longitudinal_position_margin_m
+        )
+        coord_q_max[0] = (
+            self._root_x_center + self.cfg.longitudinal_position_margin_m
+        )
         try:
             result = self._motion_distribution_fn(
                 coordinated_jacobian=teacher_state.coordinated_jacobian,
@@ -439,8 +454,8 @@ class M1PandaRollingWbcTeacher:
                 prescribed_base_velocity=base_velocity,
                 q=teacher_state.coord_q,
                 qd=teacher_state.coord_qd,
-                q_min=teacher_state.coord_q_min,
-                q_max=teacher_state.coord_q_max,
+                q_min=coord_q_min,
+                q_max=coord_q_max,
                 v_max=teacher_state.coord_v_max,
                 a_max=teacher_state.coord_a_max,
                 manipulability_gradient=teacher_state.manipulability_gradient,
