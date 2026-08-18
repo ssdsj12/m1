@@ -23,6 +23,7 @@ from go2_pvcnn.control.m1_panda_coordination.standing_wbc import (
 from go2_pvcnn.control.m1_panda_coordination.teacher import TeacherState
 from go2_pvcnn.control.m1_panda_coordination.trajectory import (
     BandLimitedTrajectoryCfg,
+    TrajectorySample,
 )
 
 
@@ -275,15 +276,87 @@ class _RecordingWbcSolver:
         )
 
 
-def _rolling_teacher(motion=None, wbc=None):
+class _RecordingTrajectory:
+    def __init__(self):
+        self.root_velocities = []
+
+    def reset(self, center_pose, root_xy_yaw, *, seed):
+        return None
+
+    def sample(self, time_s, root_xy_yaw, root_vxy_yawrate):
+        self.root_velocities.append(root_vxy_yawrate.clone())
+        return TrajectorySample(
+            pose=torch.zeros(6, dtype=torch.float64),
+            twist=torch.zeros(6, dtype=torch.float64),
+            acceleration=torch.zeros(6, dtype=torch.float64),
+        )
+
+
+def _rolling_teacher(motion=None, wbc=None, trajectory=None):
     return M1PandaRollingWbcTeacher(
         kp=torch.full((23,), 2.0, dtype=torch.float64),
         kd=torch.full((23,), 0.2, dtype=torch.float64),
         effort_limit=torch.full((23,), 100.0, dtype=torch.float64),
         safe_arm_target=torch.zeros(7, dtype=torch.float64),
+        trajectory=trajectory,
         motion_distribution_fn=motion,
         wbc_solver_fn=wbc,
     )
+
+
+def test_rolling_teacher_advects_body_trajectory_with_commanded_not_measured_base_velocity():
+    trajectory = _RecordingTrajectory()
+    teacher = _rolling_teacher(
+        _RecordingMotionDistributor(),
+        _RecordingWbcSolver(),
+        trajectory,
+    )
+    state = replace(
+        _rolling_state(0),
+        root_vxy_yawrate=torch.tensor(
+            [0.2, -0.1, 0.3], dtype=torch.float64
+        ),
+    )
+    teacher.reset(state, seed=42)
+
+    teacher.step(state)
+
+    assert torch.equal(
+        trajectory.root_velocities[-1],
+        torch.zeros(3, dtype=torch.float64),
+    )
+
+
+def test_restart_mission_preserves_settled_low_level_state_and_restarts_schedule():
+    teacher = _rolling_teacher(
+        _RecordingMotionDistributor(), _RecordingWbcSolver()
+    )
+    state = _rolling_state(0)
+    state = replace(
+        state,
+        teacher_state=replace(
+            state.teacher_state,
+            controlled_qd=torch.cat(
+                (
+                    torch.zeros(12, dtype=torch.float64),
+                    torch.ones(4, dtype=torch.float64),
+                    torch.zeros(7, dtype=torch.float64),
+                )
+            ),
+        ),
+    )
+    teacher.reset(state, seed=42)
+    teacher.step(state)
+    settled_integral = teacher._wheel_velocity_integral.clone()
+    settled_leg_target = teacher._leg_target.clone()
+
+    teacher.restart_mission(state, seed=42)
+
+    assert torch.equal(teacher._wheel_velocity_integral, settled_integral)
+    assert torch.equal(teacher._leg_target, settled_leg_target)
+    command = teacher.step(state)
+    assert command.phase == 0
+    assert command.shaped_base_velocity_mps == pytest.approx(0.0)
 
 
 def test_rolling_teacher_uses_50hz_distribution_and_200hz_wbc():

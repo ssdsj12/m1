@@ -531,7 +531,7 @@ def main() -> int:
                     break
                 if ready:
                     state = replace(state, mission_step=0)
-                    teacher.reset(state, seed=args.seed)
+                    teacher.restart_mission(state, seed=args.seed)
                     settled = True
             command = teacher.step(state)
             effort_action = command.effort.to(

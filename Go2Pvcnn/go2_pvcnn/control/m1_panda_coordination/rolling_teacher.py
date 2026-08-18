@@ -398,6 +398,23 @@ class M1PandaRollingWbcTeacher:
         self._last_distribution: MotionDistributionResult | None = None
         self._initialized = True
 
+    def restart_mission(
+        self, state: RollingTeacherState, *, seed: int
+    ) -> None:
+        """Restart scored commands without disturbing settled low-level state."""
+
+        if not self._initialized:
+            raise RuntimeError("teacher must be reset before mission restart")
+        self._validate_state(state)
+        self._schedule.reset()
+        self._trajectory.reset(
+            state.teacher_state.ee_pose, state.root_xy_yaw, seed=seed
+        )
+        self._trajectory_seed = seed
+        self._trajectory_time_s = 0.0
+        self._safety.reset(self._arm_target)
+        self._last_safety_decision = None
+
     def _prior_scale(self) -> tuple[float, float]:
         if self._last_safety_decision is None:
             return 1.0, 1.0
@@ -504,7 +521,7 @@ class M1PandaRollingWbcTeacher:
         sample = self._trajectory.sample(
             self._trajectory_time_s,
             state.root_xy_yaw,
-            state.root_vxy_yawrate,
+            base_velocity,
         )
         prior_safety_state = self._safety.state
         high_level_hold = prior_safety_state >= SafetyState.HOLD
@@ -582,7 +599,7 @@ class M1PandaRollingWbcTeacher:
             sample = self._trajectory.sample(
                 0.0,
                 state.root_xy_yaw,
-                state.root_vxy_yawrate,
+                base_velocity,
             )
         if recovered_hold:
             self._arm_target = teacher_state.controlled_q[-7:].detach().clone()
