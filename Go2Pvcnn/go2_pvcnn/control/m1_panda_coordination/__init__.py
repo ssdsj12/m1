@@ -22,6 +22,12 @@ from .student_contracts import (
     teacher_residual_label,
 )
 from .student_mission import StudentMissionSample, StudentS1Mission
+from .student_model import (
+    M1PandaStudent,
+    StudentHistoryBuffer,
+    StudentNetworkCfg,
+    StudentOutput,
+)
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -43,4 +49,8 @@ __all__ = [
     "teacher_residual_label",
     "StudentMissionSample",
     "StudentS1Mission",
+    "M1PandaStudent",
+    "StudentHistoryBuffer",
+    "StudentNetworkCfg",
+    "StudentOutput",
 ]

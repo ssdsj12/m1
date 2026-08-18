@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.9 | T400 | active | P0 | Student Tasks 1–2 complete: 100/10/23 residual contract plus deployable five-phase mission; `31` planned mission/Teacher/play tests pass. | [Student S1 mission](log/2026-08-18-m1-panda-student-s1-mission.md) |
+| T400.9 | T400 | active | P0 | Student Tasks 1–3 complete: 100/10/23 contract, deployable mission and GRU estimator/actor; Tasks 1–3 combined `21 passed`. | [Student S1 model](log/2026-08-18-m1-panda-student-s1-model.md) |
 | T400.8 | T400 | done | P0 | C0 Tasks 1–10 accepted: `177 passed`; GPU0 8+2000-step exits 0; all hard metrics pass with zero snap/reset/contact/limit failures. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | done | P0 | Accepted asset SHA `643fd061...`; local surface, topology, relocation, no-snap, visual, C0 2000 and both C1a 4000 GPU0 hard gates pass. | [rebaseline evidence](log/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md) |
@@ -212,6 +212,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Time | Topic | Result | Todo | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-18 | M1 + Panda Student S1 temporal model | Task 3 pass: valid module RED; focused `9 passed`; Tasks 1–3 `21 passed`; explicit 10×100 history, 6+32 estimator, 23 actor, gradients/round-trip | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-model.md](log/2026-08-18-m1-panda-student-s1-model.md) |
 | 2026-08-18 | M1 + Panda Student S1 mission | Task 2 pass: valid module RED; focused `5 passed`; planned `31 passed`; deterministic isolated mission and external Teacher injection | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-mission.md](log/2026-08-18-m1-panda-student-s1-mission.md) |
 | 2026-08-18 | M1 + Panda Student S1 contracts | Task 1 pass: valid import RED; `9 passed`; frozen 100-observation/10-history/23-action reconstruction and safety limits | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-contracts.md](log/2026-08-18-m1-panda-student-s1-contracts.md) |
 | 2026-08-18 | M1 + Panda zero-clearance Teacher rebaseline | Tasks 5–6 pass: accepted SHA `643fd061...`; `184 passed`; C0 2000 and two C1a 4000 GPU0 runs pass; Student S1 unlocked | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md](log/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md) |
