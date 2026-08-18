@@ -64,6 +64,9 @@ def test_safety_default_thresholds_are_frozen():
     assert cfg.critical_angle_rad == pytest.approx(math.radians(10.0))
     assert cfg.required_wheel_contacts == 4
     assert cfg.max_lateral_slip == pytest.approx(0.05)
+    assert cfg.max_rolling_residual == pytest.approx(0.05)
+    assert cfg.retract_base_speed == pytest.approx(0.02)
+    assert cfg.base_scaled_velocity_factor == pytest.approx(0.5)
     assert cfg.unsafe_samples_to_advance == 2
     assert cfg.safe_samples_to_recover == 20
 
@@ -84,6 +87,8 @@ def _update(supervisor, **overrides):
         "qp_success": True,
         "signals_finite": True,
         "current_arm_target": torch.ones(7, dtype=torch.float64),
+        "max_rolling_residual": 0.0,
+        "base_speed": 0.0,
     }
     values.update(overrides)
     return supervisor.update(**values)
@@ -144,6 +149,48 @@ def test_hold_and_retract_stop_wheels_and_retract_without_snap():
     assert torch.all(retract.arm_target < held)
     assert torch.allclose(retract.arm_target, held - 0.05)
     assert not torch.equal(retract.arm_target, torch.zeros_like(held))
+
+
+def test_rolling_residual_advances_safety_and_scale_applies_to_base():
+    supervisor = _supervisor()
+
+    _update(supervisor, max_rolling_residual=0.051)
+    decision = _update(supervisor, max_rolling_residual=0.051)
+
+    assert decision.state == SafetyState.SCALE
+    assert decision.reason == "rolling_residual"
+    assert decision.base_velocity_scale == pytest.approx(0.5)
+
+
+def test_retract_waits_in_hold_until_base_is_below_stop_threshold():
+    supervisor = _supervisor()
+    unsafe = {"roll": math.radians(8.0), "base_speed": 0.03}
+    for _ in range(8):
+        decision = _update(supervisor, **unsafe)
+
+    assert decision.state == SafetyState.HOLD
+    assert decision.stop_wheels
+
+    first_stopped = _update(
+        supervisor, roll=math.radians(8.0), base_speed=0.0
+    )
+    second_stopped = _update(
+        supervisor, roll=math.radians(8.0), base_speed=0.0
+    )
+
+    assert first_stopped.state == SafetyState.HOLD
+    assert second_stopped.state == SafetyState.RETRACT
+
+
+def test_track_and_hold_report_base_velocity_scales():
+    supervisor = _supervisor()
+    track = _update(supervisor)
+    assert track.base_velocity_scale == pytest.approx(1.0)
+
+    for _ in range(4):
+        hold = _update(supervisor, roll=math.radians(8.0))
+    assert hold.state == SafetyState.HOLD
+    assert hold.base_velocity_scale == pytest.approx(0.0)
 
 
 def test_twenty_safe_samples_recover_exactly_one_level():

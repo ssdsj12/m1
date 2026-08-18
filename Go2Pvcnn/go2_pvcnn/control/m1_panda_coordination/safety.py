@@ -28,9 +28,12 @@ class SafetyCfg:
     critical_angle_rad: float = math.radians(10.0)
     required_wheel_contacts: int = 4
     max_lateral_slip: float = 0.05
+    max_rolling_residual: float = 0.05
+    retract_base_speed: float = 0.02
     unsafe_samples_to_advance: int = 2
     safe_samples_to_recover: int = 20
     scaled_twist_factor: float = 0.5
+    base_scaled_velocity_factor: float = 0.5
     retract_rate_rad_per_step: float = 0.02
 
 
@@ -38,6 +41,7 @@ class SafetyCfg:
 class SafetyDecision:
     state: SafetyState
     twist_scale: float
+    base_velocity_scale: float
     arm_target: torch.Tensor
     stop_wheels: bool
     terminate: bool
@@ -128,13 +132,17 @@ class BalanceSafetySupervisor:
 
         if self._state == SafetyState.TRACK:
             twist_scale = 1.0
+            base_velocity_scale = 1.0
         elif self._state == SafetyState.SCALE:
             twist_scale = self.cfg.scaled_twist_factor
+            base_velocity_scale = self.cfg.base_scaled_velocity_factor
         else:
             twist_scale = 0.0
+            base_velocity_scale = 0.0
         return SafetyDecision(
             state=self._state,
             twist_scale=twist_scale,
+            base_velocity_scale=base_velocity_scale,
             arm_target=arm_target,
             stop_wheels=self._state >= SafetyState.HOLD,
             terminate=self._state == SafetyState.TERMINATE,
@@ -151,11 +159,19 @@ class BalanceSafetySupervisor:
         qp_success: bool,
         signals_finite: bool,
         current_arm_target: torch.Tensor,
+        max_rolling_residual: float = 0.0,
+        base_speed: float = 0.0,
     ) -> SafetyDecision:
         self._validate_arm_target_contract(current_arm_target)
         scalar_finite = all(
             math.isfinite(float(value))
-            for value in (roll, pitch, max_lateral_slip)
+            for value in (
+                roll,
+                pitch,
+                max_lateral_slip,
+                max_rolling_residual,
+                base_speed,
+            )
         )
         target_finite = bool(torch.isfinite(current_arm_target).all().item())
         all_finite = bool(signals_finite) and scalar_finite and target_finite
@@ -196,6 +212,9 @@ class BalanceSafetySupervisor:
         elif abs(float(max_lateral_slip)) > self.cfg.max_lateral_slip:
             unsafe = True
             reason = "lateral_slip"
+        elif abs(float(max_rolling_residual)) > self.cfg.max_rolling_residual:
+            unsafe = True
+            reason = "rolling_residual"
         elif not qp_success:
             unsafe = True
             reason = "qp_failure"
@@ -206,7 +225,12 @@ class BalanceSafetySupervisor:
             self._safe_count = 0
             self._unsafe_count += 1
             if self._unsafe_count >= self.cfg.unsafe_samples_to_advance:
-                self._advance()
+                stopped_for_retract = (
+                    self._state != SafetyState.HOLD
+                    or abs(float(base_speed)) < self.cfg.retract_base_speed
+                )
+                if stopped_for_retract:
+                    self._advance()
                 self._unsafe_count = 0
         else:
             self._unsafe_count = 0
