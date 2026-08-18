@@ -83,6 +83,23 @@ def test_adapter_reads_live_physx_dynamics_and_explicitly_combines_bias_force():
     assert "dtype=torch.float64" in source
 
 
+def test_c0_adapter_keeps_accepted_radius_default_but_allows_c1a_injection():
+    source = _source()
+
+    assert "WHEEL_RADIUS_M = 0.0959" in source
+    assert "wheel_radius_m: float = WHEEL_RADIUS_M" in source
+    assert "self.wheel_radius_m = float(wheel_radius_m)" in source
+    assert "build_wheel_contact_jacobian(" in source
+    for field in (
+        "latest_root_xy_yaw",
+        "latest_root_vxy_yawrate",
+        "latest_generalized_velocity",
+        "latest_contact_jacobian",
+        "latest_wheel_velocity",
+    ):
+        assert field in source
+
+
 def test_runtime_builds_teacher_state_applies_effort_and_steps_once():
     source = _source()
     tree = ast.parse(source)

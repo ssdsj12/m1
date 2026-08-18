@@ -20,6 +20,11 @@ PROJECT_ROOT = THIS_FILE.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from go2_pvcnn.control.m1_panda_coordination.rolling_contact import (
+    RollingContactCfg,
+    build_wheel_contact_jacobian,
+)
+
 TASK_ID = "Isaac-M1-Panda-Wbc-Teacher-C0-v0"
 PHYSICS_DT = 0.005
 SETTLE_STEPS = 100
@@ -217,13 +222,22 @@ def relative_axis_angle(math_utils, current_quat: torch.Tensor, reference_quat: 
 class PhysxTeacherAdapter:
     """Translate one live Isaac articulation into explicit C0 Teacher tensors."""
 
-    def __init__(self, env, math_utils):
+    def __init__(
+        self,
+        env,
+        math_utils,
+        wheel_radius_m: float = WHEEL_RADIUS_M,
+    ):
         from go2_pvcnn.control.m1_panda_coordination.contracts import WbcJointMap
 
         self.env = env
         self.robot = env.scene["robot"]
         self.contact_sensor = env.scene["contact_forces"]
         self.math_utils = math_utils
+        self.wheel_radius_m = float(wheel_radius_m)
+        self.rolling_contact_cfg = RollingContactCfg(
+            wheel_radius_m=self.wheel_radius_m
+        )
         robot = self.robot
         if robot.num_instances != 1:
             raise RuntimeError("C0 supports exactly one articulation instance")
@@ -350,20 +364,17 @@ class PhysxTeacherAdapter:
         jacobians = _cpu64(jacobians_device)
         generalized_velocity = self._generalized_velocity()
 
-        contact_offset_w = torch.tensor(
-            [0.0, 0.0, -WHEEL_RADIUS_M], dtype=torch.float64
-        )
-        wheel_jacobians = torch.stack(
+        wheel_body_jacobians = torch.stack(
             [
-                contact_point_linear_jacobian(
-                    self._body_jacobian(jacobians, int(index)),
-                    contact_offset_w,
-                )
+                self._body_jacobian(jacobians, int(index))
                 for index in self.wheel_body_ids.cpu()
             ],
             dim=0,
         )
-        contact_jacobian = wheel_jacobians.reshape(12, 31)
+        contact_jacobian = build_wheel_contact_jacobian(
+            wheel_body_jacobians,
+            self.rolling_contact_cfg,
+        )
         if self._previous_contact_jacobian is None:
             contact_jacobian_dot_qd = torch.zeros(12, dtype=torch.float64)
         else:
@@ -408,6 +419,18 @@ class PhysxTeacherAdapter:
         arm_qd = joint_velocity.index_select(0, self.joint_map.panda_arm)
         root_linear_velocity = _cpu64(data.root_lin_vel_w[0])
         root_angular_velocity = _cpu64(data.root_ang_vel_w[0])
+        self.latest_root_xy_yaw = torch.cat(
+            (root_position[:2], root_position.new_tensor((yaw,)))
+        )
+        self.latest_root_vxy_yawrate = torch.cat(
+            (
+                root_linear_velocity[:2],
+                root_angular_velocity[2:3],
+            )
+        )
+        self.latest_generalized_velocity = generalized_velocity.clone()
+        self.latest_contact_jacobian = contact_jacobian.clone()
+        self.latest_wheel_velocity = controlled_qd[12:16].clone()
         coord_q = torch.cat(
             (root_position[:2], torch.tensor([yaw], dtype=torch.float64), arm_q)
         )
