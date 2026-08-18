@@ -46,9 +46,56 @@ from go2_pvcnn.control.m1_panda_coordination.trajectory import (
 TASK_ID = "Isaac-M1-Panda-Wbc-Teacher-C1a-v0"
 PHYSICS_DT = 0.005
 SETTLE_STEPS = 100
+MAX_SETTLE_STEPS = 600
+SETTLE_STABLE_SAMPLES = 20
+SETTLE_MAX_BASE_SPEED_MPS = 0.02
+SETTLE_MAX_CONTACT_SPEED_MPS = 0.04
 MISSION_STEPS = 4000
 PHASE_STEPS = 800
 WHEEL_RADIUS_M = 0.095
+
+
+@dataclass
+class SettlingGate:
+    """Start scoring only after the composite is continuously near rest."""
+
+    minimum_steps: int = SETTLE_STEPS
+    required_stable_samples: int = SETTLE_STABLE_SAMPLES
+    maximum_steps: int = MAX_SETTLE_STEPS
+    max_base_speed_mps: float = SETTLE_MAX_BASE_SPEED_MPS
+    max_contact_speed_mps: float = SETTLE_MAX_CONTACT_SPEED_MPS
+    _stable_samples: int = field(default=0, init=False, repr=False)
+
+    def update(
+        self,
+        *,
+        physics_step: int,
+        heading_speed_mps: float,
+        rolling_residual_mps: float,
+        lateral_slip_mps: float,
+        wheel_contact_count: int,
+        base_contact: int,
+        signals_finite: bool,
+    ) -> bool:
+        stable = bool(
+            physics_step >= self.minimum_steps
+            and signals_finite
+            and wheel_contact_count == 4
+            and base_contact == 0
+            and abs(float(heading_speed_mps)) <= self.max_base_speed_mps
+            and abs(float(rolling_residual_mps))
+            <= self.max_contact_speed_mps
+            and abs(float(lateral_slip_mps))
+            <= self.max_contact_speed_mps
+        )
+        self._stable_samples = self._stable_samples + 1 if stable else 0
+        if self._stable_samples >= self.required_stable_samples:
+            return True
+        if physics_step >= self.maximum_steps:
+            raise RuntimeError(
+                "settling did not converge before the maximum step"
+            )
+        return False
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -455,17 +502,37 @@ def main() -> int:
         physics_step = 0
         mission_step = 0
         settled = False
+        settling_gate = SettlingGate()
         while simulation_app.is_running() and (
             args.steps == 0 or mission_step < args.steps
         ):
             schedule_step = mission_step if settled else physics_step
-            state, base_contact, _ = adapter.build_rolling_state(
+            state, base_contact, metrics = adapter.build_rolling_state(
                 physics_step, schedule_step
             )
-            if not settled and physics_step == SETTLE_STEPS:
-                state = replace(state, mission_step=0)
-                teacher.reset(state, seed=args.seed)
-                settled = True
+            if not settled:
+                heading_speed, _ = _heading_velocity(state)
+                try:
+                    ready = settling_gate.update(
+                        physics_step=physics_step,
+                        heading_speed_mps=heading_speed,
+                        rolling_residual_mps=(
+                            metrics.max_longitudinal_residual_mps
+                        ),
+                        lateral_slip_mps=metrics.max_lateral_slip_mps,
+                        wheel_contact_count=(
+                            state.teacher_state.wheel_contact_count
+                        ),
+                        base_contact=base_contact,
+                        signals_finite=state.teacher_state.signals_finite,
+                    )
+                except RuntimeError:
+                    summary.exit_reason = "settling_timeout"
+                    break
+                if ready:
+                    state = replace(state, mission_step=0)
+                    teacher.reset(state, seed=args.seed)
+                    settled = True
             command = teacher.step(state)
             effort_action = command.effort.to(
                 device=env.device, dtype=torch.float32

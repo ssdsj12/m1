@@ -117,6 +117,91 @@ def test_c1a_validate_args_rejects_invalid_shape_and_step_ranges():
             module.validate_args(args)
 
 
+def test_settling_gate_requires_minimum_steps_and_continuous_stability():
+    module = _load_script()
+    gate = module.SettlingGate(
+        minimum_steps=100,
+        required_stable_samples=3,
+        maximum_steps=200,
+    )
+
+    assert not gate.update(
+        physics_step=99,
+        heading_speed_mps=0.0,
+        rolling_residual_mps=0.0,
+        lateral_slip_mps=0.0,
+        wheel_contact_count=4,
+        base_contact=0,
+        signals_finite=True,
+    )
+    assert not gate.update(
+        physics_step=100,
+        heading_speed_mps=0.01,
+        rolling_residual_mps=0.03,
+        lateral_slip_mps=0.01,
+        wheel_contact_count=4,
+        base_contact=0,
+        signals_finite=True,
+    )
+    assert not gate.update(
+        physics_step=101,
+        heading_speed_mps=0.03,
+        rolling_residual_mps=0.03,
+        lateral_slip_mps=0.01,
+        wheel_contact_count=4,
+        base_contact=0,
+        signals_finite=True,
+    )
+    assert not gate.update(
+        physics_step=102,
+        heading_speed_mps=0.01,
+        rolling_residual_mps=0.03,
+        lateral_slip_mps=0.01,
+        wheel_contact_count=4,
+        base_contact=0,
+        signals_finite=True,
+    )
+    assert not gate.update(
+        physics_step=103,
+        heading_speed_mps=0.01,
+        rolling_residual_mps=0.03,
+        lateral_slip_mps=0.01,
+        wheel_contact_count=4,
+        base_contact=0,
+        signals_finite=True,
+    )
+    assert gate.update(
+        physics_step=104,
+        heading_speed_mps=0.01,
+        rolling_residual_mps=0.03,
+        lateral_slip_mps=0.01,
+        wheel_contact_count=4,
+        base_contact=0,
+        signals_finite=True,
+    )
+
+
+def test_settling_gate_times_out_instead_of_scoring_unstable_state():
+    module = _load_script()
+    gate = module.SettlingGate(
+        minimum_steps=2,
+        required_stable_samples=2,
+        maximum_steps=3,
+    )
+
+    with pytest.raises(RuntimeError, match="settling did not converge"):
+        for physics_step in range(4):
+            gate.update(
+                physics_step=physics_step,
+                heading_speed_mps=0.1,
+                rolling_residual_mps=0.1,
+                lateral_slip_mps=0.0,
+                wheel_contact_count=4,
+                base_contact=0,
+                signals_finite=True,
+            )
+
+
 def test_formal_hard_gates_reject_good_tracking_with_bad_balance():
     module = _load_script()
     summary = module.C1aSummary(seed=42, requested_steps=4000)
