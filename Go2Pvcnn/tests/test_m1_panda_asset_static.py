@@ -115,6 +115,43 @@ def test_builder_enables_robot_assembler_after_app_startup():
     assert app_start < enable < assembler_import
 
 
+def test_builder_reports_failures_before_closing_kit_and_exits_reliably():
+    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
+    tree = ast.parse(source)
+    imports = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert {"os", "sys", "traceback"} <= imports
+    report = source.index("traceback.print_exc()")
+    flush = source.index("sys.stderr.flush()", report)
+    failure_exit = source.index("os._exit(1)", flush)
+    close = source.index("simulation_app.close()", failure_exit)
+    success_exit = source.index("os._exit(0)", close)
+    assert report < flush < failure_exit < close < success_exit
+
+
+def test_builder_reuses_panda_and_supports_isaac_sim_5_assembler():
+    source = (ROOT / "scripts" / "build_m1_panda_asset.py").read_text()
+    assert 'parser.add_argument("--force-panda-conversion"' in source
+    assert "force_panda_conversion: bool = False" in source
+    guard = source.index(
+        "if force_panda_conversion or not panda_usd.is_file():"
+    )
+    converter = source.index("converter = UrdfConverter(", guard)
+    stage = source.index("stage_utils.create_new_stage()", converter)
+    assert guard < converter < stage
+    assert 'hasattr(assembler, "assemble_articulations")' in source
+    assert "assembler.assemble_rigid_bodies(" in source
+    assert "MakeMatrixXform().Set(" in source
+    assert "panda_root_joint.SetActive(True)" in source
+    assert "panda_root_joint.RemoveAPI(UsdPhysics.ArticulationRootAPI)" in source
+    assert "panda_root_joint.RemoveAPI(PhysxSchema.PhysxArticulationAPI)" in source
+    assert 'GetAttribute("physics:jointEnabled").Set(False)' in source
+
+
 def test_verifier_checks_offline_and_topology_contracts():
     source = (ROOT / "scripts" / "verify_m1_panda_asset.py").read_text()
     for token in (

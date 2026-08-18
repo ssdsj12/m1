@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+import sys
+import traceback
 
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--asset-root", type=Path, required=True)
+parser.add_argument("--force-panda-conversion", action="store_true")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 app_launcher = AppLauncher(args)
 simulation_app = app_launcher.app
 
 import numpy as np
-from pxr import PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 
 from isaacsim.core.utils.extensions import enable_extension
 
@@ -51,6 +55,64 @@ def mount_offset_z(
     if clearance_m < 0.0:
         raise ValueError("mount clearance must be nonnegative")
     return float(base_top_z - base_origin_z + clearance_m)
+
+
+def _assemble_m1_panda(
+    assembler: RobotAssembler,
+    stage: Usd.Stage,
+    mount_offset: np.ndarray,
+):
+    if hasattr(assembler, "assemble_articulations"):
+        return assembler.assemble_articulations(
+            ROOT_PRIM,
+            PANDA_PRIM,
+            BASE_MOUNT_FRAME,
+            PANDA_MOUNT_FRAME,
+            fixed_joint_offset=mount_offset,
+            fixed_joint_orient=np.array([1.0, 0.0, 0.0, 0.0]),
+            mask_all_collisions=True,
+            single_robot=True,
+        )
+
+    panda_prim = stage.GetPrimAtPath(PANDA_PRIM)
+    _require(panda_prim.IsValid(), f"invalid Panda prim: {PANDA_PRIM}")
+    panda_transform = Gf.Matrix4d(1.0)
+    panda_transform.SetTranslate(
+        Gf.Vec3d(*(float(value) for value in mount_offset))
+    )
+    UsdGeom.Xformable(panda_prim).MakeMatrixXform().Set(panda_transform)
+    assembled = assembler.assemble_rigid_bodies(
+        ROOT_PRIM,
+        PANDA_PRIM,
+        EXPECTED_MOUNT_BODY0,
+        EXPECTED_MOUNT_BODY1,
+        mask_all_collisions=True,
+        refresh_asset_paths=False,
+    )
+    joint = assembled.fixed_joint
+    joint.GetLocalPos0Attr().Set(Gf.Vec3f(*mount_offset))
+    joint.GetLocalRot0Attr().Set(Gf.Quatf(1.0))
+    joint.GetLocalPos1Attr().Set(Gf.Vec3f(*EXPECTED_MOUNT_CHILD_LOCAL_POS))
+    joint.GetLocalRot1Attr().Set(Gf.Quatf(1.0))
+    joint.GetPrim().CreateAttribute(
+        "physics:excludeFromArticulation", Sdf.ValueTypeNames.Bool
+    ).Set(False)
+    panda_root_joint = stage.GetPrimAtPath(f"{PANDA_PRIM}/root_joint")
+    _require(
+        panda_root_joint.IsValid(), "Panda root_joint is unavailable"
+    )
+    panda_root_joint.SetActive(True)
+    panda_root_joint.RemoveAPI(UsdPhysics.ArticulationRootAPI)
+    panda_root_joint.RemoveAPI(PhysxSchema.PhysxArticulationAPI)
+    root_enabled_attr = panda_root_joint.GetAttribute(
+        "physics:jointEnabled"
+    )
+    _require(
+        root_enabled_attr.IsValid(),
+        "Panda root_joint has no physics:jointEnabled attribute",
+    )
+    panda_root_joint.GetAttribute("physics:jointEnabled").Set(False)
+    return assembled
 
 
 def _require(condition: bool, message: str) -> None:
@@ -140,7 +202,9 @@ def _validate_serialized_asset(combined_usd: Path) -> None:
     _validate_stage_contract(reopened_stage, "serialized reopen")
 
 
-def build_asset(asset_root: Path) -> Path:
+def build_asset(
+    asset_root: Path, force_panda_conversion: bool = False
+) -> Path:
     asset_root = asset_root.resolve()
     panda_dir = asset_root / "panda"
     panda_dir.mkdir(parents=True, exist_ok=True)
@@ -148,21 +212,28 @@ def build_asset(asset_root: Path) -> Path:
     combined_usd = asset_root / "m1_panda.usd"
     urdf = asset_root / "panda_source/franka_description/robots/panda_arm_hand.urdf"
 
-    converter = UrdfConverter(
-        UrdfConverterCfg(
-            asset_path=str(urdf),
-            usd_dir=str(panda_dir),
-            usd_file_name=panda_usd.name,
-            fix_base=True,
-            merge_fixed_joints=False,
-            force_usd_conversion=True,
-            joint_drive=UrdfConverterCfg.JointDriveCfg(
-                gains=UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=80.0, damping=4.0),
-                target_type="position",
-            ),
+    if force_panda_conversion or not panda_usd.is_file():
+        converter = UrdfConverter(
+            UrdfConverterCfg(
+                asset_path=str(urdf),
+                usd_dir=str(panda_dir),
+                usd_file_name=panda_usd.name,
+                fix_base=True,
+                merge_fixed_joints=False,
+                force_usd_conversion=True,
+                joint_drive=UrdfConverterCfg.JointDriveCfg(
+                    gains=UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                        stiffness=80.0, damping=4.0
+                    ),
+                    target_type="position",
+                ),
+            )
         )
-    )
-    _require(Path(converter.usd_path).is_file(), f"URDF conversion did not produce {panda_usd}")
+        _require(
+            Path(converter.usd_path).is_file(),
+            f"URDF conversion did not produce {panda_usd}",
+        )
+    _require(panda_usd.is_file(), f"Panda USD does not exist: {panda_usd}")
 
     stage_utils.create_new_stage()
     prim_utils.create_prim(ROOT_PRIM, usd_path=str(asset_root / "m1_floating.usda"))
@@ -182,15 +253,8 @@ def build_asset(asset_root: Path) -> Path:
         ]
     )
 
-    assembled = RobotAssembler().assemble_articulations(
-        ROOT_PRIM,
-        PANDA_PRIM,
-        BASE_MOUNT_FRAME,
-        PANDA_MOUNT_FRAME,
-        fixed_joint_offset=mount_offset,
-        fixed_joint_orient=np.array([1.0, 0.0, 0.0, 0.0]),
-        mask_all_collisions=True,
-        single_robot=True,
+    assembled = _assemble_m1_panda(
+        RobotAssembler(), stage, mount_offset
     )
     _require(
         str(assembled.fixed_joint.GetPath()) == MOUNT_JOINT_PATH,
@@ -214,6 +278,15 @@ def build_asset(asset_root: Path) -> Path:
 
 if __name__ == "__main__":
     try:
-        print(build_asset(args.asset_root))
-    finally:
-        simulation_app.close()
+        print(
+            build_asset(
+                args.asset_root,
+                force_panda_conversion=args.force_panda_conversion,
+            )
+        )
+    except BaseException:
+        traceback.print_exc()
+        sys.stderr.flush()
+        os._exit(1)
+    simulation_app.close()
+    os._exit(0)
