@@ -274,8 +274,9 @@ def distribute_motion(
     sigma_min: torch.Tensor,
     dt: float,
     cfg: MotionDistributionCfg | None = None,
+    prescribed_base_velocity: torch.Tensor | None = None,
 ) -> MotionDistributionResult:
-    """Distribute a Cartesian target over Panda first, then the M1 planar base."""
+    """Distribute a Cartesian target with optional fixed M1 planar velocity."""
 
     cfg = cfg or MotionDistributionCfg()
     batch_shape = _validate_inputs(
@@ -294,7 +295,48 @@ def distribute_motion(
     lower, upper = compute_velocity_bounds(
         q, qd, q_min, q_max, v_max, a_max, dt
     )
+    has_prescribed_base = prescribed_base_velocity is not None
+    if not has_prescribed_base:
+        prescribed = torch.zeros(
+            batch_shape + (3,), dtype=q.dtype, device=q.device
+        )
+    else:
+        require_tensor(
+            "prescribed_base_velocity",
+            prescribed_base_velocity,
+            trailing_shape=(3,),
+        )
+        if prescribed_base_velocity.shape[:-1] != batch_shape:
+            raise ValueError(
+                "prescribed_base_velocity batch dimensions must match "
+                "coordinated_jacobian"
+            )
+        if prescribed_base_velocity.dtype != coordinated_jacobian.dtype:
+            raise TypeError(
+                "prescribed_base_velocity dtype must match coordinated_jacobian"
+            )
+        if prescribed_base_velocity.device != coordinated_jacobian.device:
+            raise ValueError(
+                "prescribed_base_velocity device must match coordinated_jacobian"
+            )
+        prescribed = prescribed_base_velocity
+
     target = desired_twist + cfg.pose_gain * pose_error
+    if has_prescribed_base:
+        if (
+            (prescribed < lower[..., :3]) | (prescribed > upper[..., :3])
+        ).any().item():
+            raise ValueError(
+                "prescribed_base_velocity violates computed velocity bounds"
+            )
+        base_twist = torch.matmul(
+            coordinated_jacobian[..., :, :3], prescribed.unsqueeze(-1)
+        ).squeeze(-1)
+        target = target - base_twist
+        lower = lower.clone()
+        upper = upper.clone()
+        lower[..., :3] = 0.0
+        upper[..., :3] = 0.0
 
     count = reduce(mul, batch_shape, 1)
     flat_jacobian = coordinated_jacobian.reshape(count, 6, COORD_DOF)
@@ -303,6 +345,7 @@ def distribute_motion(
     flat_upper = upper.reshape(count, COORD_DOF)
     flat_gradient = manipulability_gradient.reshape(count, COORD_DOF)
     flat_sigma = sigma_min.reshape(count)
+    flat_prescribed = prescribed.reshape(count, 3)
 
     velocities = []
     base_active = []
@@ -320,6 +363,14 @@ def distribute_motion(
             cfg,
         )
         velocity_i, base_i, phi_i, psi_i, saturated_i = values
+        if has_prescribed_base:
+            velocity_i = velocity_i.clone()
+            velocity_i[:3] += flat_prescribed[index]
+            saturated_i = saturated_i.clone()
+            saturated_i[:3] = False
+            base_i = base_i or bool(
+                (flat_prescribed[index] != 0.0).any().item()
+            )
         velocities.append(velocity_i)
         base_active.append(base_i)
         phi.append(phi_i)

@@ -130,6 +130,87 @@ def test_arm_only_solution_is_selected_when_feasible():
     assert result.phi.item() == pytest.approx(1.0)
 
 
+def test_prescribed_base_velocity_is_fixed_and_arm_solves_remaining_twist():
+    inputs = _coordination_inputs()
+    inputs["desired_twist"][0] = 0.15
+    inputs["prescribed_base_velocity"] = torch.tensor(
+        [0.05, 0.0, 0.0], dtype=torch.float64
+    )
+
+    result = distribute_motion(**inputs)
+
+    assert torch.equal(
+        result.qd_coord[:3], inputs["prescribed_base_velocity"]
+    )
+    assert result.qd_coord[3].item() == pytest.approx(0.10, abs=1.0e-6)
+    assert result.base_active.item()
+    assert torch.allclose(
+        inputs["coordinated_jacobian"] @ result.qd_coord,
+        inputs["desired_twist"],
+        atol=1.0e-6,
+        rtol=1.0e-6,
+    )
+
+
+def test_omitted_prescribed_base_velocity_preserves_c0_arm_first_behavior():
+    inputs = _coordination_inputs()
+    inputs["desired_twist"][0] = 0.15
+
+    result = distribute_motion(**inputs)
+
+    assert torch.equal(result.qd_coord[:3], torch.zeros(3, dtype=torch.float64))
+    assert result.qd_coord[3].item() == pytest.approx(0.15, abs=1.0e-6)
+    assert not result.base_active.item()
+
+
+def test_prescribed_base_velocity_must_match_contract_and_computed_bounds():
+    inputs = _coordination_inputs()
+    inputs["prescribed_base_velocity"] = torch.tensor(
+        [11.0, 0.0, 0.0], dtype=torch.float64
+    )
+    with pytest.raises(
+        ValueError,
+        match="prescribed_base_velocity violates computed velocity bounds",
+    ):
+        distribute_motion(**inputs)
+
+    inputs = _coordination_inputs()
+    inputs["prescribed_base_velocity"] = torch.zeros(2, dtype=torch.float64)
+    with pytest.raises(
+        ValueError,
+        match=r"prescribed_base_velocity must end with shape \(3,\)",
+    ):
+        distribute_motion(**inputs)
+
+
+def test_batched_prescribed_base_velocity_is_applied_per_row():
+    inputs = _coordination_inputs()
+    for name, value in tuple(inputs.items()):
+        if isinstance(value, torch.Tensor):
+            inputs[name] = torch.stack((value, value))
+    inputs["desired_twist"][:, 0] = torch.tensor(
+        [0.15, -0.06], dtype=torch.float64
+    )
+    inputs["prescribed_base_velocity"] = torch.tensor(
+        [[0.05, 0.0, 0.0], [-0.02, 0.0, 0.0]], dtype=torch.float64
+    )
+
+    result = distribute_motion(**inputs)
+
+    assert torch.equal(
+        result.qd_coord[:, :3], inputs["prescribed_base_velocity"]
+    )
+    assert torch.all(result.base_active)
+    assert torch.allclose(
+        torch.matmul(
+            inputs["coordinated_jacobian"], result.qd_coord.unsqueeze(-1)
+        ).squeeze(-1),
+        inputs["desired_twist"],
+        atol=1.0e-6,
+        rtol=1.0e-6,
+    )
+
+
 def test_pose_error_feedback_participates_in_p1_target():
     inputs = _coordination_inputs()
     inputs["pose_error"][1] = 0.02
