@@ -223,10 +223,21 @@ def test_adapter_captures_initial_hand_quaternion_for_relative_pose():
     assert "self._initial_arm_q - arm_q" in source
 
 
-def test_floating_base_body_jacobian_omits_root_link():
+def test_body_jacobian_uses_direct_body_id_when_physx_includes_root_link():
     module = _load_script()
     jacobians = torch.arange(1 * 4 * 6 * 3).reshape(1, 4, 6, 3)
-    selected = module.PhysxTeacherAdapter._body_jacobian(jacobians, body_id=2)
+    selected = module.PhysxTeacherAdapter._body_jacobian(
+        jacobians, body_id=2, body_count=4
+    )
+    assert torch.equal(selected, jacobians[0, 2])
+
+
+def test_body_jacobian_offsets_body_id_when_physx_omits_root_link():
+    module = _load_script()
+    jacobians = torch.arange(1 * 3 * 6 * 3).reshape(1, 3, 6, 3)
+    selected = module.PhysxTeacherAdapter._body_jacobian(
+        jacobians, body_id=2, body_count=4
+    )
     assert torch.equal(selected, jacobians[0, 1])
 
 

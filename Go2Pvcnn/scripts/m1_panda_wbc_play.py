@@ -300,11 +300,25 @@ class PhysxTeacherAdapter:
         ]
 
     @staticmethod
-    def _body_jacobian(jacobians: torch.Tensor, body_id: int) -> torch.Tensor:
-        # Floating-base PhysX Jacobians omit the root link from body order.
-        if body_id <= 0:
-            raise ValueError("the floating root link has no PhysX body Jacobian row")
-        return jacobians[0, body_id - 1]
+    def _body_jacobian(
+        jacobians: torch.Tensor, body_id: int, body_count: int
+    ) -> torch.Tensor:
+        """Resolve PhysX body rows across root-inclusive and legacy layouts."""
+
+        jacobian_body_count = jacobians.shape[1]
+        if jacobian_body_count == body_count:
+            row = body_id
+        elif jacobian_body_count == body_count - 1:
+            if body_id <= 0:
+                raise ValueError(
+                    "the floating root link has no PhysX body Jacobian row"
+                )
+            row = body_id - 1
+        else:
+            raise ValueError(
+                "PhysX Jacobian body count does not match articulation bodies"
+            )
+        return jacobians[0, row]
 
     def _generalized_velocity(self) -> torch.Tensor:
         data = self.robot.data
@@ -366,7 +380,9 @@ class PhysxTeacherAdapter:
 
         wheel_body_jacobians = torch.stack(
             [
-                self._body_jacobian(jacobians, int(index))
+                self._body_jacobian(
+                    jacobians, int(index), len(robot.body_names)
+                )
                 for index in self.wheel_body_ids.cpu()
             ],
             dim=0,
@@ -383,9 +399,13 @@ class PhysxTeacherAdapter:
             ) @ generalized_velocity
         self._previous_contact_jacobian = contact_jacobian.clone()
 
-        hand_jacobian = self._body_jacobian(jacobians, self.hand_body_id)
+        hand_jacobian = self._body_jacobian(
+            jacobians, self.hand_body_id, len(robot.body_names)
+        )
         self.latest_hand_base_jacobian = hand_jacobian[:, :6].clone()
-        mount_jacobian = self._body_jacobian(jacobians, self.mount_body_id)
+        mount_jacobian = self._body_jacobian(
+            jacobians, self.mount_body_id, len(robot.body_names)
+        )
         panda_jacobian = hand_jacobian.index_select(1, self.arm_generalized_indices)
         coordinated_columns = torch.cat(
             (torch.tensor([0, 1, 5], dtype=torch.long), self.arm_generalized_indices)
