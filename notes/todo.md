@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.9 | T400 | active | P0 | Zero-clearance asset and C0/C1a Teacher authority pass; execute approved 100/10/23 online DAgger Student S1 plan using asset SHA `643fd061...`. | [Student S1 plan](../docs/superpowers/plans/2026-08-18-m1-panda-dagger-student-s1.md) |
+| T400.9 | T400 | active | P0 | Student Task 1 complete: 100/10/23 residual contract passes `9` tests; mission, observations, model, replay and DAgger remain. | [Student S1 contracts](log/2026-08-18-m1-panda-student-s1-contracts.md) |
 | T400.8 | T400 | done | P0 | C0 Tasks 1–10 accepted: `177 passed`; GPU0 8+2000-step exits 0; all hard metrics pass with zero snap/reset/contact/limit failures. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | done | P0 | Accepted asset SHA `643fd061...`; local surface, topology, relocation, no-snap, visual, C0 2000 and both C1a 4000 GPU0 hard gates pass. | [rebaseline evidence](log/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md) |
@@ -212,6 +212,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Time | Topic | Result | Todo | File |
 | --- | --- | --- | --- | --- |
+| 2026-08-18 | M1 + Panda Student S1 contracts | Task 1 pass: valid import RED; `9 passed`; frozen 100-observation/10-history/23-action reconstruction and safety limits | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-contracts.md](log/2026-08-18-m1-panda-student-s1-contracts.md) |
 | 2026-08-18 | M1 + Panda zero-clearance Teacher rebaseline | Tasks 5–6 pass: accepted SHA `643fd061...`; `184 passed`; C0 2000 and two C1a 4000 GPU0 runs pass; Student S1 unlocked | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md](log/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md) |
 | 2026-08-18 | M1 + Panda zero-clearance runtime/visual gates | Task 4 pass after visual RED: corrected `50.976 mm` global-max gap; final surface gap `-8.64e-07 m`; `37 passed`; 25 DOF; relocation/no-snap pass; user confirmed attached | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-zero-clearance-runtime-visual-gates.md](log/2026-08-18-m1-panda-zero-clearance-runtime-visual-gates.md) |
 | 2026-08-18 | M1 + Panda zero-clearance asset rebuild | Task 3 intermediate pass: Isaac Sim 5.1 builder compatibility; asset static `20 passed`; checksum `2/2`; Panda SHA unchanged; intermediate combined SHA `8ece30fa...`; later visual gate required local-surface correction | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-zero-clearance-asset-rebuild.md](log/2026-08-18-m1-panda-zero-clearance-asset-rebuild.md) |

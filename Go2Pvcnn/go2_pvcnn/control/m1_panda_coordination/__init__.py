@@ -11,6 +11,16 @@ from .contracts import (
     WbcJointMap,
     require_tensor,
 )
+from .student_contracts import (
+    STUDENT_ACTION_DIM,
+    STUDENT_HISTORY_LENGTH,
+    STUDENT_OBSERVATION_DIM,
+    StudentActionCommand,
+    StudentActionScaleCfg,
+    StudentNominalCommand,
+    apply_student_residual,
+    teacher_residual_label,
+)
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -22,4 +32,12 @@ __all__ = [
     "PANDA_FINGER_JOINT_NAMES",
     "WbcJointMap",
     "require_tensor",
+    "STUDENT_ACTION_DIM",
+    "STUDENT_HISTORY_LENGTH",
+    "STUDENT_OBSERVATION_DIM",
+    "StudentActionCommand",
+    "StudentActionScaleCfg",
+    "StudentNominalCommand",
+    "apply_student_residual",
+    "teacher_residual_label",
 ]

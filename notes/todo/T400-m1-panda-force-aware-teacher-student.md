@@ -70,6 +70,8 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
   - [x] T400.6d Task 4：通过局部可见表面、拓扑、relocation、no-snap 和用户确认视觉门。
   - [x] T400.6e Task 5–6：C0/C1a GPU0 和最终证据门。
 - [ ] T400.9 按批准计划实施 100/10/23 online DAgger Student S1。
+  - [x] T400.9a Task 1：冻结 Student observation/history/action 和安全 residual 合同。
+  - [ ] T400.9b Tasks 2–12：mission、观测、模型、replay、DAgger、环境、CLI、训练与验收。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
 
 ## Closed Children Archive
@@ -139,6 +141,7 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 - [Zero-clearance Teacher rebaseline](../log/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md)
 - [Zero-clearance Teacher runbook](../../docs/superpowers/runbooks/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md)
 - [Online DAgger Student S1 plan](../../docs/superpowers/plans/2026-08-18-m1-panda-dagger-student-s1.md)
+- [Student S1 contracts](../log/2026-08-18-m1-panda-student-s1-contracts.md)
 - [A1 recovery training design](../../docs/superpowers/specs/2026-08-15-m1-panda-a1-recovery-training-design.md)
 - [A1 recovery training design log](../log/2026-08-15-m1-panda-a1-recovery-training-design.md)
 - [A1 recovery implementation plan](../../docs/superpowers/plans/2026-08-15-m1-panda-a1-recovery-training.md)
