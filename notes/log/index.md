@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+| 2026-08-20 | M1 + Panda Student S1 batched Teacher isolation | T400.9 / Task 6 | pass; shared PhysX adapter and isolated per-environment rolling Teachers | Task 6 regression `70 passed`; pycompile and diff check pass; Tasks 7–12 remain open | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-student-s1-task6-batched-teacher.md](2026-08-20-m1-panda-student-s1-task6-batched-teacher.md) |
+
 | Time | Topic | Stage | Result | Key Metrics | Todo | File |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-08-18 | M1 + Panda Student S1 checkpoint | T400.9 / Task 5 | pass; strict resumable checkpoint and manifest | valid module RED; focused `17 passed`; Tasks 1–5 `62 passed`; model/optimizer/global-step round trip; finite/shape gates; atomic canonical persistence | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-18-m1-panda-student-s1-checkpoint.md](2026-08-18-m1-panda-student-s1-checkpoint.md) |

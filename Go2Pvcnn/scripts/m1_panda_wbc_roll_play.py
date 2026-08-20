@@ -28,6 +28,9 @@ from m1_panda_wbc_play import (
     build_teacher_gains,
     _termination_cause,
 )
+from go2_pvcnn.control.m1_panda_coordination.runtime_adapter import (
+    PhysxTeacherAdapter as SharedPhysxTeacherAdapter,
+)
 from go2_pvcnn.control.m1_panda_coordination.rolling_contact import (
     RollingContactMetrics,
     rolling_contact_metrics,
@@ -269,7 +272,7 @@ def smoke_gates_pass(summary: C1aSummary) -> bool:
     )
 
 
-class RollingPhysxTeacherAdapter(PhysxTeacherAdapter):
+class RollingPhysxTeacherAdapter(SharedPhysxTeacherAdapter):
     """Extend the C0 live adapter with bottom-point rolling measurements."""
 
     def build_rolling_state(

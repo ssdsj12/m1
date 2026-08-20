@@ -24,6 +24,7 @@ from go2_pvcnn.control.m1_panda_coordination.rolling_contact import (
     RollingContactCfg,
     build_wheel_contact_jacobian,
 )
+from go2_pvcnn.control.m1_panda_coordination import runtime_adapter as _runtime_adapter
 
 TASK_ID = "Isaac-M1-Panda-Wbc-Teacher-C0-v0"
 PHYSICS_DT = 0.005
@@ -560,6 +561,13 @@ class PhysxTeacherAdapter:
             0, self.controlled_joint_ids_device
         )
         return int(((positions < limits[:, 0]) | (positions > limits[:, 1])).sum().item())
+
+
+PhysxTeacherAdapter = _runtime_adapter.PhysxTeacherAdapter
+build_teacher_gains = _runtime_adapter.build_teacher_gains
+contact_point_linear_jacobian = _runtime_adapter.contact_point_linear_jacobian
+read_generalized_bias_force = _runtime_adapter.read_generalized_bias_force
+relative_axis_angle = _runtime_adapter.relative_axis_angle
 
 
 def _termination_cause(env, terminated: torch.Tensor, truncated: torch.Tensor) -> str:
