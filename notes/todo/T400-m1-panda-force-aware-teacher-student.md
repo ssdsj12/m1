@@ -223,6 +223,8 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 
 ## Next Step
 
+协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
+
 为 C1/C2 单独设计滚动约束与 planar-base 到轮速/接触的一致映射；不得把 C0 驻停验收外推为移动底盘能力。T400.7 仍保留为旧 A1 诊断线，最大载荷实机测试前仍必须完成 T400.3 机械验算。
 
 ## Node Details
