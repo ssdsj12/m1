@@ -42,6 +42,7 @@ from .coordinated_mission import (
     MissionPhase,
 )
 from .base_assist import BaseAssistCfg, BaseAssistDecision, compute_base_assist
+from .coordinated_teacher import CoordinatedTeacherAdapter, CoordinatedTeacherDecision
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -79,4 +80,6 @@ __all__ = [
     "BaseAssistCfg",
     "BaseAssistDecision",
     "compute_base_assist",
+    "CoordinatedTeacherAdapter",
+    "CoordinatedTeacherDecision",
 ]
