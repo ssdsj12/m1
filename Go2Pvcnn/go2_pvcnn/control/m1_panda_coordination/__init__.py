@@ -35,6 +35,12 @@ from .dagger import (
     select_dagger_action,
     student_dagger_loss,
 )
+from .coordinated_mission import (
+    CoordinatedMission,
+    CoordinatedMissionCfg,
+    CoordinatedMissionState,
+    MissionPhase,
+)
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -65,4 +71,8 @@ __all__ = [
     "StudentLossCfg",
     "select_dagger_action",
     "student_dagger_loss",
+    "CoordinatedMission",
+    "CoordinatedMissionCfg",
+    "CoordinatedMissionState",
+    "MissionPhase",
 ]
