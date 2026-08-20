@@ -41,6 +41,7 @@ from .coordinated_mission import (
     CoordinatedMissionState,
     MissionPhase,
 )
+from .base_assist import BaseAssistCfg, BaseAssistDecision, compute_base_assist
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -75,4 +76,7 @@ __all__ = [
     "CoordinatedMissionCfg",
     "CoordinatedMissionState",
     "MissionPhase",
+    "BaseAssistCfg",
+    "BaseAssistDecision",
+    "compute_base_assist",
 ]
