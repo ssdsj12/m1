@@ -76,7 +76,8 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
   - [x] T400.9d Task 4：实现确定性安全接管、六项监督损失和严格版本化 DAgger replay。
   - [x] T400.9e Task 5：冻结严格 Student checkpoint/manifest 和 resume/inference 边界。
   - [x] T400.9f Task 6：抽取 runtime adapter 并完成 batched Teacher 隔离；Task 6 回归 `70 passed`。
-  - [ ] T400.9f Tasks 7–12：观测、环境、CLI、训练与验收。
+  - [x] T400.9f Tasks 7–9：100 维观测/S1 注册、可版本化采集 shard、纯监督 Student trainer；CPU 端到端 smoke 通过。
+  - [ ] T400.9f Tasks 10–12：Student-only Play、三 seed 评估、GPU/Isaac 验收与 runbook。
 - [ ] T400.3 实施前完成 Panda/M1/六轴传感器最坏工况机械验算。
 
 ## Closed Children Archive
@@ -174,6 +175,7 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 - [M1 + Panda rolling WBC Teacher C1a runbook](../../docs/superpowers/runbooks/2026-08-18-m1-panda-wbc-teacher-c1a.md)
 - [M1 + Panda rolling WBC Teacher C1a acceptance](../log/2026-08-18-m1-panda-wbc-teacher-c1a.md)
 - [Student S1 Task 6 batched Teacher isolation](../log/2026-08-20-m1-panda-student-s1-task6-batched-teacher.md)
+- [Student S1 Tasks 7–9 training smoke](../log/2026-08-20-m1-panda-student-s1-training-smoke.md)
 
 ## Git Refs
 

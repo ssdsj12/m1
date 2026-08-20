@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.9 | T400 | active | P0 | Student Tasks 1–6 complete: 100/10/23 contract through deterministic DAgger, strict checkpoint/manifest, and isolated batched Teacher runtime; Task 6 regression `70 passed`. | [Task 6 batched Teacher](log/2026-08-20-m1-panda-student-s1-task6-batched-teacher.md) |
+| T400.9 | T400 | active | P0 | Student Tasks 1–9 complete: 100/10/23 contracts, isolated batched Teacher runtime, S1 observation/registration, replay collection and supervised trainer; regression `109 passed`, CPU collect/train smoke passes. | [Student S1 training smoke](log/2026-08-20-m1-panda-student-s1-training-smoke.md) |
 | T400.8 | T400 | done | P0 | C0 Tasks 1–10 accepted: `177 passed`; GPU0 8+2000-step exits 0; all hard metrics pass with zero snap/reset/contact/limit failures. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |
 | T400.6 | T400 | done | P0 | Accepted asset SHA `643fd061...`; local surface, topology, relocation, no-snap, visual, C0 2000 and both C1a 4000 GPU0 hard gates pass. | [rebaseline evidence](log/2026-08-18-m1-panda-zero-clearance-teacher-rebaseline.md) |
@@ -209,6 +209,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 - [T200-semantic-static-course-viewer.md](todo/T200-semantic-static-course-viewer.md)
 
 ## Recent Logs
+
+| 2026-08-20 | M1 + Panda Student S1 observation, collection and trainer | Tasks 7–9 pass: 100-wide observation, S1 Gym ID, versioned replay collection and non-PPO supervised trainer | `109 passed`; 4×20 CPU collect and 1-epoch checkpoint training exit 0; Isaac Teacher collection remains open | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-student-s1-training-smoke.md](log/2026-08-20-m1-panda-student-s1-training-smoke.md) |
 
 | 2026-08-20 | M1 + Panda Student S1 batched Teacher isolation | Task 6 pass: shared PhysX adapter, per-environment Teacher bank, explicit C0/C1a compatibility | `70 passed`; pycompile and diff check pass; Student collection/training remains unimplemented | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-student-s1-task6-batched-teacher.md](log/2026-08-20-m1-panda-student-s1-task6-batched-teacher.md) |
 

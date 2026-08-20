@@ -170,6 +170,16 @@ gym.register(
 )
 
 gym.register(
+    id="Isaac-M1-Panda-Student-S1-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": "go2_pvcnn.tasks.m1_panda_student_s1_env_cfg:M1PandaStudentS1EnvCfg",
+        "rsl_rl_cfg_entry_point": None,
+    },
+)
+
+gym.register(
     id="Isaac-M1-Small-Obstacle-5mm-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
