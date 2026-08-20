@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+| 2026-08-20 | M1 + Panda A1 Teacher resume block | T400.5b / foundation continuation | pass; strict lineage-resumed combined training | 64 envs, iterations `9901..10000`, final reward `6.2805`, base contact `0.265625`, bad orientation `0.0625`, max wrench `19.9998`, model `model_9902.pt` | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-a1-resume-100-iteration.md](2026-08-20-m1-panda-a1-resume-100-iteration.md) |
+
 | 2026-08-20 | M1 + Panda coordinated mission | T400 coordinated mission | partial; pure coordination and combined Isaac startup pass, dynamics gate open | `57 passed`; CPU 2000-step phase progression and 179 bounded assistance events; Isaac action manager 23D; existing Panda root-joint snap warning | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-coordinated-mission-smoke.md](2026-08-20-m1-panda-coordinated-mission-smoke.md) |
 
 | 2026-08-20 | M1 + Panda Student S1 Student-only Play/evaluation | T400.9 / Tasks 10–12 | pass at contract level; strict Student authority and exact three-seed aggregation | `109 passed`; 64 envs × 4000 steps for seeds 42/43/44; `teacher_execution_count=0`; physical Isaac/GPU acceptance remains open | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-student-s1-evaluation-smoke.md](2026-08-20-m1-panda-student-s1-evaluation-smoke.md) |
