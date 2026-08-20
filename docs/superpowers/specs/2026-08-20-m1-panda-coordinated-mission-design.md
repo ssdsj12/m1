@@ -21,6 +21,10 @@ and testable.
 - Preserve the 16-channel M1 base action boundary and the 7-channel Panda arm
   boundary used by the existing Teacher/WBC code; the combined execution action
   is 23 channels.
+- Preserve the existing six-dimensional mount wrench observation
+  `[Fx, Fy, Fz, Tx, Ty, Tz]` in the base frame. It remains a force-plus-torque
+  signal and keeps its current Student S1 observation slot and normalization
+  contract.
 - Reuse the existing rolling mission, Panda safety supervisor, kinematics and
   Panda-first motion distribution instead of creating a parallel controller.
 - Do not treat the old `Isaac-M1-Walk-v0` as this task: it is a M1-only asset.

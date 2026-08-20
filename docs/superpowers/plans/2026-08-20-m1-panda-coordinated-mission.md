@@ -12,6 +12,7 @@
 
 - Use the combined `M1_PANDA_CFG`; never use `Isaac-M1-Walk-v0` for this mission.
 - Preserve the 16-channel M1 boundary, 7-channel Panda arm boundary, and 23-channel combined action.
+- Preserve the six-dimensional base-frame mount wrench `[Fx, Fy, Fz, Tx, Ty, Tz]` and its existing Student S1 observation slot/normalization.
 - Panda end-effector tracking and safety are lexicographically higher priority than M1 motion.
 - M1 assistance is planar, low-speed, acceleration-limited, and bounded around the arrived pose.
 - Student S1, grasping, force control, and maximum-load hardware tests are out of scope.
@@ -92,6 +93,7 @@
 - [ ] Write static tests for the exact Gym registration string, combined asset config, 23-channel boundary, target argument parsing, and diagnostics keys.
 - [ ] Run the static tests and verify they fail before registration/config implementation.
 - [ ] Implement the config and adapter by reusing the existing combined scene, observation terms, WBC state extraction, safety supervisor, and action application. Do not duplicate the Panda asset or WBC solver.
+- [ ] Keep `mount_wrench_b` as the existing six-value force-plus-torque signal; add no dimension, frame, or ordering change.
 - [ ] Run `pytest Go2Pvcnn/tests/test_m1_panda_coordinated_env_static.py -q`; expected pass.
 - [ ] Commit: `feat: add combined coordinated mission Isaac entrypoint`.
 
