@@ -53,6 +53,12 @@ class CoordinatedTeacherAdapter:
         sigma = arm_margin_before if sigma_min is None else sigma_min
         if state.phase is not MissionPhase.COORDINATED_TRACK:
             velocity = torch.zeros_like(base_pose)
+            if state.phase is MissionPhase.FOLD_AND_NAVIGATE:
+                delta = self._arrived_pose - base_pose
+                distance = torch.linalg.vector_norm(delta[:2])
+                if float(distance) > 1.0e-6:
+                    velocity[:2] = delta[:2] / distance * min(self.assist_cfg.max_speed_xy, float(distance) / self.mission.cfg.physics_dt)
+                    velocity[2] = torch.clamp(delta[2], -self.assist_cfg.max_yaw_rate, self.assist_cfg.max_yaw_rate)
             self._previous_velocity.zero_()
             return CoordinatedTeacherDecision(
                 state.phase, state, velocity, False, "mission_phase", arm_margin_before.clone(), arm_margin_after.clone()
