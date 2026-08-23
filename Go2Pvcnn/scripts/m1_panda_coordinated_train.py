@@ -64,6 +64,17 @@ def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
         raise
 
 
+def initialize_fresh_zero_action_policy(runner) -> None:
+    """Make the safe implicit-actuator hold the fresh policy's exact baseline."""
+    import torch
+
+    output_layer = runner.alg.actor_critic.actor[-1]
+    if not isinstance(output_layer, torch.nn.Linear) or output_layer.out_features != 23:
+        raise RuntimeError("expected the coordinated actor to end in a 23-output Linear layer")
+    torch.nn.init.zeros_(output_layer.weight)
+    torch.nn.init.zeros_(output_layer.bias)
+
+
 def main() -> int:
     args = build_arg_parser().parse_args()
     init_checkpoint = args.init_a1_checkpoint.expanduser().resolve()
@@ -125,18 +136,24 @@ def main() -> int:
         train_cfg["policy"]["actor_hidden_dims"] = [256, 128]
         train_cfg["policy"]["critic_hidden_dims"] = [256, 128]
         train_cfg["save_interval"] = 100
+        train_cfg["algorithm"]["learning_rate"] = 1.0e-4
+        train_cfg["algorithm"]["schedule"] = "fixed"
         manifest.update(
             {
                 "status": "running",
                 "observation_dim": observation_dim,
                 "action_dim": wrapper.num_actions,
                 "save_interval": train_cfg["save_interval"],
+                "learning_rate": train_cfg["algorithm"]["learning_rate"],
+                "learning_rate_schedule": train_cfg["algorithm"]["schedule"],
+                "zero_action_actor_initialization": True,
                 "started_at_utc": datetime.now(timezone.utc).isoformat(),
             }
         )
         atomic_write_json(manifest_path, manifest)
         print({"run_manifest": str(manifest_path), "observation_dim": observation_dim, "action_dim": wrapper.num_actions})
         runner = OnPolicyRunner(wrapper, train_cfg, log_dir=str(run_dir), device=args.device)
+        initialize_fresh_zero_action_policy(runner)
         runner.learn(num_learning_iterations=args.max_iterations, init_at_random_ep_len=True)
         checkpoints = sorted(run_dir.glob("model_*.pt"), key=lambda path: path.stat().st_mtime_ns)
         if not checkpoints:

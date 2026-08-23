@@ -39,4 +39,9 @@ def test_train_checks_103_by_23_runtime_contract_and_periodic_save():
     assert "observation_dim != 103" in source
     assert "wrapper.num_actions != 23" in source
     assert 'train_cfg["save_interval"] = 100' in source
+    assert 'train_cfg["algorithm"]["learning_rate"] = 1.0e-4' in source
+    assert 'train_cfg["algorithm"]["schedule"] = "fixed"' in source
+    assert "torch.nn.init.zeros_(output_layer.weight)" in source
+    assert "torch.nn.init.zeros_(output_layer.bias)" in source
+    assert '"zero_action_actor_initialization": True' in source
     assert '"fresh_policy": True' in source
