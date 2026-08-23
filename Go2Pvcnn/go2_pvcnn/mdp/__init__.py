@@ -8,6 +8,7 @@ from .curriculums import *
 from .observations import *
 from .m1_panda_wrench import m1_panda_mount_wrench_b, shift_rotate_wrench_to_base
 from .m1_panda_teacher_rewards import *
+from .m1_panda_coordinated import *
 from .rewards import *
 from .terminations import *
 from .events import *
