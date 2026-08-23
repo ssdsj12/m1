@@ -72,6 +72,14 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
         nominal[:, 12:16] = wheel_action.unsqueeze(-1)
         return nominal
 
+    def _mission_arrived(self):
+        error = mdp.coordinated_base_target_error_b(self.env.unwrapped)
+        cfg = self.env.unwrapped.cfg
+        return (
+            torch.linalg.vector_norm(error[:, :2], dim=-1)
+            <= float(cfg.mission_arrival_position_tolerance_m)
+        ) & (error[:, 2].abs() <= float(cfg.mission_arrival_yaw_tolerance_rad))
+
     def reset(self):
         obs, _ = self.env.reset()
         return self._format(obs)
@@ -79,6 +87,9 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
     def step(self, actions):
         if tuple(actions.shape) != (self.num_envs, 23):
             raise ValueError("coordinated actions must have shape (num_envs, 23)")
+        actions = actions.clone()
+        arrived = self._mission_arrived()
+        actions[arrived, 12:16] = 0.0
         actions = actions + self._nominal_wheel_actions()
         actions = torch.clamp(actions, -1.0, 1.0)
         obs, rewards, terminated, truncated, extras = self.env.step(actions)

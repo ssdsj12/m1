@@ -55,10 +55,13 @@ def test_learning_rewards_cover_mission_balance_slip_rate_and_effort():
 
 def test_wrapper_clamps_the_23_actions_before_stepping_physics():
     source = WRAPPER.read_text()
+    phase_mask = source.index("actions[arrived, 12:16] = 0.0")
     nominal = source.index("actions = actions + self._nominal_wheel_actions()")
     clamp = source.index("actions = torch.clamp(actions, -1.0, 1.0)")
     step = source.index("self.env.step(actions)")
-    assert nominal < clamp < step
+    assert phase_mask < nominal < clamp < step
+    assert "mission_arrival_position_tolerance_m" in source
+    assert "mission_arrival_yaw_tolerance_rad" in source
     assert "mdp.coordinated_desired_twist_b(self.env.unwrapped)" in source
     assert "mission_wheel_radius_m" in source
     assert "mission_wheel_damping_nm_per_rad_s" in source
