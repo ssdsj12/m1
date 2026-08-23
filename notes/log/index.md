@@ -4,6 +4,9 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+| Time | Topic | Stage | Result | Key Metrics | Todo | File |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-08-23 | M1 + Panda coordinated long dynamics gates | T400 coordinated Teacher | pass; hold and small Panda motion show no mount snap | GPU0; two 8-env×2000-step runs; drift ≤`2.60e-7 m`/`5.35e-7 rad`; zero reset/contact/limit/non-finite; startup wrench peak retained as follow-up | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-23-m1-panda-coordinated-long-dynamics-gates.md](2026-08-23-m1-panda-coordinated-long-dynamics-gates.md) |
 | 2026-08-20 | M1 + Panda coordinated Teacher PPO prerequisite | T400 coordinated Teacher | pass; combined 23-effort runner executes one GPU0 PPO iteration | `1 passed`; 67-observation policy; 23-action actor; 48 timesteps; checkpoint `model_0.pt`; existing Panda root-joint snap warning keeps dynamics gate open | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-coordinated-train-prereq.md](2026-08-20-m1-panda-coordinated-train-prereq.md) |
 
 | 2026-08-20 | M1 + Panda coordinated root-joint re-verification | T400 coordinated Teacher | partial; asset contract and short dynamic reset/step re-verified | PXR single-root/25-DOF/mount pass; `root_joint` disabled; 2 env × 20 steps finite; max mount-relative displacement `0.000370 m`; warning persists, long-horizon gate open | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-coordinated-mission-smoke.md](2026-08-20-m1-panda-coordinated-mission-smoke.md) |

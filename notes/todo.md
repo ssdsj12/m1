@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | A1 已续训至 10402；combined Coordinated Teacher PPO 前置 runner 已通过 1-iteration GPU0 smoke；PXR 与 2-env×20-step reset/step 复验通过，但 PhysX root-joint warning 仍在。 | 进行长时段无动作/受控动作动态门，再决定正式 Coordinated Teacher 长训；Student S1 保持未启动。 |
+| T400 | active | Coordinated mount 长门通过：GPU0 hold/controlled 两次 8×2000 步无 snap/reset/finite/contact/limit 失败；但 67 维观测缺 Panda/任务状态且 smoke reward 不含导航/EE 目标。 | 先补齐可学习的协调 observation/action/reward 合同并短训 sanity，再启动正式长训；保留启动 wrench 峰值诊断。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |

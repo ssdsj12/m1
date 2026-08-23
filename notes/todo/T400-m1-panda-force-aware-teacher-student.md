@@ -48,7 +48,12 @@ T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最�
 
 Coordinated Teacher PPO 前置已完成：训练入口绑定 `Isaac-M1-Panda-Coordinated-v0`，通过 1 iteration GPU0 smoke，combined policy 为 67 observation / 23 joint-effort action，生成 `model_0.pt`。A1 `model_10402.pt` 仅作为严格存在性/lineage 初始化元数据，不直接迁移 60→16 actor 权重。随后完成资产 PXR 和 2-env×20-step reset/step 复验：`root_joint` 明确 disabled，active `AssemblerFixedJoint`、单 articulation root、25 DOF、finite 均通过，最大 mount 相对位移 `0.000370 m`。PhysX warning 仍打印，长时段 dynamics gate 尚未关闭，正式长训暂缓。
 
+2026-08-23 长时 dynamics gate 已关闭：GPU0 `hold` 与 `controlled` 两次 8-env×2000-step 均通过，最大 mount 相对漂移分别为 `2.50e-7/2.60e-7 m`，姿态漂移 `5.34e-7/5.16e-7 rad`，reset/base-contact/bad-orientation/joint-limit/non-finite 全零。已知 warning 未产生实测 snap。新审计同时确认 67 维观测不含 Panda/任务状态，继承 smoke reward 不含导航/EE tracking；正式长训前必须补齐学习合同。启动 mount wrench 峰值 `2021 N / 902 Nm` 保留为传感瞬态/归一化 follow-up，不作为机械载荷验收。
+
 ## Open Children
+
+- [ ] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动 GPU0 长训。
+- [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
 - [x] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
