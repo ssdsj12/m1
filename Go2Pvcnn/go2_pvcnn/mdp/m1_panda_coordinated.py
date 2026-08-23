@@ -166,11 +166,29 @@ def _arrived(env) -> torch.Tensor:
     ) & (error[:, 2].abs() <= float(env.cfg.mission_arrival_yaw_tolerance_rad))
 
 
-def coordinated_base_tracking_reward(env, *, position_scale_m: float = 0.35, yaw_scale_rad: float = 0.5) -> torch.Tensor:
+def coordinated_base_tracking_reward(
+    env,
+    *,
+    position_scale_m: float = 0.35,
+    yaw_scale_rad: float = 0.5,
+    height_scale_m: float = 0.08,
+    tilt_scale_rad: float = 0.35,
+) -> torch.Tensor:
     error = coordinated_base_target_error_b(env)
+    robot = env.scene["robot"]
+    root_position = _require_finite("root_pos_w", robot.data.root_pos_w)
+    root_quaternion = _require_finite("root_quat_w", robot.data.root_quat_w)
+    height = root_position[:, 2] - _scene_origins(env, root_position)[:, 2]
+    target_height = float(env.cfg.mission_balance_target_height_m)
+    gravity_w = torch.zeros_like(root_position)
+    gravity_w[:, 2] = -1.0
+    projected_gravity = _quat_rotate_inverse(root_quaternion, gravity_w)
+    tilt = torch.linalg.vector_norm(projected_gravity[:, :2], dim=-1)
     return torch.exp(
         -torch.linalg.vector_norm(error[:, :2], dim=-1).square() / position_scale_m**2
         -error[:, 2].square() / yaw_scale_rad**2
+        -(height - target_height).square() / height_scale_m**2
+        -tilt.square() / tilt_scale_rad**2
     )
 
 

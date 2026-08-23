@@ -50,6 +50,7 @@ def _env(batch: int = 2):
             mission_folded_arm_target=(0.0, -0.5, 0.0, -2.0, 0.0, 1.5, 0.0),
             mission_arrival_position_tolerance_m=0.08,
             mission_arrival_yaw_tolerance_rad=0.10,
+            mission_balance_target_height_m=0.6115,
         ),
     )
 
@@ -104,6 +105,20 @@ def test_rewards_gate_folded_arm_before_arrival_and_ee_after_arrival():
     )
     ee_after = coordinated_ee_tracking_reward(env, base_body_id=1, hand_body_id=2)
     assert torch.all(ee_after > 0.0)
+
+
+def test_base_tracking_reward_is_gated_by_height_and_tilt_balance():
+    env = _env(batch=1)
+    upright = coordinated_base_tracking_reward(env)
+    env.scene["robot"].data.root_pos_w[:, 2] = 0.35
+    lowered = coordinated_base_tracking_reward(env)
+    env.scene["robot"].data.root_pos_w[:, 2] = 0.60
+    env.scene["robot"].data.root_quat_w[:] = torch.tensor(
+        [[0.70710678, 0.70710678, 0.0, 0.0]]
+    )
+    tilted = coordinated_base_tracking_reward(env)
+    assert torch.all(upright > 10.0 * lowered)
+    assert torch.all(upright > 10.0 * tilted)
 
 
 def test_nonfinite_state_is_rejected_at_observation_boundary():

@@ -49,6 +49,7 @@ def test_learning_rewards_cover_mission_balance_slip_rate_and_effort():
     assert "mission_arrival_position_tolerance_m" in source
     assert "mission_arrival_yaw_tolerance_rad" in source
     assert "mission_ee_target_offset_b" in source
+    assert "func=isaac_mdp.is_terminated, weight=-10000.0" in source
 
 
 def test_wrapper_clamps_the_23_actions_before_stepping_physics():

@@ -99,7 +99,7 @@ class M1PandaCoordinatedRewardsCfg:
         params={"asset_cfg": SceneEntityCfg("robot", body_names=[M1_PANDA_BASE_BODY_NAME, PANDA_HAND_BODY_NAME], preserve_order=True)},
     )
     alive = RewTerm(func=isaac_mdp.is_alive, weight=1.0)
-    termination_penalty = RewTerm(func=isaac_mdp.is_terminated, weight=-200.0)
+    termination_penalty = RewTerm(func=isaac_mdp.is_terminated, weight=-10000.0)
     base_height = RewTerm(
         func=mdp.base_height_l2,
         weight=-12.0,
@@ -140,6 +140,7 @@ class M1PandaCoordinatedEnvCfg(M1PandaWbcRollTeacherEnvCfg):
     mission_folded_arm_target: tuple[float, ...] = (0.0, -0.5, 0.0, -2.0, 0.0, 1.5, 0.0)
     mission_arrival_position_tolerance_m: float = 0.08
     mission_arrival_yaw_tolerance_rad: float = 0.10
+    mission_balance_target_height_m: float = 0.6115
     combined_action_dim: int = 23
     mount_wrench_dim: int = 6
 
