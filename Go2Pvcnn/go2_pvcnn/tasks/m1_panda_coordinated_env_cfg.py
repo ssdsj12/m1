@@ -56,7 +56,7 @@ class M1PandaCoordinatedActionsCfg:
     wheel_effort = isaac_mdp.JointEffortActionCfg(
         asset_name="robot",
         joint_names=list(M1_WHEEL_JOINT_NAMES),
-        scale=100.0,
+        scale=50.0,
         preserve_order=True,
     )
     arm_effort = isaac_mdp.JointEffortActionCfg(
@@ -174,7 +174,7 @@ class M1PandaCoordinatedEnvCfg(M1PandaWbcRollTeacherEnvCfg):
     mission_arrival_position_tolerance_m: float = 0.08
     mission_arrival_yaw_tolerance_rad: float = 0.10
     mission_balance_target_height_m: float = 0.6115
-    mission_base_linear_speed_limit_mps: float = 0.25
+    mission_base_linear_speed_limit_mps: float = 0.10
     mission_base_yaw_rate_limit_rad_s: float = 0.50
     combined_action_dim: int = 23
     mount_wrench_dim: int = 6

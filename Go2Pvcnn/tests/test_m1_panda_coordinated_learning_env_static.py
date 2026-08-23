@@ -65,7 +65,7 @@ def test_residual_action_scales_match_leg_wheel_and_arm_authority():
     assert "class M1PandaCoordinatedActionsCfg" in source
     for term, names, scale in (
         ("leg_effort", "M1_LEG_JOINT_NAMES", "5.0"),
-        ("wheel_effort", "M1_WHEEL_JOINT_NAMES", "100.0"),
+        ("wheel_effort", "M1_WHEEL_JOINT_NAMES", "50.0"),
         ("arm_effort", "PANDA_ARM_JOINT_NAMES", "2.0"),
     ):
         start = source.index(f"    {term} = isaac_mdp.JointEffortActionCfg(")
@@ -73,3 +73,4 @@ def test_residual_action_scales_match_leg_wheel_and_arm_authority():
         assert f"joint_names=list({names})" in block
         assert f"scale={scale}" in block
         assert "preserve_order=True" in block
+    assert "mission_base_linear_speed_limit_mps: float = 0.10" in source
