@@ -6,6 +6,8 @@ import gymnasium as gym
 import torch
 from rsl_rl.env import VecEnv
 
+import go2_pvcnn.mdp as mdp
+
 
 class M1PandaCoordinatedEnvWrapper(VecEnv):
     def __init__(self, env):
@@ -55,6 +57,21 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
     def get_observations(self):
         return self._format(self.env.observation_manager.compute())
 
+    def _nominal_wheel_actions(self):
+        desired_twist = mdp.coordinated_desired_twist_b(self.env.unwrapped)
+        cfg = self.env.unwrapped.cfg
+        wheel_action = (
+            desired_twist[:, 0]
+            * float(cfg.mission_wheel_damping_nm_per_rad_s)
+            / float(cfg.mission_wheel_radius_m)
+            / float(cfg.mission_wheel_action_scale_nm)
+        )
+        nominal = torch.zeros(
+            self.num_envs, 23, dtype=desired_twist.dtype, device=self.device
+        )
+        nominal[:, 12:16] = wheel_action.unsqueeze(-1)
+        return nominal
+
     def reset(self):
         obs, _ = self.env.reset()
         return self._format(obs)
@@ -62,6 +79,7 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
     def step(self, actions):
         if tuple(actions.shape) != (self.num_envs, 23):
             raise ValueError("coordinated actions must have shape (num_envs, 23)")
+        actions = actions + self._nominal_wheel_actions()
         actions = torch.clamp(actions, -1.0, 1.0)
         obs, rewards, terminated, truncated, extras = self.env.step(actions)
         obs, obs_extras = self._format(obs)

@@ -55,9 +55,14 @@ def test_learning_rewards_cover_mission_balance_slip_rate_and_effort():
 
 def test_wrapper_clamps_the_23_actions_before_stepping_physics():
     source = WRAPPER.read_text()
+    nominal = source.index("actions = actions + self._nominal_wheel_actions()")
     clamp = source.index("actions = torch.clamp(actions, -1.0, 1.0)")
     step = source.index("self.env.step(actions)")
-    assert clamp < step
+    assert nominal < clamp < step
+    assert "mdp.coordinated_desired_twist_b(self.env.unwrapped)" in source
+    assert "mission_wheel_radius_m" in source
+    assert "mission_wheel_damping_nm_per_rad_s" in source
+    assert "mission_wheel_action_scale_nm" in source
 
 
 def test_residual_action_scales_match_leg_wheel_and_arm_authority():

@@ -176,6 +176,9 @@ class M1PandaCoordinatedEnvCfg(M1PandaWbcRollTeacherEnvCfg):
     mission_balance_target_height_m: float = 0.6115
     mission_base_linear_speed_limit_mps: float = 0.10
     mission_base_yaw_rate_limit_rad_s: float = 0.50
+    mission_wheel_radius_m: float = 0.095
+    mission_wheel_damping_nm_per_rad_s: float = 30.0
+    mission_wheel_action_scale_nm: float = 50.0
     combined_action_dim: int = 23
     mount_wrench_dim: int = 6
 
