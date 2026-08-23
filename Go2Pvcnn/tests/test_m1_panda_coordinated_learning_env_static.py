@@ -58,3 +58,18 @@ def test_wrapper_clamps_the_23_actions_before_stepping_physics():
     clamp = source.index("actions = torch.clamp(actions, -1.0, 1.0)")
     step = source.index("self.env.step(actions)")
     assert clamp < step
+
+
+def test_residual_action_scales_match_leg_wheel_and_arm_authority():
+    source = CFG.read_text()
+    assert "class M1PandaCoordinatedActionsCfg" in source
+    for term, names, scale in (
+        ("leg_effort", "M1_LEG_JOINT_NAMES", "20.0"),
+        ("wheel_effort", "M1_WHEEL_JOINT_NAMES", "100.0"),
+        ("arm_effort", "PANDA_ARM_JOINT_NAMES", "10.0"),
+    ):
+        start = source.index(f"    {term} = isaac_mdp.JointEffortActionCfg(")
+        block = source[start : source.index("    )", start) + 5]
+        assert f"joint_names=list({names})" in block
+        assert f"scale={scale}" in block
+        assert "preserve_order=True" in block

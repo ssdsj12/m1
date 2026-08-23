@@ -10,7 +10,11 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-from go2_pvcnn.assets import M1_FOOT_BODY_NAMES
+from go2_pvcnn.assets import (
+    M1_FOOT_BODY_NAMES,
+    M1_LEG_JOINT_NAMES,
+    M1_WHEEL_JOINT_NAMES,
+)
 from go2_pvcnn.assets.m1_panda import (
     M1_PANDA_BASE_BODY_NAME,
     M1_PANDA_CFG,
@@ -37,6 +41,30 @@ COORDINATED_POLICY_OBSERVATION_WIDTHS = (
     ("mount_wrench_b", 6),
     ("previous_action", 23),
 )
+
+
+@configclass
+class M1PandaCoordinatedActionsCfg:
+    """Canonical 12+4+7 residual effort segments with physical authority."""
+
+    leg_effort = isaac_mdp.JointEffortActionCfg(
+        asset_name="robot",
+        joint_names=list(M1_LEG_JOINT_NAMES),
+        scale=20.0,
+        preserve_order=True,
+    )
+    wheel_effort = isaac_mdp.JointEffortActionCfg(
+        asset_name="robot",
+        joint_names=list(M1_WHEEL_JOINT_NAMES),
+        scale=100.0,
+        preserve_order=True,
+    )
+    arm_effort = isaac_mdp.JointEffortActionCfg(
+        asset_name="robot",
+        joint_names=list(PANDA_ARM_JOINT_NAMES),
+        scale=10.0,
+        preserve_order=True,
+    )
 
 
 @configclass
@@ -132,6 +160,7 @@ class M1PandaCoordinatedRewardsCfg:
 class M1PandaCoordinatedEnvCfg(M1PandaWbcRollTeacherEnvCfg):
     """Combined 25-DOF articulation with a 16+7 coordinated action boundary."""
 
+    actions: M1PandaCoordinatedActionsCfg = M1PandaCoordinatedActionsCfg()
     observations: M1PandaCoordinatedObservationsCfg = M1PandaCoordinatedObservationsCfg()
     rewards: M1PandaCoordinatedRewardsCfg = M1PandaCoordinatedRewardsCfg()
 
