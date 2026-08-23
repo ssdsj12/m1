@@ -88,6 +88,10 @@ class M1PandaCoordinatedRewardsCfg:
     """Two-stage base-navigation then end-effector objective."""
 
     base_target = RewTerm(func=mdp.coordinated_base_tracking_reward, weight=3.0)
+    base_velocity_target = RewTerm(
+        func=mdp.coordinated_base_velocity_tracking_reward,
+        weight=2.0,
+    )
     folded_arm = RewTerm(
         func=mdp.coordinated_folded_arm_error,
         weight=-1.0,
@@ -141,6 +145,8 @@ class M1PandaCoordinatedEnvCfg(M1PandaWbcRollTeacherEnvCfg):
     mission_arrival_position_tolerance_m: float = 0.08
     mission_arrival_yaw_tolerance_rad: float = 0.10
     mission_balance_target_height_m: float = 0.6115
+    mission_base_linear_speed_limit_mps: float = 0.25
+    mission_base_yaw_rate_limit_rad_s: float = 0.50
     combined_action_dim: int = 23
     mount_wrench_dim: int = 6
 

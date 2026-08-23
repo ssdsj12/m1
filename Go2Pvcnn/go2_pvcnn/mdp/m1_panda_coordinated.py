@@ -134,7 +134,17 @@ def coordinated_ee_pose_error_b(
 
 
 def coordinated_desired_twist_b(env) -> torch.Tensor:
-    return torch.zeros(env.num_envs, 6, device=env.device, dtype=torch.float32)
+    error = coordinated_base_target_error_b(env)
+    desired = error.new_zeros((env.num_envs, 6))
+    linear_limit = float(env.cfg.mission_base_linear_speed_limit_mps)
+    yaw_limit = float(env.cfg.mission_base_yaw_rate_limit_rad_s)
+    linear = error[:, :2]
+    linear_norm = torch.linalg.vector_norm(linear, dim=-1, keepdim=True)
+    linear_scale = torch.clamp(linear_limit / linear_norm.clamp_min(1.0e-8), max=1.0)
+    desired[:, :2] = linear * linear_scale
+    desired[:, 5] = torch.clamp(error[:, 2], -yaw_limit, yaw_limit)
+    desired = torch.where(_arrived(env).unsqueeze(-1), torch.zeros_like(desired), desired)
+    return _require_finite("desired_twist_b", desired)
 
 
 def coordinated_wheel_contact(
@@ -166,15 +176,7 @@ def _arrived(env) -> torch.Tensor:
     ) & (error[:, 2].abs() <= float(env.cfg.mission_arrival_yaw_tolerance_rad))
 
 
-def coordinated_base_tracking_reward(
-    env,
-    *,
-    position_scale_m: float = 0.35,
-    yaw_scale_rad: float = 0.5,
-    height_scale_m: float = 0.08,
-    tilt_scale_rad: float = 0.35,
-) -> torch.Tensor:
-    error = coordinated_base_target_error_b(env)
+def _balance_score(env, *, height_scale_m: float, tilt_scale_rad: float) -> torch.Tensor:
     robot = env.scene["robot"]
     root_position = _require_finite("root_pos_w", robot.data.root_pos_w)
     root_quaternion = _require_finite("root_quat_w", robot.data.root_quat_w)
@@ -185,11 +187,49 @@ def coordinated_base_tracking_reward(
     projected_gravity = _quat_rotate_inverse(root_quaternion, gravity_w)
     tilt = torch.linalg.vector_norm(projected_gravity[:, :2], dim=-1)
     return torch.exp(
-        -torch.linalg.vector_norm(error[:, :2], dim=-1).square() / position_scale_m**2
-        -error[:, 2].square() / yaw_scale_rad**2
         -(height - target_height).square() / height_scale_m**2
         -tilt.square() / tilt_scale_rad**2
     )
+
+
+def coordinated_base_tracking_reward(
+    env,
+    *,
+    position_scale_m: float = 0.35,
+    yaw_scale_rad: float = 0.5,
+    height_scale_m: float = 0.08,
+    tilt_scale_rad: float = 0.35,
+) -> torch.Tensor:
+    error = coordinated_base_target_error_b(env)
+    return torch.exp(
+        -torch.linalg.vector_norm(error[:, :2], dim=-1).square() / position_scale_m**2
+        -error[:, 2].square() / yaw_scale_rad**2
+    ) * _balance_score(
+        env, height_scale_m=height_scale_m, tilt_scale_rad=tilt_scale_rad
+    )
+
+
+def coordinated_base_velocity_tracking_reward(
+    env,
+    *,
+    linear_scale_mps: float = 0.10,
+    yaw_scale_rad_s: float = 0.20,
+    height_scale_m: float = 0.08,
+    tilt_scale_rad: float = 0.35,
+) -> torch.Tensor:
+    desired = coordinated_desired_twist_b(env)
+    robot = env.scene["robot"]
+    linear_velocity = _require_finite("root_lin_vel_b", robot.data.root_lin_vel_b)
+    angular_velocity = _require_finite("root_ang_vel_b", robot.data.root_ang_vel_b)
+    score = torch.exp(
+        -(linear_velocity[:, :2] - desired[:, :2]).square().sum(dim=-1)
+        / linear_scale_mps**2
+        -(angular_velocity[:, 2] - desired[:, 5]).square() / yaw_scale_rad_s**2
+    )
+    score = score * _balance_score(
+        env, height_scale_m=height_scale_m, tilt_scale_rad=tilt_scale_rad
+    )
+    return torch.where(_arrived(env), torch.zeros_like(score), score)
 
 
 def coordinated_folded_arm_error(
@@ -231,6 +271,7 @@ def coordinated_ee_tracking_reward(
 __all__ = [
     "coordinated_base_target_error_b",
     "coordinated_base_tracking_reward",
+    "coordinated_base_velocity_tracking_reward",
     "coordinated_desired_twist_b",
     "coordinated_ee_pose_error_b",
     "coordinated_ee_tracking_reward",

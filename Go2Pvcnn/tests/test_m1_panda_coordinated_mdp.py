@@ -12,6 +12,7 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 coordinated_base_target_error_b = MODULE.coordinated_base_target_error_b
 coordinated_base_tracking_reward = MODULE.coordinated_base_tracking_reward
+coordinated_base_velocity_tracking_reward = MODULE.coordinated_base_velocity_tracking_reward
 coordinated_desired_twist_b = MODULE.coordinated_desired_twist_b
 coordinated_ee_pose_error_b = MODULE.coordinated_ee_pose_error_b
 coordinated_ee_tracking_reward = MODULE.coordinated_ee_tracking_reward
@@ -31,6 +32,8 @@ def _env(batch: int = 2):
         data=SimpleNamespace(
             root_pos_w=torch.tensor([[0.0, 0.0, 0.6], [10.0, 0.0, 0.6]])[:batch],
             root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(batch, 1),
+            root_lin_vel_b=torch.zeros(batch, 3),
+            root_ang_vel_b=torch.zeros(batch, 3),
             body_pos_w=body_pos,
             body_quat_w=body_quat,
             joint_pos=torch.zeros(batch, 7),
@@ -51,6 +54,8 @@ def _env(batch: int = 2):
             mission_arrival_position_tolerance_m=0.08,
             mission_arrival_yaw_tolerance_rad=0.10,
             mission_balance_target_height_m=0.6115,
+            mission_base_linear_speed_limit_mps=0.25,
+            mission_base_yaw_rate_limit_rad_s=0.50,
         ),
     )
 
@@ -81,7 +86,11 @@ def test_ee_error_freezes_reset_pose_and_adds_reachable_offset():
 
 def test_desired_twist_and_wheel_contact_have_frozen_widths():
     env = _env()
-    assert coordinated_desired_twist_b(env).shape == (2, 6)
+    desired = coordinated_desired_twist_b(env)
+    assert desired.shape == (2, 6)
+    torch.testing.assert_close(
+        desired, torch.tensor([[0.25, 0.0, 0.0, 0.0, 0.0, 0.0]]).repeat(2, 1)
+    )
     sensor = env.scene["contact_forces"]
     sensor.data.net_forces_w[0, [0, 2], 2] = 2.0
     contact = coordinated_wheel_contact(env, sensor_body_ids=(0, 1, 2, 3))
@@ -119,6 +128,17 @@ def test_base_tracking_reward_is_gated_by_height_and_tilt_balance():
     tilted = coordinated_base_tracking_reward(env)
     assert torch.all(upright > 10.0 * lowered)
     assert torch.all(upright > 10.0 * tilted)
+
+
+def test_base_velocity_reward_prefers_safe_target_directed_motion():
+    env = _env(batch=1)
+    stationary = coordinated_base_velocity_tracking_reward(env)
+    env.scene["robot"].data.root_lin_vel_b[:, 0] = 0.25
+    matching = coordinated_base_velocity_tracking_reward(env)
+    assert torch.all(matching > 10.0 * stationary)
+    env.scene["robot"].data.root_pos_w[:, 2] = 0.35
+    unsafe = coordinated_base_velocity_tracking_reward(env)
+    assert torch.all(matching > 10.0 * unsafe)
 
 
 def test_nonfinite_state_is_rejected_at_observation_boundary():

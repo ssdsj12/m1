@@ -33,6 +33,7 @@ def test_learning_rewards_cover_mission_balance_slip_rate_and_effort():
     source = CFG.read_text()
     for reward in (
         "base_target",
+        "base_velocity_target",
         "folded_arm",
         "ee_tracking",
         "alive",
