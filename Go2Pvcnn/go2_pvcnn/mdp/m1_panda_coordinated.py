@@ -101,7 +101,23 @@ def _current_ee_pose_b(env, base_body_id: int, hand_body_id: int):
     return position_b, quaternion_b
 
 
-def coordinated_ee_pose_error_b(env, *, base_body_id: int, hand_body_id: int) -> torch.Tensor:
+def _pair_body_ids(asset_cfg, base_body_id, hand_body_id) -> tuple[int, int]:
+    if asset_cfg is not None:
+        ids = tuple(int(value) for value in asset_cfg.body_ids)
+        if len(ids) != 2:
+            raise ValueError("asset_cfg must resolve exactly base and hand bodies")
+        return ids
+    if base_body_id is None or hand_body_id is None:
+        raise ValueError("base_body_id and hand_body_id are required without asset_cfg")
+    return int(base_body_id), int(hand_body_id)
+
+
+def coordinated_ee_pose_error_b(
+    env, *, asset_cfg=None, base_body_id: int | None = None, hand_body_id: int | None = None
+) -> torch.Tensor:
+    base_body_id, hand_body_id = _pair_body_ids(
+        asset_cfg, base_body_id, hand_body_id
+    )
     position, quaternion = _current_ee_pose_b(env, base_body_id, hand_body_id)
     cache_name = "_m1_panda_coordinated_initial_ee_pose_b"
     initial = getattr(env, cache_name, None)
@@ -122,13 +138,21 @@ def coordinated_desired_twist_b(env) -> torch.Tensor:
 
 
 def coordinated_wheel_contact(
-    env, *, sensor_body_ids: tuple[int, int, int, int], threshold_n: float = 1.0
+    env,
+    *,
+    sensor_cfg=None,
+    sensor_body_ids: tuple[int, int, int, int] | None = None,
+    threshold_n: float = 1.0,
 ) -> torch.Tensor:
     if not math.isfinite(threshold_n) or threshold_n <= 0.0:
         raise ValueError("threshold_n must be finite and positive")
     forces = _require_finite(
         "wheel_forces", env.scene["contact_forces"].data.net_forces_w
     )
+    if sensor_cfg is not None:
+        sensor_body_ids = tuple(int(value) for value in sensor_cfg.body_ids)
+    if sensor_body_ids is None or len(sensor_body_ids) != 4:
+        raise ValueError("wheel contact requires exactly four sensor body ids")
     ids = torch.tensor(sensor_body_ids, device=forces.device, dtype=torch.long)
     selected = forces.index_select(1, ids)
     return (torch.linalg.vector_norm(selected, dim=-1) > threshold_n).to(torch.float32)
@@ -150,8 +174,14 @@ def coordinated_base_tracking_reward(env, *, position_scale_m: float = 0.35, yaw
     )
 
 
-def coordinated_folded_arm_error(env, *, arm_joint_ids: tuple[int, ...]) -> torch.Tensor:
+def coordinated_folded_arm_error(
+    env, *, asset_cfg=None, arm_joint_ids: tuple[int, ...] | None = None
+) -> torch.Tensor:
     joint_position = _require_finite("joint_pos", env.scene["robot"].data.joint_pos)
+    if asset_cfg is not None:
+        arm_joint_ids = tuple(int(value) for value in asset_cfg.joint_ids)
+    if arm_joint_ids is None or len(arm_joint_ids) != 7:
+        raise ValueError("folded-arm error requires exactly seven arm joints")
     ids = torch.tensor(arm_joint_ids, device=joint_position.device, dtype=torch.long)
     arm = joint_position.index_select(1, ids)
     target = arm.new_tensor(env.cfg.mission_folded_arm_target)
@@ -159,9 +189,19 @@ def coordinated_folded_arm_error(env, *, arm_joint_ids: tuple[int, ...]) -> torc
     return torch.where(_arrived(env), torch.zeros_like(error), error)
 
 
-def coordinated_ee_tracking_reward(env, *, base_body_id: int, hand_body_id: int, scale_m: float = 0.10) -> torch.Tensor:
+def coordinated_ee_tracking_reward(
+    env,
+    *,
+    asset_cfg=None,
+    base_body_id: int | None = None,
+    hand_body_id: int | None = None,
+    scale_m: float = 0.10,
+) -> torch.Tensor:
     error = coordinated_ee_pose_error_b(
-        env, base_body_id=base_body_id, hand_body_id=hand_body_id
+        env,
+        asset_cfg=asset_cfg,
+        base_body_id=base_body_id,
+        hand_body_id=hand_body_id,
     )
     score = torch.exp(
         -torch.linalg.vector_norm(error[:, :3], dim=-1).square() / scale_m**2

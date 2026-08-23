@@ -62,6 +62,7 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
     def step(self, actions):
         if tuple(actions.shape) != (self.num_envs, 23):
             raise ValueError("coordinated actions must have shape (num_envs, 23)")
+        actions = torch.clamp(actions, -1.0, 1.0)
         obs, rewards, terminated, truncated, extras = self.env.step(actions)
         obs, obs_extras = self._format(obs)
         extras = dict(extras or {})
