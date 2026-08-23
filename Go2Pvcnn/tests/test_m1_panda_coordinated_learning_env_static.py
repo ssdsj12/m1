@@ -36,6 +36,8 @@ def test_learning_rewards_cover_mission_balance_slip_rate_and_effort():
         "folded_arm",
         "ee_tracking",
         "alive",
+        "termination_penalty",
+        "base_height",
         "base_linear_velocity",
         "base_angular_velocity",
         "flat_orientation_l2",

@@ -99,6 +99,12 @@ class M1PandaCoordinatedRewardsCfg:
         params={"asset_cfg": SceneEntityCfg("robot", body_names=[M1_PANDA_BASE_BODY_NAME, PANDA_HAND_BODY_NAME], preserve_order=True)},
     )
     alive = RewTerm(func=isaac_mdp.is_alive, weight=1.0)
+    termination_penalty = RewTerm(func=isaac_mdp.is_terminated, weight=-200.0)
+    base_height = RewTerm(
+        func=mdp.base_height_l2,
+        weight=-12.0,
+        params={"target_height": 0.6115},
+    )
     base_linear_velocity = RewTerm(func=mdp.lin_vel_z_l2, weight=-1.0)
     base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.1)
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.0)
