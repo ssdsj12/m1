@@ -50,9 +50,11 @@ Coordinated Teacher PPO 前置已完成：训练入口绑定 `Isaac-M1-Panda-Coo
 
 2026-08-23 长时 dynamics gate 已关闭：GPU0 `hold` 与 `controlled` 两次 8-env×2000-step 均通过，最大 mount 相对漂移分别为 `2.50e-7/2.60e-7 m`，姿态漂移 `5.34e-7/5.16e-7 rad`，reset/base-contact/bad-orientation/joint-limit/non-finite 全零。已知 warning 未产生实测 snap。新审计同时确认 67 维观测不含 Panda/任务状态，继承 smoke reward 不含导航/EE tracking；正式长训前必须补齐学习合同。启动 mount wrench 峰值 `2021 N / 902 Nm` 保留为传感瞬态/归一化 follow-up，不作为机械载荷验收。
 
+T400.10 已补齐精确 103-observation / 23-action 协调 PPO 合同并完成真实 GPU0 迭代诊断。失败诊断保留了高学习率跌倒、wheel authority 不足、到达后 wheel residual 漂移和 std 增长四类证据。最终采用 zero-action actor、固定 `1e-4/0.01 std`、balance-gated mission reward、0.1 m/s nominal wheel feedforward、到达后 wheel mask、action L2，以及腿/轮/臂 `5/50/2` residual scale。最终 64-env×600 gate 第 595 轮 timeout `1.0`、contact/orientation `0`、base-target `2.4825`、EE `1.0423`。GPU0 64-env×5000 long v4 已启动（PID `683345`），当前继续监控；尚未声明收敛或实机能力。
+
 ## Open Children
 
-- [ ] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动 GPU0 长训。
+- [ ] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（合同/短门/启动已完成，long v3 正在运行）。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
