@@ -50,7 +50,7 @@ class M1PandaCoordinatedActionsCfg:
     leg_effort = isaac_mdp.JointEffortActionCfg(
         asset_name="robot",
         joint_names=list(M1_LEG_JOINT_NAMES),
-        scale=20.0,
+        scale=5.0,
         preserve_order=True,
     )
     wheel_effort = isaac_mdp.JointEffortActionCfg(
@@ -62,7 +62,7 @@ class M1PandaCoordinatedActionsCfg:
     arm_effort = isaac_mdp.JointEffortActionCfg(
         asset_name="robot",
         joint_names=list(PANDA_ARM_JOINT_NAMES),
-        scale=10.0,
+        scale=2.0,
         preserve_order=True,
     )
 
