@@ -46,6 +46,8 @@ T400.8 C0 Tasks 1–10 已按 TDD 完成并通过 GPU0 硬验收。最终纯/静
 
 T400.8c C1a 已按独立书面设计与十二任务单代理计划完成。最终纯/静态回归 `184 passed`；GPU0 无 Panda 轨迹和默认联合轨迹的两次 4000-step 平地直线前进/停车/倒车均 exit `0`、`hard_gates_passed=true`，联合运行 QP 可行率 `1.0`、四轮持续接触、最大 EE 误差 `0.0016413305229732028 m`、最大滚动残差 `0.0016662825831554645 m/s`、最大侧滑 `0.0012335278538215793 m/s`，全程 `TRACK/safe`。C1a 只完成 deterministic Teacher 直线滚动；下一项 C1b 转向必须单独设计并获用户批准，不授权 C2/C3、Student、抓取或实机工作。
 
+Coordinated Teacher PPO 前置已完成：训练入口绑定 `Isaac-M1-Panda-Coordinated-v0`，通过 1 iteration GPU0 smoke，combined policy 为 67 observation / 23 joint-effort action，生成 `model_0.pt`。A1 `model_10402.pt` 仅作为严格存在性/lineage 初始化元数据，不直接迁移 60→16 actor 权重。随后完成资产 PXR 和 2-env×20-step reset/step 复验：`root_joint` 明确 disabled，active `AssemblerFixedJoint`、单 articulation root、25 DOF、finite 均通过，最大 mount 相对位移 `0.000370 m`。PhysX warning 仍打印，长时段 dynamics gate 尚未关闭，正式长训暂缓。
+
 ## Open Children
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。

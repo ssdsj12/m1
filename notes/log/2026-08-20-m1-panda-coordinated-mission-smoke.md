@@ -22,11 +22,15 @@ contract remains unchanged.
 
 ## Dynamic Gate Status
 
-Partial only. Isaac startup emitted the existing PhysX warning:
+Partial, with short-horizon re-verification. Isaac startup emitted the existing PhysX warning:
 `CreateJoint - found a joint with disjointed body transforms ... Panda/root_joint`
-and warned that the simulation may snap objects together. The reset/step
-dynamic gate therefore remains open and must be fixed or independently
-verified before claiming combined runtime acceptance.
+and warned that the simulation may snap objects together. PXR verification
+confirms this Panda `root_joint` is explicitly disabled; the active mount is
+`AssemblerFixedJoint`, with one articulation root and exact mount-plane
+contract. A 2-env, 20-step combined reset/step re-verification stayed finite,
+with max mount-relative displacement `0.000370 m`. Long-horizon stability is
+still open and must be independently verified before claiming full runtime
+acceptance.
 
 Student S1 was not modified. The six-dimensional `mount_wrench_b` signal stays
 `[Fx, Fy, Fz, Tx, Ty, Tz]` in the base frame and retains its existing layout.
