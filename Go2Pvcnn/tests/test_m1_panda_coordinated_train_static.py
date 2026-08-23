@@ -43,5 +43,7 @@ def test_train_checks_103_by_23_runtime_contract_and_periodic_save():
     assert 'train_cfg["algorithm"]["schedule"] = "fixed"' in source
     assert "torch.nn.init.zeros_(output_layer.weight)" in source
     assert "torch.nn.init.zeros_(output_layer.bias)" in source
+    assert "runner.alg.actor_critic.noise_parameter.requires_grad_(False)" in source
+    assert '"frozen_action_std": 0.01' in source
     assert '"zero_action_actor_initialization": True' in source
     assert '"fresh_policy": True' in source

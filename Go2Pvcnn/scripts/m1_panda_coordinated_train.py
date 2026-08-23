@@ -73,6 +73,7 @@ def initialize_fresh_zero_action_policy(runner) -> None:
         raise RuntimeError("expected the coordinated actor to end in a 23-output Linear layer")
     torch.nn.init.zeros_(output_layer.weight)
     torch.nn.init.zeros_(output_layer.bias)
+    runner.alg.actor_critic.noise_parameter.requires_grad_(False)
 
 
 def main() -> int:
@@ -147,6 +148,7 @@ def main() -> int:
                 "learning_rate": train_cfg["algorithm"]["learning_rate"],
                 "learning_rate_schedule": train_cfg["algorithm"]["schedule"],
                 "zero_action_actor_initialization": True,
+                "frozen_action_std": 0.01,
                 "started_at_utc": datetime.now(timezone.utc).isoformat(),
             }
         )

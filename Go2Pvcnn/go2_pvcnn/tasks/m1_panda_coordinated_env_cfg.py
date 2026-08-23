@@ -148,6 +148,7 @@ class M1PandaCoordinatedRewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=list(M1_FOOT_BODY_NAMES)),
         },
     )
+    action_l2 = RewTerm(func=isaac_mdp.action_l2, weight=-0.1)
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     joint_torques = RewTerm(
         func=mdp.selected_joint_torques_l2,

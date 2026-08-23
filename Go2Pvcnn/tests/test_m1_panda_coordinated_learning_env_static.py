@@ -43,6 +43,7 @@ def test_learning_rewards_cover_mission_balance_slip_rate_and_effort():
         "base_angular_velocity",
         "flat_orientation_l2",
         "feet_slide",
+        "action_l2",
         "action_rate",
         "joint_torques",
     ):
