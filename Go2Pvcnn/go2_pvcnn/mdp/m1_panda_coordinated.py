@@ -212,8 +212,6 @@ def coordinated_base_tracking_reward(
 def coordinated_base_velocity_tracking_reward(
     env,
     *,
-    linear_scale_mps: float = 0.10,
-    yaw_scale_rad_s: float = 0.20,
     height_scale_m: float = 0.08,
     tilt_scale_rad: float = 0.35,
 ) -> torch.Tensor:
@@ -221,11 +219,14 @@ def coordinated_base_velocity_tracking_reward(
     robot = env.scene["robot"]
     linear_velocity = _require_finite("root_lin_vel_b", robot.data.root_lin_vel_b)
     angular_velocity = _require_finite("root_ang_vel_b", robot.data.root_ang_vel_b)
-    score = torch.exp(
-        -(linear_velocity[:, :2] - desired[:, :2]).square().sum(dim=-1)
-        / linear_scale_mps**2
-        -(angular_velocity[:, 2] - desired[:, 5]).square() / yaw_scale_rad_s**2
+    linear_limit = float(env.cfg.mission_base_linear_speed_limit_mps)
+    yaw_limit = float(env.cfg.mission_base_yaw_rate_limit_rad_s)
+    normalized_error = (
+        (linear_velocity[:, :2] - desired[:, :2]).square().sum(dim=-1)
+        / linear_limit**2
+        + (angular_velocity[:, 2] - desired[:, 5]).square() / yaw_limit**2
     )
+    score = 1.0 - normalized_error.clamp(max=2.0)
     score = score * _balance_score(
         env, height_scale_m=height_scale_m, tilt_scale_rad=tilt_scale_rad
     )

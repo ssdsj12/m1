@@ -133,6 +133,7 @@ def test_base_tracking_reward_is_gated_by_height_and_tilt_balance():
 def test_base_velocity_reward_prefers_safe_target_directed_motion():
     env = _env(batch=1)
     stationary = coordinated_base_velocity_tracking_reward(env)
+    torch.testing.assert_close(stationary, torch.zeros_like(stationary), atol=1.0e-6, rtol=0.0)
     env.scene["robot"].data.root_lin_vel_b[:, 0] = 0.25
     matching = coordinated_base_velocity_tracking_reward(env)
     assert torch.all(matching > 10.0 * stationary)
