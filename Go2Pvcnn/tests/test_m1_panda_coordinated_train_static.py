@@ -62,3 +62,12 @@ def test_train_enables_exact_dr_and_automatic_checkpoint_rollback():
     assert "controller.on_iteration" in source
     assert "controller.finalize(runner, learn_result.stop_reason)" in source
     assert 'default=600' in source
+
+
+def test_train_resets_randomized_environment_before_first_observation_and_runner():
+    source = SCRIPT.read_text()
+    wrapper_position = source.index("wrapper = M1PandaCoordinatedEnvWrapper(")
+    reset_position = source.index("wrapper.reset()", wrapper_position)
+    observation_position = source.index("wrapper.get_observations()", wrapper_position)
+    runner_position = source.index("runner = OnPolicyRunner(", wrapper_position)
+    assert wrapper_position < reset_position < observation_position < runner_position

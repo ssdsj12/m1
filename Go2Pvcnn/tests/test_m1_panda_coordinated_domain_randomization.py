@@ -136,6 +136,7 @@ class FakeEnv:
     def __init__(self, *, missing_joint: str | None = None) -> None:
         self.robot = FakeRobot(missing_joint=missing_joint)
         self.scene = {"robot": self.robot}
+        self.unwrapped = self
 
 
 def _ids(robot: FakeRobot, names) -> torch.Tensor:
@@ -174,6 +175,8 @@ def test_coordinated_joint_reset_uses_separate_ranges_and_keeps_wheels_default(
     assert torch.all(written.joint_vel[:, controlled_ids].abs() <= 0.04)
     assert torch.isfinite(written.joint_pos).all()
     assert torch.isfinite(written.joint_vel).all()
+    assert env.m1_panda_coordinated_joint_reset_position_deviation[0] <= 0.03
+    assert env.m1_panda_coordinated_joint_reset_velocity_deviation[0] <= 0.04
 
 
 def test_invalid_range_or_missing_joint_fails_before_atomic_write(
@@ -202,6 +205,31 @@ def test_invalid_range_or_missing_joint_fails_before_atomic_write(
             SceneEntityCfg("robot"),
         )
     assert missing.robot.write_count == 0
+
+
+def test_zero_soft_velocity_metadata_does_not_erase_bounded_randomization(
+    reset_coordinated_joints_by_offset,
+) -> None:
+    torch.manual_seed(11)
+    env = FakeEnv()
+    env.robot.data.soft_joint_vel_limits.zero_()
+
+    reset_coordinated_joints_by_offset(
+        env,
+        torch.tensor([0, 1]),
+        (-0.02, 0.02),
+        (-0.03, 0.03),
+        (-0.05, 0.05),
+        SceneEntityCfg("robot"),
+    )
+
+    controlled_ids = _ids(
+        env.robot,
+        M1_LEG_JOINT_NAMES + M1_WHEEL_JOINT_NAMES + PANDA_ARM_JOINT_NAMES,
+    )
+    sampled = env.robot.last_written_state.joint_vel[:, controlled_ids]
+    assert bool((sampled.abs() > 0.0).any())
+    assert bool((sampled.abs() <= 0.05).all())
 
 
 def test_training_dr_helper_sets_exact_ranges() -> None:

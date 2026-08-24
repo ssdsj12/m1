@@ -315,7 +315,19 @@ class AtomicCheckpointController:
 
     def finalize(self, runner, stop_reason: str) -> dict[str, object]:
         selected = self.guard.eligible_best or self.guard.diagnostic_best
-        if selected is None or not self.best_checkpoint.is_file():
+        if selected is None:
+            _atomic_runner_save(runner, self.final_checkpoint)
+            return {
+                "status": "completed_without_100_episode_candidate",
+                "stop_reason": str(stop_reason),
+                "best_iteration": None,
+                "rollback_source": None,
+                "rollback_source_sha256": None,
+                "final_checkpoint": str(self.final_checkpoint),
+                "final_checkpoint_sha256": sha256_file(self.final_checkpoint),
+                "accepted": False,
+            }
+        if not self.best_checkpoint.is_file():
             raise RuntimeError("cannot finalize without a valid best checkpoint")
 
         rollback_source_sha256 = sha256_file(self.best_checkpoint)

@@ -194,3 +194,17 @@ def test_training_diagnostics_are_finite_python_floats(monkeypatch) -> None:
     } <= diagnostics.keys()
     assert all(type(value) is float for value in diagnostics.values())
     assert all(torch.isfinite(torch.tensor(value)) for value in diagnostics.values())
+
+
+def test_constructor_does_not_label_pre_reset_physics_state_as_reset_dr(
+    monkeypatch,
+) -> None:
+    wrapper_cls = _load_wrapper(monkeypatch)
+    wrapper = wrapper_cls(FakeEnv(), training_randomization=True, seed=5)
+
+    diagnostics = wrapper.get_training_diagnostics()
+
+    assert diagnostics["root_pose_deviation_max"] == 0.0
+    assert diagnostics["root_velocity_deviation_max"] == 0.0
+    assert diagnostics["joint_position_deviation_max"] == 0.0
+    assert diagnostics["joint_velocity_deviation_max"] == 0.0

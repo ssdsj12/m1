@@ -686,15 +686,15 @@ git commit -m "feat: train coordinated PPO with rollback"
 - Probe emits one JSON summary with seeded reset diversity, bounds, selective-reset isolation, applied hand wrench, mount-wrench response, and finite/reset/contact counts.
 - Short train uses 64 envs and 50 updates; it tests the 100-episode best/final chain, not convergence.
 
-- [ ] **Step 1: Write probe static RED**
+- [x] **Step 1: Write probe static RED**
 
 Assert AppLauncher import order, `training_randomization=True`, two same-seed comparison batches, selected-env reset comparison, `panda_hand`, mount wrench, finite checks, and atomic JSON output fields.
 
-- [ ] **Step 2: Run RED, implement the probe, then local GREEN**
+- [x] **Step 2: Run RED, implement the probe, then local GREEN**
 
 The probe must fail nonzero unless same-seed tensors match, different envs are non-identical, every reset/wrench bound holds, unselected rows remain unchanged across selected reset, and a nonzero hand wrench produces a finite nonzero mount response after settling.
 
-- [ ] **Step 3: Run the real GPU0 probe**
+- [x] **Step 3: Run the real GPU0 probe**
 
 Run from `Go2Pvcnn`:
 ```bash
@@ -704,7 +704,7 @@ CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python scripts/m1_panda_
 ```
 Expected: exit `0`; all hard gates true. Record exact metrics in the probe log before proceeding.
 
-- [ ] **Step 4: Run a one-update GPU0 wiring smoke**
+- [x] **Step 4: Run a one-update GPU0 wiring smoke**
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python scripts/m1_panda_coordinated_train.py \
@@ -715,7 +715,7 @@ CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python scripts/m1_panda_
 ```
 Expected: finite PPO, LR/KL/DR TensorBoard tags, ordinary `model_0.pt`, manifest completed without falsely claiming an eligible best.
 
-- [ ] **Step 5: Run the 64-env×50 guarded short train**
+- [x] **Step 5: Run the 64-env×50 guarded short train**
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python scripts/m1_panda_coordinated_train.py \
@@ -726,7 +726,7 @@ CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python scripts/m1_panda_
 ```
 Expected: exit `0`; `model_best.pt`, `best_checkpoint.json`, `model_final.pt`, and manifest SHA chain all exist and agree. `accepted` may be false if the fresh 50-update policy misses gates; infrastructure correctness must not be relabeled as convergence.
 
-- [ ] **Step 6: Record both verification logs and commit**
+- [x] **Step 6: Record both verification logs and commit**
 
 ```bash
 git add Go2Pvcnn/scripts/m1_panda_coordinated_randomization_probe.py Go2Pvcnn/tests/test_m1_panda_coordinated_randomization_probe_static.py notes/log/2026-08-24-m1-panda-coordinated-randomization-probe.md notes/log/2026-08-24-m1-panda-coordinated-guarded-short-train.md

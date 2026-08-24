@@ -176,3 +176,20 @@ def test_finalize_marks_diagnostic_fallback_unaccepted(
 
     assert fields["accepted"] is False
     assert fields["status"] == "completed_without_eligible_best"
+
+
+def test_finalize_without_100_episode_candidate_saves_unaccepted_final(
+    tmp_path: Path, fake_runner: FakeRunner
+) -> None:
+    controller = AtomicCheckpointController(tmp_path, TrainingGuard(max_iterations=1))
+    controller.on_iteration(fake_runner, summary(1, count=0))
+
+    fields = controller.finalize(fake_runner, "max_iterations")
+
+    assert fields["status"] == "completed_without_100_episode_candidate"
+    assert fields["accepted"] is False
+    assert fields["best_iteration"] is None
+    assert fields["rollback_source"] is None
+    assert fields["rollback_source_sha256"] is None
+    assert Path(fields["final_checkpoint"]).is_file()
+    assert fake_runner.load_calls == []

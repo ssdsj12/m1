@@ -216,6 +216,7 @@ def main() -> int:
         wrapper = M1PandaCoordinatedEnvWrapper(
             env, training_randomization=True, seed=args.seed
         )
+        wrapper.reset()
         observations, _ = wrapper.get_observations()
         observation_dim = int(observations.shape[1])
         if observation_dim != 103 or observation_dim != COORDINATED_POLICY_OBSERVATION_DIM:

@@ -43,6 +43,7 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
         self._root_velocity_deviation_max = torch.zeros((), device=self.device)
         self._joint_position_deviation_max = torch.zeros((), device=self.device)
         self._joint_velocity_deviation_max = torch.zeros((), device=self.device)
+        self._joint_reset_diagnostics_sampled = False
         if training_randomization:
             self._base_body_id = self._exact_body_id("BASE_LINK")
             self._hand_body_id = self._exact_body_id("panda_hand")
@@ -55,9 +56,6 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
                 self.device,
                 step_dt,
                 seed=seed,
-            )
-            self._observe_reset_deviation(
-                torch.arange(self.num_envs, device=self.device)
             )
 
     def _exact_body_id(self, name: str) -> int:
@@ -182,12 +180,40 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
         root_velocity_deviation = (
             current_root[:, 7:13] - default_root[:, 7:13]
         ).abs().max()
+        owner = self.env.unwrapped
+        reset_diagnostics_getter = getattr(
+            mdp, "get_coordinated_joint_reset_diagnostics", None
+        )
+        sampled = (
+            reset_diagnostics_getter(self._robot)
+            if callable(reset_diagnostics_getter)
+            else None
+        )
+        sampled_joint_position = (
+            sampled[0]
+            if sampled is not None
+            else getattr(
+                owner, "m1_panda_coordinated_joint_reset_position_deviation", None
+            )
+        )
+        sampled_joint_velocity = (
+            sampled[1]
+            if sampled is not None
+            else getattr(
+                owner, "m1_panda_coordinated_joint_reset_velocity_deviation", None
+            )
+        )
+        self._joint_reset_diagnostics_sampled = sampled is not None
         joint_position_deviation = (
-            data.joint_pos[ids] - data.default_joint_pos[ids]
-        ).abs().max()
+            sampled_joint_position[ids].max()
+            if isinstance(sampled_joint_position, torch.Tensor)
+            else (data.joint_pos[ids] - data.default_joint_pos[ids]).abs().max()
+        )
         joint_velocity_deviation = (
-            data.joint_vel[ids] - data.default_joint_vel[ids]
-        ).abs().max()
+            sampled_joint_velocity[ids].max()
+            if isinstance(sampled_joint_velocity, torch.Tensor)
+            else (data.joint_vel[ids] - data.default_joint_vel[ids]).abs().max()
+        )
         values = (
             root_pose_deviation,
             root_velocity_deviation,
@@ -300,6 +326,9 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
             ),
             "joint_velocity_deviation_max": float(
                 self._joint_velocity_deviation_max.item()
+            ),
+            "joint_reset_diagnostics_sampled": float(
+                self._joint_reset_diagnostics_sampled
             ),
         }
         if not all(torch.isfinite(torch.tensor(value)) for value in values.values()):

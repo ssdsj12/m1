@@ -16,6 +16,17 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+_COORDINATED_RESET_DIAGNOSTICS: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
+
+
+def get_coordinated_joint_reset_diagnostics(asset):
+    """Return the latest sampled joint reset deviations for one articulation."""
+    values = _COORDINATED_RESET_DIAGNOSTICS.get(id(asset))
+    if values is None:
+        return None
+    return values[0].clone(), values[1].clone()
+
+
 def _finite_ordered_range(
     value: tuple[float, float], *, label: str
 ) -> tuple[float, float]:
@@ -94,14 +105,52 @@ def reset_coordinated_joints_by_offset(
     joint_pos = torch.minimum(joint_pos, position_limits[..., 1])
     velocity_limits = asset.data.soft_joint_vel_limits[env_ids]
     controlled_limits = velocity_limits[:, controlled_ids]
-    joint_vel[:, controlled_ids] = torch.maximum(
-        torch.minimum(joint_vel[:, controlled_ids], controlled_limits),
-        -controlled_limits,
+    sampled_velocity = joint_vel[:, controlled_ids]
+    clamped_velocity = torch.maximum(
+        torch.minimum(sampled_velocity, controlled_limits), -controlled_limits
+    )
+    usable_velocity_limit = torch.isfinite(controlled_limits) & (
+        controlled_limits > 0.0
+    )
+    joint_vel[:, controlled_ids] = torch.where(
+        usable_velocity_limit,
+        clamped_velocity,
+        sampled_velocity,
     )
     if not bool(torch.isfinite(joint_pos).all()) or not bool(
         torch.isfinite(joint_vel).all()
     ):
         raise ValueError("coordinated reset joint state must be finite")
+
+    owner = getattr(env, "unwrapped", env)
+    position_deviation = (
+        joint_pos[:, controlled_ids]
+        - asset.data.default_joint_pos[env_ids][:, controlled_ids]
+    ).abs().amax(dim=1)
+    velocity_deviation = (
+        joint_vel[:, controlled_ids]
+        - asset.data.default_joint_vel[env_ids][:, controlled_ids]
+    ).abs().amax(dim=1)
+    for name, values in (
+        ("m1_panda_coordinated_joint_reset_position_deviation", position_deviation),
+        ("m1_panda_coordinated_joint_reset_velocity_deviation", velocity_deviation),
+    ):
+        buffer = getattr(owner, name, None)
+        if not isinstance(buffer, torch.Tensor) or tuple(buffer.shape) != (
+            asset.data.default_joint_pos.shape[0],
+        ):
+            buffer = torch.zeros(
+                asset.data.default_joint_pos.shape[0],
+                device=asset.device,
+                dtype=joint_pos.dtype,
+            )
+            setattr(owner, name, buffer)
+            setattr(asset, name, buffer)
+        buffer[env_ids] = values
+    _COORDINATED_RESET_DIAGNOSTICS[id(asset)] = (
+        getattr(owner, "m1_panda_coordinated_joint_reset_position_deviation"),
+        getattr(owner, "m1_panda_coordinated_joint_reset_velocity_deviation"),
+    )
 
     asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
