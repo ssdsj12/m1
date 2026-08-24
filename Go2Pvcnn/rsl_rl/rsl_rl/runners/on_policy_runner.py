@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import os
+import math
 import statistics
 import time
 import torch
 from collections import deque
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from torch.utils.tensorboard import SummaryWriter as TensorboardSummaryWriter
 
 import rsl_rl
@@ -15,6 +18,61 @@ from rsl_rl.algorithms import PPO
 from rsl_rl.env import VecEnv
 from rsl_rl.modules import ActorCritic, ActorCriticCNN, ActorCriticRecurrent, EmpiricalNormalization
 from rsl_rl.utils import store_code_state
+
+
+@dataclass(frozen=True)
+class IterationSummary:
+    """Detached scalar diagnostics produced by one completed runner iteration."""
+
+    iteration: int
+    timesteps: int
+    completed_rewards: Sequence[float]
+    episode_metrics: Sequence[tuple[str, Sequence[float]]]
+    learning_rate: float
+    kl_mean: float
+    environment_metrics: Sequence[tuple[str, float]]
+
+
+@dataclass(frozen=True)
+class LearnResult:
+    """Outcome of a runner invocation, including an optional callback stop reason."""
+
+    completed_iterations: int
+    stop_reason: str
+
+
+def _finite_float(value, *, label: str) -> float:
+    tensor = torch.as_tensor(value).detach().reshape(-1).cpu()
+    if tensor.numel() != 1:
+        raise ValueError(f"{label} must be a scalar")
+    result = float(tensor.item())
+    if not math.isfinite(result):
+        raise ValueError(f"{label} must be finite")
+    return result
+
+
+def freeze_episode_metrics(ep_infos) -> tuple[tuple[str, tuple[float, ...]], ...]:
+    """Detach episode tensors into a deterministic immutable representation."""
+    values: dict[str, list[float]] = {}
+    for info in ep_infos:
+        for key, raw in info.items():
+            tensor = torch.as_tensor(raw).detach().reshape(-1).cpu()
+            if not bool(torch.isfinite(tensor).all()):
+                raise ValueError(f"episode metric {key!r} must be finite")
+            values.setdefault(key, []).extend(map(float, tensor.tolist()))
+    return tuple((key, tuple(values[key])) for key in sorted(values))
+
+
+def freeze_environment_metrics(metrics) -> tuple[tuple[str, float], ...]:
+    """Copy an environment diagnostic mapping into finite immutable scalars."""
+    if metrics is None:
+        return ()
+    if not isinstance(metrics, Mapping):
+        raise TypeError("environment diagnostics must be a mapping")
+    return tuple(
+        (str(key), _finite_float(value, label=f"environment metric {key!r}"))
+        for key, value in sorted(metrics.items(), key=lambda item: str(item[0]))
+    )
 
 
 def policy_noise_diagnostics(actor_critic):
@@ -85,7 +143,12 @@ class OnPolicyRunner:
         self.pvcnn_train_interval = self.cfg.get("pvcnn_train_interval", 10)  # Train PVCNN every N iterations
         self.pvcnn_train_epochs = self.cfg.get("pvcnn_train_epochs", 5)  # PVCNN training epochs per update
 
-    def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):
+    def learn(
+        self,
+        num_learning_iterations: int,
+        init_at_random_ep_len: bool = False,
+        iteration_callback=None,
+    ) -> LearnResult:
         """
         主训练循环函数。
         
@@ -146,8 +209,11 @@ class OnPolicyRunner:
         # ========================================
         start_iter = self.current_learning_iteration  # 起始迭代次数（用于resume训练）
         tot_iter = start_iter + num_learning_iterations  # 总迭代次数 = 起始 + 新增迭代
+        completed_iterations = 0
+        stop_reason = ""
         for it in range(start_iter, tot_iter):  # 迭代训练
             start = time.time()  # 记录数据收集开始时间
+            completed_rewards_this_iteration = []
             
             # ========================================
             # 阶段1: Rollout（数据收集）
@@ -183,27 +249,28 @@ class OnPolicyRunner:
                     # ========================================
                     # 日志记录（episode统计）
                     # ========================================
-                    if self.log_dir is not None:
-                        # 收集episode信息（当episode结束时会有"episode"或"log"字段）
-                        if "episode" in infos:
-                            ep_infos.append(infos["episode"])
-                        elif "log" in infos:
-                            ep_infos.append(infos["log"])
-                        
-                        # 累积奖励和episode长度
-                        cur_reward_sum += rewards  # 每步累加奖励 shape: (num_envs,)
-                        cur_episode_length += 1  # 每步增加长度
-                        
-                        # 找到所有完成的episode（dones > 0）
-                        new_ids = (dones > 0).nonzero(as_tuple=False)
-                        
-                        # 将完成的episode的统计数据添加到buffer
-                        rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
-                        lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
-                        
-                        # 重置已完成episode的统计变量
-                        cur_reward_sum[new_ids] = 0
-                        cur_episode_length[new_ids] = 0
+                    # Collect callback and logger metrics independently of the logger backend.
+                    if "episode" in infos:
+                        ep_infos.append(infos["episode"])
+                    elif "log" in infos:
+                        ep_infos.append(infos["log"])
+
+                    cur_reward_sum += rewards
+                    cur_episode_length += 1
+                    new_ids = (
+                        (dones > 0).reshape(-1).nonzero(as_tuple=False).flatten()
+                    )
+                    finished_rewards = (
+                        cur_reward_sum[new_ids].detach().reshape(-1).cpu().tolist()
+                    )
+                    finished_lengths = (
+                        cur_episode_length[new_ids].detach().reshape(-1).cpu().tolist()
+                    )
+                    completed_rewards_this_iteration.extend(map(float, finished_rewards))
+                    rewbuffer.extend(finished_rewards)
+                    lenbuffer.extend(finished_lengths)
+                    cur_reward_sum[new_ids] = 0
+                    cur_episode_length[new_ids] = 0
 
                 stop = time.time()
                 collection_time = stop - start  # 计算数据收集耗时
@@ -241,19 +308,60 @@ class OnPolicyRunner:
             # 阶段5: 日志记录和模型保存
             # ========================================
             self.current_learning_iteration = it  # 更新当前迭代次数
+            episode_metrics = freeze_episode_metrics(ep_infos)
+            diagnostics_getter = getattr(self.env, "get_training_diagnostics", None)
+            environment_metrics = freeze_environment_metrics(
+                diagnostics_getter() if callable(diagnostics_getter) else None
+            )
             
             if self.log_dir is not None:
                 self.log(locals())  # 记录所有统计数据到TensorBoard
+            else:
+                self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
             
-            if it % self.save_interval == 0:  # 每save_interval次迭代保存一次模型
-                self.save(os.path.join(self.log_dir, f"model_{it}.pt"))
+            if self.log_dir is not None:
+                if it % self.save_interval == 0:  # 每save_interval次迭代保存一次模型
+                    self.save(os.path.join(self.log_dir, f"model_{it}.pt"))
+
+            completed_iterations += 1
+            if iteration_callback is not None:
+                callback_reason = iteration_callback(
+                    IterationSummary(
+                        iteration=it,
+                        timesteps=self.tot_timesteps,
+                        completed_rewards=tuple(completed_rewards_this_iteration),
+                        episode_metrics=episode_metrics,
+                        learning_rate=_finite_float(
+                            self.alg.learning_rate, label="learning rate"
+                        ),
+                        kl_mean=_finite_float(self.alg.last_kl_mean, label="KL mean"),
+                        environment_metrics=environment_metrics,
+                    )
+                )
+                if callback_reason is not None:
+                    if not isinstance(callback_reason, str) or not callback_reason.strip():
+                        raise ValueError(
+                            "iteration callback must return None or a non-empty stop reason"
+                        )
+                    stop_reason = callback_reason.strip()
+                    ep_infos.clear()
+                    break
             
             ep_infos.clear()  # 清空episode信息列表，准备下一次迭代
 
         # ========================================
         # 训练结束，保存最终模型
         # ========================================
-        self.save(os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt"))
+        if self.log_dir is not None:
+            self.save(
+                os.path.join(
+                    self.log_dir, f"model_{self.current_learning_iteration}.pt"
+                )
+            )
+        return LearnResult(
+            completed_iterations=completed_iterations,
+            stop_reason=stop_reason,
+        )
 
     def log(self, locs: dict, width: int = 80, pad: int = 35):
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
@@ -294,6 +402,8 @@ class OnPolicyRunner:
             self.alg.last_lr_adjustment
         ]
         self.writer.add_scalar("Loss/lr_adjustment", lr_adjustment, locs["it"])
+        for key, value in locs["environment_metrics"]:
+            self.writer.add_scalar(f"DomainRandomization/{key}", value, locs["it"])
         self.writer.add_scalar(
             "Policy/mean_noise_parameter", mean_noise_parameter.item(), locs["it"]
         )

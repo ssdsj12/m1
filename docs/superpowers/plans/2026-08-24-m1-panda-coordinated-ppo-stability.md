@@ -225,7 +225,7 @@ git commit -m "feat: bound adaptive PPO optimization"
 - `OnPolicyRunner.learn(num_learning_iterations, init_at_random_ep_len=False, iteration_callback=None) -> LearnResult`; callback returns `None` to continue or a non-empty stop-reason string to stop.
 - Optional `env.get_training_diagnostics() -> Mapping[str, float]` is copied to immutable scalar pairs; absent method yields an empty mapping.
 
-- [ ] **Step 1: Write failing pure helper and source-compatibility tests**
+- [x] **Step 1: Write failing pure helper and source-compatibility tests**
 
 ```python
 def test_freeze_episode_metrics_detaches_and_rejects_nonfinite():
@@ -247,7 +247,7 @@ def test_callback_is_optional_and_default_save_loop_is_preserved():
     assert "if it % self.save_interval == 0" in source
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 ```bash
@@ -255,7 +255,7 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected: FAIL because summary/result/callback APIs do not exist.
 
-- [ ] **Step 3: Add the minimal generic API**
+- [x] **Step 3: Add the minimal generic API**
 
 ```python
 @dataclass(frozen=True)
@@ -288,11 +288,11 @@ Accumulate `completed_rewards_this_iteration` at each `dones` event; after log/p
 
 When a writer exists, add `Loss/kl`, `Loss/lr_adjustment`, and every finite environment diagnostic under `DomainRandomization/<key>` at the current iteration. Do not introduce M1/Panda metric names into the generic runner.
 
-- [ ] **Step 4: Run GREEN plus representative runner callers**
+- [x] **Step 4: Run GREEN plus representative runner callers**
 
 Run the Step 2 command and static tests for teacher/coordinated train entrypoints. Expected: all pass and no caller requires a callback.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/rsl_rl/rsl_rl/runners/on_policy_runner.py Go2Pvcnn/tests/test_rsl_runner_iteration_callback.py
