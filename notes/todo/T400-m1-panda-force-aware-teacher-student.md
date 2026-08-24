@@ -70,10 +70,16 @@ T400.10a Task 6 已完成：scheduler 缺失 RED 有效触发，scheduler `7 pas
 
 T400.10a Task 7 已完成：旧入口 RED `4 failed, 2 passed`，focused GREEN `6 passed`，Tasks 1–7 related `115 passed`，全部 coordinated tests `53 passed`，compile/diff exit `0`。fresh 入口默认 64×600/seed42，A1 仅 provenance；schema2 manifest、trainable std、显式 DR、guard callback 与 best→final SHA rollback 已串通。本阶段尚未做 GPU0 probe/短训。下一项是 Task 8 GPU0 randomization/physics probe 与 64×50 gate。
 
+T400.10a Task 8 已完成：GPU0 8×256 randomization/physics probe 全部 hard gates true，真实 controlled velocity DR max `0.049825 rad/s`，Panda-hand wrench 产生 finite/nonzero mount response；首次 runner rollout 前现显式 reset。64×50 guard/checkpoint/SHA 链通过，但 timeout `0.605156` 未达 eligible 门，故 `accepted=false`，没有收敛声明。Task 8 回归 `137 passed`。
+
+T400.10a Task 9 清理与本地验收已完成：long-v4 中恰好 15 个 >3500 数字 checkpoint 已按两阶段 SHA 审计删除，`model_3500.pt` 和原 manifest 哈希保持；完整 focused suite `141 passed`，asset SHA 保持 `643fd061...`。下一状态是 fresh 64×600 长训监控，只以 guard/manifest 判断接受，不外推抓取或实机能力。
+
+T400.10a fresh 64×600 已在 GPU0 启动，PID `1128844`。首个 update 生成 `model_0.pt`，16,384 timesteps，KL/LR/std 和 reset DR diagnostics 均 finite/bounded；当前 manifest 仍为 `running`，尚无 eligible/accepted 结论。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
-- [ ] T400.10a 实施 Coordinated PPO 稳定重训：200 Hz 长时间视野、adaptive KL、best/early-stop rollback、Panda hand 外力与初始状态域随机化、旧 checkpoint 审计清理（规格已批准，单代理计划待执行）。
+- [ ] T400.10a 监控 Coordinated PPO 稳定重训：实现、GPU probe/短门和旧 checkpoint 审计清理已完成，fresh 64×600 进入长期行为门监控。
   - [x] Task 1：新增独立 coordinated 200 Hz PPO 配置并通过 RED→GREEN。
   - [x] Task 2：实现 bounded adaptive KL/LR 与 physical std clamp/诊断。
   - [x] Task 3：实现通用不可变 runner iteration summary/callback。
@@ -81,7 +87,9 @@ T400.10a Task 7 已完成：旧入口 RED `4 failed, 2 passed`，focused GREEN `
   - [x] Task 5：实现 training-only reset/friction 域随机化。
   - [x] Task 6：实现 seeded Panda-hand wrench curriculum 与 wrapper diagnostics。
   - [x] Task 7：接入 stable train entrypoint、manifest 与 automatic final rollback。
-  - [ ] Task 8：执行 GPU0 randomization/physics probe 与 guarded 64×50 短训。
+  - [x] Task 8：执行 GPU0 randomization/physics probe 与 guarded 64×50 短训；基础设施通过，策略 `accepted=false`。
+  - [x] Task 9：完成 >3500 checkpoint SHA 审计清理、完整回归与稳定训练 runbook。
+  - [ ] Long monitor：等待 fresh 64×600 guard 停止并审计 eligible best/final manifest。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
@@ -217,9 +225,9 @@ T400.10a Task 7 已完成：旧入口 RED `4 failed, 2 passed`，focused GREEN `
 
 ## Git Refs
 
-- Last Feature Commit: `819b8c3`
-- Last Verified Base: `819b8c3`
-- Current Work Ref: `main`
+- Last Feature Commit: `545dcaa`
+- Last Verified Base: `545dcaa`
+- Current Work Ref: `codex/m1-panda-ppo-stability`
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
   - [受限残差动作组合器设计](../../docs/superpowers/specs/2026-08-14-m1-panda-residual-action-composer-design.md)

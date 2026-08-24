@@ -64,3 +64,12 @@ graph LR
 - 同步 PVCNN 训练何时开启
 - PPO 更新和 PVCNN 更新的耦合点
 - 多 GPU 或分布式相关分支
+
+## M1 + Panda 稳定协调 PPO
+
+- 入口是 `scripts/m1_panda_coordinated_train.py`，环境合同固定为 103 维观测、23 维腿/轮/Panda 联合动作和 200 Hz。
+- 每次运行是 fresh actor/critic/optimizer；A1 checkpoint 只记来源哈希，不加载旧策略。
+- rollout 为 256 steps，adaptive KL 目标 `0.01`，学习率限制 `[1e-6,3e-4]`，物理动作标准差限制 `[0.005,0.05]`。
+- 训练开始前显式 reset，状态/摩擦 DR 和 Panda-hand wrench 只在该训练入口启用。
+- 最近 100 个完成 episode 才能产生候选；timeout/contact/orientation 门通过后才允许 `accepted=true`。`model_final.pt` 是 guard 选择并回退后的交付文件，不应只按最后 update 选模型。
+- `accepted=true` 只说明协调正常控制在仿真行为门通过，不代表抓取、负载或实机验收。

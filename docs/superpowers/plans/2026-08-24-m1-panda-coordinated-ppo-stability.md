@@ -751,7 +751,7 @@ git commit -m "test: verify coordinated PPO stability wiring"
 - Pruner accepts only the exact long-v4 resolved directory, defaults to dry-run, requires `--apply` to unlink, and atomically writes `checkpoint_pruning.json` before deletion.
 - Runbook gives deterministic Play/probe, short train, long train, TensorBoard, stop/rollback inspection, and recovery commands.
 
-- [ ] **Step 1: Write pruning RED tests in a temporary directory**
+- [x] **Step 1: Write pruning RED tests in a temporary directory**
 
 ```python
 def test_plan_keeps_3500_and_selects_only_numeric_models_above_it(fake_run):
@@ -791,7 +791,7 @@ The audit schema records original manifest SHA, upper bound 3500, kept `model_35
 
 `build_pruning_plan(run_dir, keep_through, expected_run_dir=EXPECTED_LONG_V4_RUN_DIR)` resolves and compares both directories before enumerating files. The CLI never exposes `expected_run_dir`; only tests inject their temporary fixture path.
 
-- [ ] **Step 2: Run RED, implement, and run GREEN**
+- [x] **Step 2: Run RED, implement, and run GREEN**
 
 Run:
 ```bash
@@ -799,7 +799,7 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected after implementation: all pass.
 
-- [ ] **Step 3: Dry-run and verify the real exact list**
+- [x] **Step 3: Dry-run and verify the real exact list**
 
 ```bash
 /home/xk/miniconda3/envs/go2/bin/python Go2Pvcnn/scripts/prune_m1_panda_coordinated_checkpoints.py \
@@ -808,7 +808,7 @@ Expected after implementation: all pass.
 ```
 Expected selected files: `model_3600.pt` through `model_4900.pt`, plus `model_4999.pt`; exactly 15 files.
 
-- [ ] **Step 4: Apply deletion and verify audit/postcondition**
+- [x] **Step 4: Apply deletion and verify audit/postcondition**
 
 Repeat Step 3 with `--apply`, then run:
 ```bash
@@ -817,15 +817,15 @@ sha256sum Go2Pvcnn/logs/m1_panda_coordinated/coordinated_teacher_long_v4_64x5000
 ```
 Expected: no checkpoint number above 3500; audit JSON lists 15 pre-delete hashes. Record that deleted files are recoverable only from external backup.
 
-- [ ] **Step 5: Run final local verification and diff audit**
+- [x] **Step 5: Run final local verification and diff audit**
 
 Run the complete focused suite from Tasks 1–9, all existing `test_m1_panda_coordinated*.py`, Teacher disturbance/std tests, runner tests, `py_compile`, `git diff --check`, and a source scan proving fixed schedule/frozen std are absent from the coordinated train path. Create one final verification log if this is a distinct pass.
 
-- [ ] **Step 6: Write runbook and align project memory**
+- [x] **Step 6: Write runbook and align project memory**
 
 Document exact input/method/output contracts, TensorBoard tags, stop reasons, `accepted` meaning, and that this stage is coordinated normal control under disturbance—not grasping or hardware validation. Update T400.10a from implementation to long-run monitoring and set Git refs to the actual verified commits.
 
-- [ ] **Step 7: Launch the isolated fresh GPU0 64×600 run**
+- [x] **Step 7: Launch the isolated fresh GPU0 64×600 run**
 
 ```bash
 cd /home/xk/coding/M1/Go2Pvcnn
@@ -839,7 +839,7 @@ CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python scripts/m1_panda_
 
 Run it in a persistent terminal/session, record PID and first healthy update in the launch log, and monitor without declaring convergence. The controller may stop before 600 only through the approved catastrophe/patience gates and must leave `model_final.pt` equal to the eligible best rollback source.
 
-- [ ] **Step 8: Commit documentation and operational tooling**
+- [x] **Step 8: Commit documentation and operational tooling**
 
 ```bash
 git add Go2Pvcnn/scripts/prune_m1_panda_coordinated_checkpoints.py Go2Pvcnn/tests/test_m1_panda_coordinated_checkpoint_pruning.py docs/superpowers/runbooks/2026-08-24-m1-panda-coordinated-stable-training.md notes/log notes/todo.md notes/todo/T400-m1-panda-force-aware-teacher-student.md notes/human/human-05-ppo-and-runner.md notes/ai/ai-05-ppo-and-runner.md
@@ -848,12 +848,12 @@ git commit -m "train: launch guarded coordinated PPO run"
 
 ## Final Acceptance Checklist
 
-- [ ] Exact 103/23/200 Hz/asset contracts unchanged.
-- [ ] Fresh actor output is zero and scalar std remains trainable/clamped to `[0.005,0.05]`.
-- [ ] Adaptive KL changes LR only within `[1e-6,3e-4]`; TensorBoard records LR, KL, adjustment.
-- [ ] Default runner callers and deterministic coordinated wrapper behavior regress cleanly.
-- [ ] Training-only reset/friction/wrench randomization is seeded, bounded, independent, and physically reaches mount wrench through `panda_hand`.
-- [ ] Best selection, eligibility, catastrophe, patience, max-update, atomic hashes, and final rollback pass pure tests and GPU short-train artifact checks.
-- [ ] Exactly the old checkpoints above 3500 are removed with a valid pre-delete SHA audit; `model_3500.pt` and original manifest remain.
-- [ ] GPU0 long run is launched in a fresh directory with its PID/command recorded, but no convergence/grasping/real-hardware claim is made before behavioral acceptance.
-- [ ] Todo, branch memory, verification logs, runner human/AI notes, runbook, and Git refs are aligned.
+- [x] Exact 103/23/200 Hz/asset contracts unchanged.
+- [x] Fresh actor output is zero and scalar std remains trainable/clamped to `[0.005,0.05]`.
+- [x] Adaptive KL changes LR only within `[1e-6,3e-4]`; TensorBoard records LR, KL, adjustment.
+- [x] Default runner callers and deterministic coordinated wrapper behavior regress cleanly.
+- [x] Training-only reset/friction/wrench randomization is seeded, bounded, independent, and physically reaches mount wrench through `panda_hand`.
+- [x] Best selection, eligibility, catastrophe, patience, max-update, atomic hashes, and final rollback pass pure tests and GPU short-train artifact checks.
+- [x] Exactly the old checkpoints above 3500 are removed with a valid pre-delete SHA audit; `model_3500.pt` and original manifest remain.
+- [x] GPU0 long run is launched in a fresh directory with its PID/command recorded, but no convergence/grasping/real-hardware claim is made before behavioral acceptance.
+- [x] Todo, branch memory, verification logs, runner human/AI notes, runbook, and Git refs are aligned.

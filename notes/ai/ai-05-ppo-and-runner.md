@@ -65,3 +65,12 @@ graph LR
 - A1 requires a valid A0 checkpoint. Its actor is loaded in eval mode with every parameter frozen, lives only in the environment wrapper, is excluded from the trainable PPO runner, and is SHA-256 checked before and after learning.
 - The local runner stores the checkpoint iteration itself; the Teacher entrypoint advances `current_learning_iteration` by one after load so resume writes the next numeric checkpoint rather than overwriting the loaded file.
 - `run_manifest.json` transitions from `running` to `completed` or `failed` and records the final checkpoint plus live 60/16/nonzero-wrench runtime diagnostics.
+
+## Stable Coordinated PPO Boundary
+
+- `scripts/m1_panda_coordinated_train.py` uses the vendored `rsl_rl.runners.OnPolicyRunner` with a dedicated 256-step 200 Hz config; the task boundary remains 103 observations and 23 physical actions.
+- It explicitly resets the randomized environment before the first observation. Training-only root/joint/material DR and seeded `panda_hand` wrench are disabled in default wrapper use.
+- PPO exposes immutable per-iteration summaries, bounded adaptive KL/LR, physical std clipping, and finite environment diagnostics. Generic runner callers need no callback.
+- `TrainingGuard` ranks one exact rolling 100-episode window. `AtomicCheckpointController` writes diagnostic/eligible best plus SHA JSON and reloads the selected checkpoint with `load_optimizer=False, keep_std=True` before `model_final.pt`.
+- Manifest `accepted=true` requires an eligible best. `completed_without_eligible_best` and `completed_without_100_episode_candidate` are intentionally unaccepted states.
+- A1 is provenance-only for this fresh run. Never infer grasping, payload, force-sensor, or hardware validation from coordinated PPO acceptance.
