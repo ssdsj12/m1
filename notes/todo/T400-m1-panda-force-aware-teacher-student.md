@@ -56,10 +56,14 @@ T400.10 long v4 后续已完成 5000 updates，但在约 4022 updates 后发生 
 
 T400.10a 书面规格已由用户复核批准，九任务单代理 TDD 实施计划已完成并自审。计划按专用 256-step cfg、bounded adaptive PPO、通用 runner callback、100-episode guard/原子回退、原子 joint reset/摩擦 DR、Panda-hand wrench、训练入口、GPU0 probe/64×50 短门、checkpoint 审计清理与 fresh 64×600 启动顺序执行。当前等待 Inline Execution handoff；仍未修改运行代码、删除 checkpoint 或启动新训练。
 
+T400.10a Task 1 已完成：新增 coordinated 专用 PPO cfg，RED `2 failed`、GREEN `2 passed`、相关训练入口回归 `40 passed`，compile/diff exit `0`。精确冻结 256-step、`0.9995/0.995`、adaptive KL/LR bounds 和 physical std bounds；尚未接入入口。下一项是 Task 2 bounded adaptive PPO 实现。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
 - [ ] T400.10a 实施 Coordinated PPO 稳定重训：200 Hz 长时间视野、adaptive KL、best/early-stop rollback、Panda hand 外力与初始状态域随机化、旧 checkpoint 审计清理（规格已批准，单代理计划待执行）。
+  - [x] Task 1：新增独立 coordinated 200 Hz PPO 配置并通过 RED→GREEN。
+  - [ ] Task 2：实现 bounded adaptive KL/LR 与 physical std clamp/诊断。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。

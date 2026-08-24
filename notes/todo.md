@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.10a | T400 | plan-review | P0 | long v4 约 4022 后坍塌；书面规格已批准，九任务单代理 TDD 计划已完成自审，等待 Inline Execution 后实施并启动 fresh 64×600。 | [implementation plan](../docs/superpowers/plans/2026-08-24-m1-panda-coordinated-ppo-stability.md) |
+| T400.10a | T400 | active | P0 | 单代理计划执行中；Task 1 专用 256-step PPO cfg 已通过 RED→GREEN，下一项实现 bounded adaptive KL/LR 与 std 诊断。 | [Task 1 evidence](log/2026-08-24-m1-panda-coordinated-train-cfg.md) |
 | T400.9 | T400 | active | P0 | Student Tasks 1–12 contract path complete: 100/10/23 contracts, isolated Teacher runtime, S1 collection/trainer, Student-only Play and exact 42/43/44 evaluation; regression `109 passed`, 64×4000 CPU evaluation passes. Physical Isaac side-label and GPU gates remain open. | [Student S1 evaluation smoke](log/2026-08-20-m1-panda-student-s1-evaluation-smoke.md) |
 | T400.8 | T400 | done | P0 | C0 Tasks 1–10 accepted: `177 passed`; GPU0 8+2000-step exits 0; all hard metrics pass with zero snap/reset/contact/limit failures. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |

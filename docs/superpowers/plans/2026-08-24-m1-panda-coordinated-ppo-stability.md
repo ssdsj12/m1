@@ -33,7 +33,7 @@
 - Produces: `get_m1_panda_coordinated_train_cfg() -> dict` returning a new dictionary on every call.
 - Consumed by: Task 7 training entrypoint; no A0/A1 configuration changes.
 
-- [ ] **Step 1: Write the failing exact-contract tests**
+- [x] **Step 1: Write the failing exact-contract tests**
 
 ```python
 from agent import get_m1_panda_coordinated_train_cfg
@@ -72,7 +72,7 @@ def test_coordinated_cfg_returns_independent_objects():
     assert get_m1_panda_coordinated_train_cfg()["algorithm"]["gamma"] == 0.9995
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 ```bash
@@ -81,7 +81,7 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected: FAIL because the module/export does not exist.
 
-- [ ] **Step 3: Implement the dedicated config**
+- [x] **Step 3: Implement the dedicated config**
 
 ```python
 def get_m1_panda_coordinated_train_cfg() -> dict:
@@ -107,7 +107,7 @@ def get_m1_panda_coordinated_train_cfg() -> dict:
     }
 ```
 
-- [ ] **Step 4: Run GREEN and compile**
+- [x] **Step 4: Run GREEN and compile**
 
 Run the Step 2 command, then:
 ```bash
@@ -115,7 +115,7 @@ Run the Step 2 command, then:
 ```
 Expected: all tests pass; compile exit `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/agent/m1_panda_coordinated_train_cfg.py Go2Pvcnn/agent/__init__.py Go2Pvcnn/tests/test_m1_panda_coordinated_train_cfg.py
