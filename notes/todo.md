@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | Coordinated Teacher 已冻结 103/23 可学习合同，最终 GPU0 64×600 门 timeout `1.0`、contact/orientation `0`、base-target `2.4825`、EE `1.0423`；64×5000 long v4 已启动。 | 持续监控 long v4 的稳定性、目标/EE 指标与 checkpoint；保留启动 wrench 峰值诊断。 |
+| T400 | active | Coordinated Teacher 已冻结 103/23 可学习合同；64×5000 long v4 已完成，但约 update 4022 后坍塌并被拒绝。T400.10a 稳定重训设计已写成规格。 | 复核稳定重训规格后，实施 200 Hz 长视野、adaptive KL、best/rollback、末端 wrench 与 reset DR；保留启动 wrench 峰值诊断。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
@@ -161,6 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
+| T400.10a | T400 | design-review | P0 | long v4 完成 5000 updates 但约 4022 后坍塌；已批准 fresh-zero、200 Hz/256-step、adaptive KL、best/rollback、Panda-hand wrench 与 reset DR 设计，等待书面规格复核后实施。 | [stability design](../docs/superpowers/specs/2026-08-24-m1-panda-coordinated-ppo-stability-design.md) |
 | T400.9 | T400 | active | P0 | Student Tasks 1–12 contract path complete: 100/10/23 contracts, isolated Teacher runtime, S1 collection/trainer, Student-only Play and exact 42/43/44 evaluation; regression `109 passed`, 64×4000 CPU evaluation passes. Physical Isaac side-label and GPU gates remain open. | [Student S1 evaluation smoke](log/2026-08-20-m1-panda-student-s1-evaluation-smoke.md) |
 | T400.8 | T400 | done | P0 | C0 Tasks 1–10 accepted: `177 passed`; GPU0 8+2000-step exits 0; all hard metrics pass with zero snap/reset/contact/limit failures. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | T400.7 | T400 | redesign-review | P0 | 20 recovery blocks improved the best to 0.7019 timeout/0.2224 contact/0.0758 orientation but missed the strict gate; reward/curriculum redesign requires approval. | [block evidence](log/2026-08-15-m1-panda-a1-recovery-blocks.md) |

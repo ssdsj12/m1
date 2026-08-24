@@ -30,7 +30,9 @@
 - GPU：`CUDA_VISIBLE_DEVICES=0` / `cuda:0`
 - 配置：64 env，seed 42，5000 requested iterations，save interval 100。
 - stdout：`Go2Pvcnn/logs/m1_panda_coordinated/coordinated_teacher_long_v4_64x5000_20260823.stdout.log`
-- 当前状态：已启动，持续监控 stability、base-target/velocity-target、EE activation 和 checkpoint。
+- 最终状态：完成全部 5000 updates，但行为验收失败。第 4000 次更新附近仍为 `time_out=1.0`、`base_contact=0`；第 4022 次首次出现 base contact，第 4023 次 value loss 峰值约 `27.995`，第 4256 次附近 `base_contact=1.0`；最终 mean reward 约 `-46.86`、`time_out=0`、`base_contact=1.0`。未发现 CUDA、NaN、traceback 或资产 snap，因此该 run 只保留为 PPO 后期坍塌证据，不作为可部署 checkpoint。
+
+后续稳定重训设计见 [2026-08-24 specification](../../docs/superpowers/specs/2026-08-24-m1-panda-coordinated-ppo-stability-design.md)。
 
 ## 边界
 
