@@ -311,7 +311,7 @@ git commit -m "feat: expose runner iteration summaries"
 - `AtomicCheckpointController.on_iteration(runner, summary) -> str | None` performs atomic `model_best.pt`/JSON writes and returns the stop reason.
 - `AtomicCheckpointController.finalize(runner, stop_reason) -> dict[str, object]` reloads eligible best when present, otherwise diagnostic best, using `load_optimizer=False, keep_std=True`; it atomically writes `model_final.pt` and returns manifest fields.
 
-- [ ] **Step 1: Write the failing guard matrix**
+- [x] **Step 1: Write the failing guard matrix**
 
 Use this complete helper and matrix; each call supplies 100 values per required metric:
 ```python
@@ -381,7 +381,7 @@ The `fake_runner` fixture owns a one-parameter `torch.nn.Linear`, implements `sa
 
 Use exact metric keys `Termination/time_out`, `Termination/base_contact`, `Termination/bad_orientation`, `Reward/base_target`, and `Reward/ee_tracking`; construct summaries with 100 scalar samples per key so eligibility is unambiguous.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 ```bash
@@ -389,7 +389,7 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected: FAIL because guard/controller do not exist.
 
-- [ ] **Step 3: Implement exact ranking and stop state**
+- [x] **Step 3: Implement exact ranking and stop state**
 
 ```python
 rank = (
@@ -411,11 +411,11 @@ Maintain separate `diagnostic_best` and `eligible_best`; once eligible exists, o
 
 Maintain one `deque(maxlen=100)` for completed rewards and for each required episode metric. A candidate is formed only when all six deques contain 100 samples; its rates/scores are means over those same most-recent 100 completed episodes. An update with no completed episode re-evaluates the unchanged window only for patience/catastrophe counting and cannot manufacture a new best.
 
-- [ ] **Step 4: Implement atomic checkpoint files**
+- [x] **Step 4: Implement atomic checkpoint files**
 
 Use same-directory temporary paths and `os.replace`; write JSON with `allow_nan=False`. `best_checkpoint.json` contains iteration, timesteps, metric fields, LR, KL, DR diagnostics, SHA and `eligible`. `finalize()` uses eligible best if one exists, otherwise diagnostic best; only the former yields `accepted=true`. It returns `status`, `stop_reason`, `best_iteration`, `rollback_source_sha256`, `final_checkpoint_sha256`, and `accepted`.
 
-- [ ] **Step 5: Run GREEN and compile**
+- [x] **Step 5: Run GREEN and compile**
 
 Run the Step 2 command plus:
 ```bash
@@ -423,7 +423,7 @@ Run the Step 2 command plus:
 ```
 Expected: all pass; compile exit `0`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/tasks/m1_panda_coordinated_training_guard.py Go2Pvcnn/tests/test_m1_panda_coordinated_training_guard.py
