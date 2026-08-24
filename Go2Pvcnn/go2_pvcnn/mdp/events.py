@@ -16,6 +16,96 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+def _finite_ordered_range(
+    value: tuple[float, float], *, label: str
+) -> tuple[float, float]:
+    if len(value) != 2:
+        raise ValueError(f"{label} must be a finite ordered range")
+    lower, upper = map(float, value)
+    if not torch.isfinite(torch.tensor([lower, upper])).all() or lower > upper:
+        raise ValueError(f"{label} must be a finite ordered range")
+    return lower, upper
+
+
+def _canonical_joint_ids(asset, names: tuple[str, ...]) -> torch.Tensor:
+    ids, resolved_names = asset.find_joints(list(names), preserve_order=True)
+    ids = tuple(map(int, ids))
+    if tuple(resolved_names) != names or len(set(ids)) != len(names):
+        raise ValueError("robot must expose all canonical joints exactly once")
+    return torch.tensor(ids, dtype=torch.long, device=asset.device)
+
+
+def reset_coordinated_joints_by_offset(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    leg_position_range: tuple[float, float],
+    arm_position_range: tuple[float, float],
+    velocity_range: tuple[float, float],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> None:
+    """Atomically randomize canonical M1 legs/Panda positions and controlled velocities."""
+    from go2_pvcnn.assets import M1_LEG_JOINT_NAMES, M1_WHEEL_JOINT_NAMES
+    from go2_pvcnn.assets.m1_panda import M1_PANDA_WBC_CONTROLLED_JOINT_NAMES
+
+    leg_range = _finite_ordered_range(
+        leg_position_range, label="leg_position_range"
+    )
+    arm_range = _finite_ordered_range(
+        arm_position_range, label="arm_position_range"
+    )
+    joint_velocity_range = _finite_ordered_range(
+        velocity_range, label="velocity_range"
+    )
+    asset: Articulation = env.scene[asset_cfg.name]
+    arm_names = tuple(
+        name
+        for name in M1_PANDA_WBC_CONTROLLED_JOINT_NAMES
+        if name.startswith("panda_joint")
+    )
+    if len(arm_names) != 7:
+        raise ValueError("canonical coordinated joint list must contain seven Panda joints")
+    all_names = tuple(M1_LEG_JOINT_NAMES) + tuple(M1_WHEEL_JOINT_NAMES) + arm_names
+    if len(set(all_names)) != len(all_names):
+        raise ValueError("canonical coordinated joints must be unique")
+
+    leg_ids = _canonical_joint_ids(asset, tuple(M1_LEG_JOINT_NAMES))
+    wheel_ids = _canonical_joint_ids(asset, tuple(M1_WHEEL_JOINT_NAMES))
+    arm_ids = _canonical_joint_ids(asset, arm_names)
+    controlled_ids = torch.cat((leg_ids, wheel_ids, arm_ids))
+    env_ids = env_ids.to(device=asset.device, dtype=torch.long)
+    joint_pos = asset.data.default_joint_pos[env_ids].clone()
+    joint_vel = asset.data.default_joint_vel[env_ids].clone()
+
+    def sample(value_range: tuple[float, float], width: int) -> torch.Tensor:
+        return torch.empty(
+            (len(env_ids), width),
+            device=asset.device,
+            dtype=joint_pos.dtype,
+        ).uniform_(*value_range)
+
+    joint_pos[:, leg_ids] += sample(leg_range, len(leg_ids))
+    joint_pos[:, arm_ids] += sample(arm_range, len(arm_ids))
+    joint_vel[:, controlled_ids] = sample(
+        joint_velocity_range, len(controlled_ids)
+    )
+
+    position_limits = asset.data.soft_joint_pos_limits[env_ids]
+    joint_pos = torch.maximum(joint_pos, position_limits[..., 0])
+    joint_pos = torch.minimum(joint_pos, position_limits[..., 1])
+    velocity_limits = asset.data.soft_joint_vel_limits[env_ids]
+    controlled_limits = velocity_limits[:, controlled_ids]
+    joint_vel[:, controlled_ids] = torch.maximum(
+        torch.minimum(joint_vel[:, controlled_ids], controlled_limits),
+        -controlled_limits,
+    )
+    if not bool(torch.isfinite(joint_pos).all()) or not bool(
+        torch.isfinite(joint_vel).all()
+    ):
+        raise ValueError("coordinated reset joint state must be finite")
+
+    asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+
+
 def reset_dynamic_objects_position(
     env: ManagerBasedRLEnv,
     env_ids: torch.Tensor,

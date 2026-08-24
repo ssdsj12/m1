@@ -64,6 +64,8 @@ T400.10a Task 3 已完成：缺失接口 RED 在测试收集阶段有效触发�
 
 T400.10a Task 4 已完成：模块缺失 RED 有效触发，focused `8 passed`，Tasks 1–4 相关回归 `23 passed`，compile/diff exit `0`。纯 guard 使用同一最近 100 episode 窗口与批准的字典序/eligible 门，原子 controller 保存 best/JSON 并以 `load_optimizer=False, keep_std=True` 回退 final；无 eligible 时保持 `accepted=false`。下一项是 Task 5 reset/friction 域随机化。
 
+T400.10a Task 5 已完成：missing event/helper RED 为 `3 failed, 2 errors, 4 passed`，focused `9 passed`，coordinated cfg regression `13 passed`，compile/diff exit `0`。新增 canonical joint 单次原子 reset 写入及批准的 root/joint/friction 范围；默认 cfg 与 helper disabled 均保持确定性。下一项是 Task 6 seeded Panda-hand wrench curriculum。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
@@ -72,7 +74,8 @@ T400.10a Task 4 已完成：模块缺失 RED 有效触发，focused `8 passed`�
   - [x] Task 2：实现 bounded adaptive KL/LR 与 physical std clamp/诊断。
   - [x] Task 3：实现通用不可变 runner iteration summary/callback。
   - [x] Task 4：实现纯 best-checkpoint guard 与原子 rollback controller。
-  - [ ] Task 5：实现 training-only reset/friction 域随机化。
+  - [x] Task 5：实现 training-only reset/friction 域随机化。
+  - [ ] Task 6：实现 seeded Panda-hand wrench curriculum 与 wrapper diagnostics。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。

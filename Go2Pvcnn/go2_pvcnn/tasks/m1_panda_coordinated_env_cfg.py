@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from isaaclab.envs import mdp as isaac_mdp
+from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
@@ -23,6 +24,7 @@ from go2_pvcnn.assets.m1_panda import (
 )
 import go2_pvcnn.mdp as mdp
 from go2_pvcnn.tasks.m1_panda_wbc_roll_teacher_env_cfg import M1PandaWbcRollTeacherEnvCfg
+from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEventsCfg
 
 
 PANDA_ARM_JOINT_NAMES = tuple(f"panda_joint{index}" for index in range(1, 8))
@@ -158,12 +160,62 @@ class M1PandaCoordinatedRewardsCfg:
 
 
 @configclass
+class M1PandaCoordinatedEventsCfg(M1SmokeEventsCfg):
+    """Deterministic defaults that the coordinated train entrypoint may randomize."""
+
+    physics_material = EventTerm(
+        func=mdp.randomize_rigid_body_material,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (1.0, 1.0),
+            "dynamic_friction_range": (1.0, 1.0),
+            "restitution_range": (0.0, 0.0),
+            "num_buckets": 64,
+        },
+    )
+    reset_base = EventTerm(
+        func=mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            "pose_range": {
+                "x": (0.0, 0.0),
+                "y": (0.0, 0.0),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0.0, 0.0),
+                "yaw": (0.0, 0.0),
+            },
+            "velocity_range": {
+                "x": (0.0, 0.0),
+                "y": (0.0, 0.0),
+                "z": (0.0, 0.0),
+                "roll": (0.0, 0.0),
+                "pitch": (0.0, 0.0),
+                "yaw": (0.0, 0.0),
+            },
+        },
+    )
+    reset_robot_joints = EventTerm(
+        func=mdp.reset_coordinated_joints_by_offset,
+        mode="reset",
+        params={
+            "leg_position_range": (0.0, 0.0),
+            "arm_position_range": (0.0, 0.0),
+            "velocity_range": (0.0, 0.0),
+            "asset_cfg": SceneEntityCfg("robot"),
+        },
+    )
+
+
+@configclass
 class M1PandaCoordinatedEnvCfg(M1PandaWbcRollTeacherEnvCfg):
     """Combined 25-DOF articulation with a 16+7 coordinated action boundary."""
 
     actions: M1PandaCoordinatedActionsCfg = M1PandaCoordinatedActionsCfg()
     observations: M1PandaCoordinatedObservationsCfg = M1PandaCoordinatedObservationsCfg()
     rewards: M1PandaCoordinatedRewardsCfg = M1PandaCoordinatedRewardsCfg()
+    events: M1PandaCoordinatedEventsCfg = M1PandaCoordinatedEventsCfg()
 
     # mount_wrench_b remains the unchanged six-value
     # [Fx, Fy, Fz, Tx, Ty, Tz] base-frame signal.
@@ -189,8 +241,70 @@ class M1PandaCoordinatedEnvCfg(M1PandaWbcRollTeacherEnvCfg):
         self.episode_length_s = 30.0
 
 
+def configure_coordinated_training_domain_randomization(cfg, enabled: bool) -> None:
+    """Set the exact approved train ranges or restore deterministic defaults."""
+    if not isinstance(enabled, bool):
+        raise TypeError("enabled must be a bool")
+    if enabled:
+        pose_range = {
+            "x": (-0.02, 0.02),
+            "y": (-0.02, 0.02),
+            "z": (0.0, 0.0),
+            "roll": (-0.03, 0.03),
+            "pitch": (-0.03, 0.03),
+            "yaw": (-0.05, 0.05),
+        }
+        root_velocity_range = {
+            "x": (-0.05, 0.05),
+            "y": (-0.05, 0.05),
+            "z": (-0.05, 0.05),
+            "roll": (-0.10, 0.10),
+            "pitch": (-0.10, 0.10),
+            "yaw": (-0.10, 0.10),
+        }
+        leg_position_range = (-0.02, 0.02)
+        arm_position_range = (-0.03, 0.03)
+        joint_velocity_range = (-0.05, 0.05)
+        friction_range = (0.8, 1.2)
+    else:
+        pose_range = {
+            axis: (0.0, 0.0)
+            for axis in ("x", "y", "z", "roll", "pitch", "yaw")
+        }
+        root_velocity_range = dict(pose_range)
+        leg_position_range = (0.0, 0.0)
+        arm_position_range = (0.0, 0.0)
+        joint_velocity_range = (0.0, 0.0)
+        friction_range = (1.0, 1.0)
+
+    cfg.events.reset_base.params = {
+        "pose_range": pose_range,
+        "velocity_range": root_velocity_range,
+    }
+    cfg.events.reset_robot_joints.params = {
+        "leg_position_range": leg_position_range,
+        "arm_position_range": arm_position_range,
+        "velocity_range": joint_velocity_range,
+        "asset_cfg": cfg.events.reset_robot_joints.params.get(
+            "asset_cfg", SceneEntityCfg("robot")
+        ),
+    }
+    cfg.events.physics_material.params = {
+        "asset_cfg": cfg.events.physics_material.params.get(
+            "asset_cfg", SceneEntityCfg("robot", body_names=".*")
+        ),
+        "static_friction_range": friction_range,
+        "dynamic_friction_range": friction_range,
+        "restitution_range": (0.0, 0.0),
+        "num_buckets": 64,
+    }
+
+
 __all__ = [
     "COORDINATED_POLICY_OBSERVATION_DIM",
     "COORDINATED_POLICY_OBSERVATION_WIDTHS",
+    "M1PandaCoordinatedEventsCfg",
     "M1PandaCoordinatedEnvCfg",
+    "PANDA_ARM_JOINT_NAMES",
+    "configure_coordinated_training_domain_randomization",
 ]

@@ -83,3 +83,12 @@ def test_residual_action_scales_match_leg_wheel_and_arm_authority():
         assert f"scale={scale}" in block
         assert "preserve_order=True" in block
     assert "mission_base_linear_speed_limit_mps: float = 0.10" in source
+
+
+def test_domain_randomization_is_explicit_and_deterministic_by_default():
+    source = CFG.read_text()
+    assert "class M1PandaCoordinatedEventsCfg" in source
+    assert "func=mdp.reset_coordinated_joints_by_offset" in source
+    assert "configure_coordinated_training_domain_randomization" in source
+    assert '"leg_position_range": (0.0, 0.0)' in source
+    assert '"arm_position_range": (0.0, 0.0)' in source

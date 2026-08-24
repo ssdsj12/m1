@@ -443,7 +443,7 @@ git commit -m "feat: guard coordinated PPO checkpoints"
 - `configure_coordinated_training_domain_randomization(cfg, enabled: bool) -> None` enables exact approved ranges for train and restores deterministic ranges for Play/probes.
 - Environment defaults remain deterministic until the train entrypoint explicitly calls the helper.
 
-- [ ] **Step 1: Write RED tests for selected-joint isolation and exact ranges**
+- [x] **Step 1: Write RED tests for selected-joint isolation and exact ranges**
 
 ```python
 def test_coordinated_joint_reset_uses_separate_ranges_and_keeps_wheels_default(fake_env):
@@ -469,7 +469,7 @@ def test_training_dr_helper_sets_exact_ranges():
 
 Also assert roll/pitch/yaw, all six velocity ranges, restitution `(0.0, 0.0)`, 64 friction buckets, and `configure_coordinated_training_domain_randomization(cfg, False)` restores all-zero/default reset ranges.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 ```bash
@@ -477,7 +477,7 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected: FAIL on missing event/helper.
 
-- [ ] **Step 3: Implement the atomic coordinated-joint event**
+- [x] **Step 3: Implement the atomic coordinated-joint event**
 
 Resolve exact leg, wheel, and Panda IDs from the canonical name constants, clone the full default state once, sample the two additive position ranges plus the controlled velocity range, clamp against soft position/velocity limits, then call exactly one:
 ```python
@@ -487,15 +487,15 @@ asset.write_joint_state_to_sim(
 ```
 Reject missing/duplicate canonical joints and non-finite ranges before writing.
 
-- [ ] **Step 4: Add deterministic event defaults and the explicit training helper**
+- [x] **Step 4: Add deterministic event defaults and the explicit training helper**
 
 Define `M1PandaCoordinatedEventsCfg` with one overridden `reset_robot_joints` event using the atomic helper. The helper mutates only the coordinated cfg instance and sets every approved range; it must not change module-level shared config objects or other tasks.
 
-- [ ] **Step 5: Run GREEN, compile, and coordinated cfg regression**
+- [x] **Step 5: Run GREEN, compile, and coordinated cfg regression**
 
 Run the Step 2 command, existing coordinated env tests, and `py_compile` for both modified modules. Expected: all pass; default cfg remains deterministic.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/mdp/events.py Go2Pvcnn/go2_pvcnn/tasks/m1_panda_coordinated_env_cfg.py Go2Pvcnn/tests/test_m1_panda_coordinated_domain_randomization.py Go2Pvcnn/tests/test_m1_panda_coordinated_learning_env_static.py
