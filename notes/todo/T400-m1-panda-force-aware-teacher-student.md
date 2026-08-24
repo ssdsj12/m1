@@ -54,10 +54,12 @@ T400.10 已补齐精确 103-observation / 23-action 协调 PPO 合同并完成�
 
 T400.10 long v4 后续已完成 5000 updates，但在约 4022 updates 后发生 PPO 策略坍塌，最终 `base_contact=1.0`，不可接受。T400.10a 稳定重训交互设计现已批准并写入书面规格：新运行从零开始，保持 200 Hz/103/23，改用 256-step rollout、`gamma=0.9995`、`lambda=0.995`、adaptive KL、best checkpoint 与自动早停回退；Panda hand 接受逐环境 `20 N/5 Nm` 满幅课程，reset/摩擦进行可复现域随机化。旧 `model_3500.pt` 只作为基准保留，之后 checkpoint 将在实施阶段按 SHA 审计删除。当前等待书面规格复核，尚未改运行代码、启动新训练或删除文件。
 
+T400.10a 书面规格已由用户复核批准，九任务单代理 TDD 实施计划已完成并自审。计划按专用 256-step cfg、bounded adaptive PPO、通用 runner callback、100-episode guard/原子回退、原子 joint reset/摩擦 DR、Panda-hand wrench、训练入口、GPU0 probe/64×50 短门、checkpoint 审计清理与 fresh 64×600 启动顺序执行。当前等待 Inline Execution handoff；仍未修改运行代码、删除 checkpoint 或启动新训练。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
-- [ ] T400.10a 实施 Coordinated PPO 稳定重训：200 Hz 长时间视野、adaptive KL、best/early-stop rollback、Panda hand 外力与初始状态域随机化、旧 checkpoint 审计清理（书面规格待复核）。
+- [ ] T400.10a 实施 Coordinated PPO 稳定重训：200 Hz 长时间视野、adaptive KL、best/early-stop rollback、Panda hand 外力与初始状态域随机化、旧 checkpoint 审计清理（规格已批准，单代理计划待执行）。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。

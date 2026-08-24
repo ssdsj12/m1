@@ -30,7 +30,7 @@ T400.10a / Coordinated Teacher PPO stability redesign。
 
 ## Result
 
-交互设计已确认，书面规格已生成并完成初步自审。当前没有运行代码修改、测试运行、GPU 训练或 checkpoint 删除；下一门是用户复核书面规格，然后编写逐文件单代理 TDD 实施计划。
+交互设计与书面规格均已由用户确认；逐文件单代理 TDD [实施计划](../../docs/superpowers/plans/2026-08-24-m1-panda-coordinated-ppo-stability.md) 已生成并自审。当前没有运行代码修改、测试运行、GPU 训练或 checkpoint 删除；下一门是 Inline Execution handoff。
 
 ## Git Refs
 
