@@ -289,6 +289,11 @@ class OnPolicyRunner:
         self.writer.add_scalar("Loss/value_function", locs["mean_value_loss"], locs["it"])
         self.writer.add_scalar("Loss/surrogate", locs["mean_surrogate_loss"], locs["it"])
         self.writer.add_scalar("Loss/learning_rate", self.alg.learning_rate, locs["it"])
+        self.writer.add_scalar("Loss/kl", self.alg.last_kl_mean, locs["it"])
+        lr_adjustment = {"decrease": -1, "hold": 0, "increase": 1}[
+            self.alg.last_lr_adjustment
+        ]
+        self.writer.add_scalar("Loss/lr_adjustment", lr_adjustment, locs["it"])
         self.writer.add_scalar(
             "Policy/mean_noise_parameter", mean_noise_parameter.item(), locs["it"]
         )

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -25,12 +26,15 @@ class PPO:
         value_loss_coef=1.0,
         entropy_coef=0.0,
         learning_rate=1e-3,
+        min_learning_rate=1e-5,
+        max_learning_rate=1e-2,
         max_grad_norm=1.0,
         use_clipped_value_loss=True,
         schedule="fixed",
         desired_kl=0.01,
         device="cpu",
         clip_min_std=1e-15,
+        clip_max_std=None,
         pvcnn_model=None,
         replay_buffer=None,
         shared_state_dict=None,
@@ -51,9 +55,46 @@ class PPO:
             self.dist = dist
             print(f"[PPO Rank {self.rank}] Distributed training enabled (world_size={self.world_size})")
 
+        if (
+            not math.isfinite(float(min_learning_rate))
+            or float(min_learning_rate) <= 0.0
+        ):
+            raise ValueError("min_learning_rate must be finite and positive")
+        if (
+            not math.isfinite(float(max_learning_rate))
+            or not float(min_learning_rate)
+            <= float(learning_rate)
+            <= float(max_learning_rate)
+        ):
+            raise ValueError(
+                "learning-rate bounds must contain the initial learning_rate"
+            )
+        scalar_min_std = (
+            float(clip_min_std)
+            if not isinstance(clip_min_std, (tuple, list))
+            else None
+        )
+        scalar_max_std = (
+            None if clip_max_std is None else float(clip_max_std)
+        )
+        if scalar_min_std is not None and (
+            not math.isfinite(scalar_min_std) or scalar_min_std <= 0.0
+        ):
+            raise ValueError("clip_min_std must be finite and positive")
+        if scalar_max_std is not None and (
+            not math.isfinite(scalar_max_std)
+            or scalar_max_std <= 0.0
+            or (scalar_min_std is not None and scalar_max_std < scalar_min_std)
+        ):
+            raise ValueError("std bounds must be finite, positive, and ordered")
+
         self.desired_kl = desired_kl
         self.schedule = schedule
-        self.learning_rate = learning_rate
+        self.learning_rate = float(learning_rate)
+        self.min_learning_rate = float(min_learning_rate)
+        self.max_learning_rate = float(max_learning_rate)
+        self.last_kl_mean = 0.0
+        self.last_lr_adjustment = "hold"
 
         # PPO components
         self.actor_critic = actor_critic
@@ -93,6 +134,44 @@ class PPO:
         self.clip_min_std = (
             torch.tensor(clip_min_std, device=self.device) if isinstance(clip_min_std, (tuple, list)) else clip_min_std
         )
+        self.clip_max_std = clip_max_std
+
+    def _adapt_learning_rate(self, kl_mean: float) -> str:
+        """Adapt LR toward the requested KL while respecting configured bounds."""
+        kl_mean = float(kl_mean)
+        if not math.isfinite(kl_mean):
+            raise ValueError("kl_mean must be finite")
+        if self.desired_kl is None or self.schedule != "adaptive":
+            adjustment = "hold"
+        else:
+            old_learning_rate = self.learning_rate
+            if kl_mean > self.desired_kl * 2.0:
+                self.learning_rate = max(
+                    self.min_learning_rate, self.learning_rate / 1.5
+                )
+            elif 0.0 < kl_mean < self.desired_kl / 2.0:
+                self.learning_rate = min(
+                    self.max_learning_rate, self.learning_rate * 1.5
+                )
+            adjustment = (
+                "decrease"
+                if self.learning_rate < old_learning_rate
+                else "increase"
+                if self.learning_rate > old_learning_rate
+                else "hold"
+            )
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = self.learning_rate
+        self.last_kl_mean = kl_mean
+        self.last_lr_adjustment = adjustment
+        return adjustment
+
+    def _clamp_policy_std(self) -> None:
+        """Clamp policy exploration in physical standard-deviation units."""
+        if hasattr(self.actor_critic, "clip_std"):
+            self.actor_critic.clip_std(
+                min=self.clip_min_std, max=self.clip_max_std
+            )
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
         self.storage = RolloutStorage(
@@ -296,13 +375,7 @@ class PPO:
                         self.dist.all_reduce(kl_tensor, op=self.dist.ReduceOp.SUM)
                         kl_mean = (kl_tensor / self.world_size).item()
 
-                    if kl_mean > self.desired_kl * 2.0:
-                        self.learning_rate = max(1e-5, self.learning_rate / 1.5)
-                    elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
-                        self.learning_rate = min(1e-2, self.learning_rate * 1.5)
-
-                    for param_group in self.optimizer.param_groups:
-                        param_group["lr"] = self.learning_rate
+                    self._adapt_learning_rate(float(kl_mean))
 
             # Surrogate loss
             ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
@@ -363,7 +436,6 @@ class PPO:
         
         self.storage.clear()
 
-        if hasattr(self.actor_critic, "clip_std"):
-            self.actor_critic.clip_std(min=self.clip_min_std)
+        self._clamp_policy_std()
 
         return mean_value_loss, mean_surrogate_loss

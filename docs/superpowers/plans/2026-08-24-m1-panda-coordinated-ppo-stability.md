@@ -135,7 +135,7 @@ git commit -m "feat: add stable coordinated PPO config"
 - `PPO.last_kl_mean: float` and `PPO.last_lr_adjustment: str` are generic diagnostics.
 - `clip_min_std` and new `clip_max_std` are interpreted in physical standard-deviation units.
 
-- [ ] **Step 1: Write failing unit tests without rollout simulation**
+- [x] **Step 1: Write failing unit tests without rollout simulation**
 
 ```python
 def test_adaptive_lr_obeys_configured_bounds(tiny_ppo):
@@ -161,7 +161,7 @@ def test_policy_std_is_clamped_in_physical_units(tiny_ppo):
 
 The `tiny_ppo` fixture constructs a two-action scalar-mode `ActorCritic`, then passes it to `PPO` with `desired_kl=0.01`, `learning_rate=1e-4`, `min_learning_rate=1e-6`, `max_learning_rate=3e-4`, `clip_min_std=0.005`, and `clip_max_std=0.05`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 ```bash
@@ -169,7 +169,7 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected: FAIL on missing LR bounds, max std, and diagnostics.
 
-- [ ] **Step 3: Implement bounded adaptation and diagnostics**
+- [x] **Step 3: Implement bounded adaptation and diagnostics**
 
 Add constructor fields and helpers:
 ```python
@@ -199,7 +199,7 @@ def _clamp_policy_std(self) -> None:
 
 Replace the hard-coded `1e-5/1e-2` branch inside `update()` with `_adapt_learning_rate(float(kl_mean))`, call `_clamp_policy_std()` after optimizer updates, and log `Loss/kl` plus an integer `Loss/lr_adjustment` (`-1/0/+1`) in the runner.
 
-- [ ] **Step 4: Run GREEN and generic runner regression**
+- [x] **Step 4: Run GREEN and generic runner regression**
 
 Run:
 ```bash
@@ -207,7 +207,7 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected: all pass; legacy scalar/log std and checkpoint behavior remain green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/rsl_rl/rsl_rl/algorithms/ppo.py Go2Pvcnn/rsl_rl/rsl_rl/runners/on_policy_runner.py Go2Pvcnn/tests/test_rsl_ppo_adaptive_schedule.py Go2Pvcnn/tests/test_m1_panda_teacher_noise_std.py
