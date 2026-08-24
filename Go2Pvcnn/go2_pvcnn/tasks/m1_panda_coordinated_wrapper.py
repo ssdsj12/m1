@@ -7,10 +7,25 @@ import torch
 from rsl_rl.env import VecEnv
 
 import go2_pvcnn.mdp as mdp
+from go2_pvcnn.tasks.m1_panda_coordinated_disturbance import (
+    CoordinatedDisturbanceCfg,
+    CoordinatedDisturbanceScheduler,
+    base_wrench_to_body_local,
+)
 
 
 class M1PandaCoordinatedEnvWrapper(VecEnv):
-    def __init__(self, env):
+    def __init__(
+        self,
+        env,
+        *,
+        training_randomization: bool = False,
+        seed: int = 0,
+    ):
+        if not isinstance(training_randomization, bool):
+            raise TypeError("training_randomization must be a bool")
+        if not isinstance(seed, int) or isinstance(seed, bool):
+            raise TypeError("seed must be an integer")
         self.env = env
         self.num_envs = env.num_envs
         self.device = torch.device(env.device)
@@ -19,6 +34,40 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
         if self.num_actions != 23:
             raise ValueError(f"coordinated env must expose 23 actions, got {self.num_actions}")
         self.env.action_space = gym.spaces.Box(-1.0, 1.0, (23,), dtype="float32")
+        self._training_randomization = training_randomization
+        self._robot = env.scene["robot"] if training_randomization else None
+        self._base_body_id = None
+        self._hand_body_id = None
+        self._disturbance = None
+        self._root_pose_deviation_max = torch.zeros((), device=self.device)
+        self._root_velocity_deviation_max = torch.zeros((), device=self.device)
+        self._joint_position_deviation_max = torch.zeros((), device=self.device)
+        self._joint_velocity_deviation_max = torch.zeros((), device=self.device)
+        if training_randomization:
+            self._base_body_id = self._exact_body_id("BASE_LINK")
+            self._hand_body_id = self._exact_body_id("panda_hand")
+            if self._base_body_id == self._hand_body_id:
+                raise RuntimeError("BASE_LINK and panda_hand must be distinct bodies")
+            step_dt = float(env.cfg.sim.dt) * int(env.cfg.decimation)
+            self._disturbance = CoordinatedDisturbanceScheduler(
+                CoordinatedDisturbanceCfg(),
+                self.num_envs,
+                self.device,
+                step_dt,
+                seed=seed,
+            )
+            self._observe_reset_deviation(
+                torch.arange(self.num_envs, device=self.device)
+            )
+
+    def _exact_body_id(self, name: str) -> int:
+        ids, names = self._robot.find_bodies(name, preserve_order=True)
+        if len(ids) != 1 or names != [name]:
+            raise RuntimeError(
+                f"expected exactly one body named {name!r}, got "
+                f"ids={ids!r}, names={names!r}"
+            )
+        return int(ids[0])
 
     @property
     def unwrapped(self):
@@ -82,7 +131,83 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
 
     def reset(self):
         obs, _ = self.env.reset()
+        if self._disturbance is not None:
+            self._disturbance.reset()
+            env_ids = torch.arange(self.num_envs, device=self.device)
+            self._observe_reset_deviation(env_ids)
+            self._apply_training_wrench(self._disturbance.current_wrench_b)
         return self._format(obs)
+
+    def _apply_training_wrench(self, wrench_b: torch.Tensor) -> None:
+        if (
+            not isinstance(wrench_b, torch.Tensor)
+            or tuple(wrench_b.shape) != (self.num_envs, 6)
+            or wrench_b.device != self.device
+            or not bool(torch.isfinite(wrench_b).all())
+        ):
+            raise RuntimeError(
+                "training wrench must be finite with shape (num_envs, 6) "
+                "on the environment device"
+            )
+        force_h, torque_h = base_wrench_to_body_local(
+            wrench_b[:, :3],
+            wrench_b[:, 3:],
+            self._robot.data.body_quat_w[:, self._base_body_id],
+            self._robot.data.body_quat_w[:, self._hand_body_id],
+        )
+        self._robot.set_external_force_and_torque(
+            force_h.unsqueeze(1),
+            torque_h.unsqueeze(1),
+            body_ids=[self._hand_body_id],
+        )
+
+    def _observe_reset_deviation(self, env_ids: torch.Tensor) -> None:
+        if self._robot is None or env_ids.numel() == 0:
+            return
+        data = self._robot.data
+        ids = env_ids.to(device=self.device, dtype=torch.long)
+        default_root = data.default_root_state[ids]
+        current_root = data.root_state_w[ids]
+        expected_position = default_root[:, :3] + self.env.scene.env_origins[ids]
+        position_deviation = (current_root[:, :3] - expected_position).abs().max()
+        quaternion_dot = torch.sum(
+            current_root[:, 3:7] * default_root[:, 3:7], dim=-1
+        ).abs()
+        orientation_deviation = 2.0 * torch.acos(
+            torch.clamp(quaternion_dot, 0.0, 1.0)
+        ).max()
+        root_pose_deviation = torch.maximum(
+            position_deviation, orientation_deviation
+        )
+        root_velocity_deviation = (
+            current_root[:, 7:13] - default_root[:, 7:13]
+        ).abs().max()
+        joint_position_deviation = (
+            data.joint_pos[ids] - data.default_joint_pos[ids]
+        ).abs().max()
+        joint_velocity_deviation = (
+            data.joint_vel[ids] - data.default_joint_vel[ids]
+        ).abs().max()
+        values = (
+            root_pose_deviation,
+            root_velocity_deviation,
+            joint_position_deviation,
+            joint_velocity_deviation,
+        )
+        if not all(bool(torch.isfinite(value)) for value in values):
+            raise RuntimeError("reset deviation diagnostics must be finite")
+        self._root_pose_deviation_max = torch.maximum(
+            self._root_pose_deviation_max, root_pose_deviation
+        )
+        self._root_velocity_deviation_max = torch.maximum(
+            self._root_velocity_deviation_max, root_velocity_deviation
+        )
+        self._joint_position_deviation_max = torch.maximum(
+            self._joint_position_deviation_max, joint_position_deviation
+        )
+        self._joint_velocity_deviation_max = torch.maximum(
+            self._joint_velocity_deviation_max, joint_velocity_deviation
+        )
 
     def step(self, actions):
         if tuple(actions.shape) != (self.num_envs, 23):
@@ -92,6 +217,8 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
         actions[arrived, 12:16] = 0.0
         actions = actions + self._nominal_wheel_actions()
         actions = torch.clamp(actions, -1.0, 1.0)
+        if self._disturbance is not None:
+            self._apply_training_wrench(self._disturbance.advance())
         obs, rewards, terminated, truncated, extras = self.env.step(actions)
         obs, obs_extras = self._format(obs)
         extras = dict(extras or {})
@@ -100,7 +227,49 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
         # Preserve both Gymnasium termination causes for downstream logging.
         extras["terminated"] = terminated
         extras["truncated"] = truncated
-        return obs, rewards, terminated | truncated, extras
+        dones = terminated | truncated
+        if self._disturbance is not None and bool(dones.any()):
+            done_ids = dones.nonzero(as_tuple=False).flatten()
+            self._disturbance.reset(done_ids)
+            self._observe_reset_deviation(done_ids)
+        return obs, rewards, dones, extras
+
+    @property
+    def current_wrench_b(self) -> torch.Tensor:
+        if self._disturbance is None:
+            return torch.zeros(self.num_envs, 6, device=self.device)
+        return self._disturbance.current_wrench_b
+
+    def get_training_diagnostics(self) -> dict[str, float]:
+        wrench = self.current_wrench_b
+        force_norm = torch.linalg.vector_norm(wrench[:, :3], dim=-1)
+        torque_norm = torch.linalg.vector_norm(wrench[:, 3:], dim=-1)
+        nonzero_ratio = (wrench.abs().sum(dim=-1) > 0).to(torch.float32).mean()
+        values = {
+            "curriculum_scale": (
+                float(self._disturbance.curriculum_scale)
+                if self._disturbance is not None
+                else 0.0
+            ),
+            "force_norm_max": float(force_norm.max().item()),
+            "torque_norm_max": float(torque_norm.max().item()),
+            "nonzero_wrench_ratio": float(nonzero_ratio.item()),
+            "root_pose_deviation_max": float(
+                self._root_pose_deviation_max.item()
+            ),
+            "root_velocity_deviation_max": float(
+                self._root_velocity_deviation_max.item()
+            ),
+            "joint_position_deviation_max": float(
+                self._joint_position_deviation_max.item()
+            ),
+            "joint_velocity_deviation_max": float(
+                self._joint_velocity_deviation_max.item()
+            ),
+        }
+        if not all(torch.isfinite(torch.tensor(value)) for value in values.values()):
+            raise RuntimeError("training diagnostics must be finite")
+        return values
 
 
 __all__ = ["M1PandaCoordinatedEnvWrapper"]

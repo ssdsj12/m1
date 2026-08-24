@@ -516,7 +516,7 @@ git commit -m "feat: randomize coordinated reset state"
 - Wrapper constructor gains keyword-only `training_randomization: bool = False, seed: int = 0`.
 - `wrapper.get_training_diagnostics() -> dict[str, float]` exposes curriculum scale, force/torque norms, nonzero ratio, and observed root/joint reset deviation extrema.
 
-- [ ] **Step 1: Write scheduler RED tests**
+- [x] **Step 1: Write scheduler RED tests**
 
 ```python
 def fixed_mode_scheduler(mode, duration_steps, seed):
@@ -571,11 +571,11 @@ def test_nonfinite_wrench_fails_before_robot_call(fake_wrapper):
 
 Intermittent semantics are fixed here: a `0.25 s` period with its first `20%` on and remaining `80%` off, repeated until the sampled segment ends. This avoids 200 Hz Bernoulli chatter while preserving the approved intermittent mode and duty.
 
-- [ ] **Step 2: Write wrapper RED tests**
+- [x] **Step 2: Write wrapper RED tests**
 
 Use fake robot/env objects and assert call order is `_apply_training_wrench` before `env.step`, exact `body_ids=[panda_hand_id]`, default-disabled wrapper never advances the scheduler, done IDs reset selectively, and diagnostics contain only finite Python floats.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run:
 ```bash
@@ -583,19 +583,19 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected: FAIL because scheduler/wrapper API does not exist.
 
-- [ ] **Step 4: Implement the pure scheduler**
+- [x] **Step 4: Implement the pure scheduler**
 
 Use one device-local `torch.Generator` seeded from the CLI seed, per-env target/duration/mode/elapsed tensors, and the existing `base_wrench_to_body_local` conversion. `advance()` increments one control-step counter shared by synchronously stepped envs; this is exactly each environment's 200 Hz step count.
 
-- [ ] **Step 5: Wire the wrapper without changing default behavior**
+- [x] **Step 5: Wire the wrapper without changing default behavior**
 
 When enabled, resolve exactly one `BASE_LINK` and `panda_hand`, validate finite `[N,6]`, convert the base-frame wrench to hand-local axes, and call `set_external_force_and_torque(force_h.unsqueeze(1), torque_h.unsqueeze(1), body_ids=[hand_id])` before physics. When disabled, do not instantiate/advance the scheduler and clear no unrelated caller state. On done, reset only done scheduler rows after the env auto-reset.
 
-- [ ] **Step 6: Run GREEN and wrapper regressions**
+- [x] **Step 6: Run GREEN and wrapper regressions**
 
 Run Step 3 plus existing coordinated wrapper, Teacher disturbance, and learning-env tests. Expected: all pass; default wrapper action sequence remains phase mask → nominal action → clamp → physics.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/tasks/m1_panda_coordinated_disturbance.py Go2Pvcnn/go2_pvcnn/tasks/m1_panda_coordinated_wrapper.py Go2Pvcnn/tests/test_m1_panda_coordinated_disturbance.py Go2Pvcnn/tests/test_m1_panda_coordinated_wrapper_disturbance.py
