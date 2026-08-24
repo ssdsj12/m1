@@ -209,6 +209,39 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
             self._joint_velocity_deviation_max, joint_velocity_deviation
         )
 
+    def _attach_guard_episode_metrics(
+        self, extras: dict, dones: torch.Tensor
+    ) -> None:
+        completed = int(torch.count_nonzero(dones).item())
+        if completed == 0:
+            return
+        log = extras.get("log")
+        if not isinstance(log, dict):
+            raise RuntimeError("training reset must provide an Isaac Lab log dictionary")
+        sources = {
+            "Termination/time_out": ("Episode_Termination/time_out", True),
+            "Termination/base_contact": (
+                "Episode_Termination/base_contact",
+                True,
+            ),
+            "Termination/bad_orientation": (
+                "Episode_Termination/bad_orientation",
+                True,
+            ),
+            "Reward/base_target": ("Episode_Reward/base_target", False),
+            "Reward/ee_tracking": ("Episode_Reward/ee_tracking", False),
+        }
+        for target, (source, is_count) in sources.items():
+            if source not in log:
+                raise RuntimeError(f"training reset log is missing {source!r}")
+            scalar = torch.as_tensor(log[source], device=self.device).reshape(-1)
+            if scalar.numel() != 1 or not bool(torch.isfinite(scalar).all()):
+                raise RuntimeError(f"training reset metric {source!r} must be finite")
+            value = scalar.item() / completed if is_count else scalar.item()
+            log[target] = torch.full(
+                (completed,), float(value), device=self.device, dtype=torch.float32
+            )
+
     def step(self, actions):
         if tuple(actions.shape) != (self.num_envs, 23):
             raise ValueError("coordinated actions must have shape (num_envs, 23)")
@@ -228,6 +261,8 @@ class M1PandaCoordinatedEnvWrapper(VecEnv):
         extras["terminated"] = terminated
         extras["truncated"] = truncated
         dones = terminated | truncated
+        if self._disturbance is not None:
+            self._attach_guard_episode_metrics(extras, dones)
         if self._disturbance is not None and bool(dones.any()):
             done_ids = dones.nonzero(as_tuple=False).flatten()
             self._disturbance.reset(done_ids)

@@ -68,6 +68,8 @@ T400.10a Task 5 已完成：missing event/helper RED 为 `3 failed, 2 errors, 4 
 
 T400.10a Task 6 已完成：scheduler 缺失 RED 有效触发，scheduler `7 passed`，wrapper focused `11 passed`，Teacher/coordinated regression `75 passed`，compile/diff exit `0`。Panda hand 获得 seeded 逐环境 `20 N/5 Nm` 三模式课程，wrapper 默认关闭且不触碰外力状态，done selective reset 与 finite DR diagnostics 均通过。下一项是 Task 7 stable train entrypoint/manifest/final rollback。
 
+T400.10a Task 7 已完成：旧入口 RED `4 failed, 2 passed`，focused GREEN `6 passed`，Tasks 1–7 related `115 passed`，全部 coordinated tests `53 passed`，compile/diff exit `0`。fresh 入口默认 64×600/seed42，A1 仅 provenance；schema2 manifest、trainable std、显式 DR、guard callback 与 best→final SHA rollback 已串通。本阶段尚未做 GPU0 probe/短训。下一项是 Task 8 GPU0 randomization/physics probe 与 64×50 gate。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
@@ -78,7 +80,8 @@ T400.10a Task 6 已完成：scheduler 缺失 RED 有效触发，scheduler `7 pas
   - [x] Task 4：实现纯 best-checkpoint guard 与原子 rollback controller。
   - [x] Task 5：实现 training-only reset/friction 域随机化。
   - [x] Task 6：实现 seeded Panda-hand wrench curriculum 与 wrapper diagnostics。
-  - [ ] Task 7：接入 stable train entrypoint、manifest 与 automatic final rollback。
+  - [x] Task 7：接入 stable train entrypoint、manifest 与 automatic final rollback。
+  - [ ] Task 8：执行 GPU0 randomization/physics probe 与 guarded 64×50 短训。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。

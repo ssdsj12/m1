@@ -70,3 +70,6 @@ def test_callback_is_optional_and_default_save_loop_is_preserved() -> None:
     assert signature.return_annotation in {"LearnResult", LearnResult}
     assert "if it % self.save_interval == 0" in source
     assert "return LearnResult(" in source
+    assert source.index("if new_ids.numel() > 0:") < source.index(
+        'ep_infos.append(infos["log"])'
+    )

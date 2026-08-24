@@ -38,12 +38,27 @@ def test_train_checks_103_by_23_runtime_contract_and_periodic_save():
     assert "COORDINATED_POLICY_OBSERVATION_DIM" in source
     assert "observation_dim != 103" in source
     assert "wrapper.num_actions != 23" in source
-    assert 'train_cfg["save_interval"] = 100' in source
-    assert 'train_cfg["algorithm"]["learning_rate"] = 1.0e-4' in source
-    assert 'train_cfg["algorithm"]["schedule"] = "fixed"' in source
+    assert "get_m1_panda_coordinated_train_cfg" in source
+    assert 'train_cfg["algorithm"]["schedule"] = "fixed"' not in source
     assert "torch.nn.init.zeros_(output_layer.weight)" in source
     assert "torch.nn.init.zeros_(output_layer.bias)" in source
-    assert "runner.alg.actor_critic.noise_parameter.requires_grad_(False)" in source
-    assert '"frozen_action_std": 0.01' in source
+    assert "requires_grad_(False)" not in source
+    assert "coordinated policy std must remain trainable" in source
     assert '"zero_action_actor_initialization": True' in source
     assert '"fresh_policy": True' in source
+
+
+def test_train_enables_exact_dr_and_automatic_checkpoint_rollback():
+    source = SCRIPT.read_text()
+    assert "configure_coordinated_training_domain_randomization(cfg, True)" in source
+    assert (
+        "M1PandaCoordinatedEnvWrapper(\n"
+        "            env, training_randomization=True, seed=args.seed\n"
+        "        )"
+    ) in source
+    assert "AtomicCheckpointController" in source
+    assert "TrainingGuard(max_iterations=args.max_iterations)" in source
+    assert "iteration_callback=" in source
+    assert "controller.on_iteration" in source
+    assert "controller.finalize(runner, learn_result.stop_reason)" in source
+    assert 'default=600' in source

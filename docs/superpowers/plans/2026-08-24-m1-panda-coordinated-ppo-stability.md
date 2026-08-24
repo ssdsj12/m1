@@ -614,11 +614,11 @@ git commit -m "feat: disturb coordinated Panda hand"
 - `initialize_fresh_zero_action_policy(runner)` zeros the actor output layer but leaves scalar std trainable.
 - Manifest schema 2 records exact PPO/DR/guard contract and final best→rollback SHA chain.
 
-- [ ] **Step 1: Rewrite static tests as the new exact contract**
+- [x] **Step 1: Rewrite static tests as the new exact contract**
 
 Assert source imports `get_m1_panda_coordinated_train_cfg`, calls `configure_coordinated_training_domain_randomization(cfg, True)`, constructs `M1PandaCoordinatedEnvWrapper(env, training_randomization=True, seed=args.seed)`, never sets schedule to fixed, never calls `requires_grad_(False)`, and uses `AtomicCheckpointController` as runner callback.
 
-- [ ] **Step 2: Write manifest-state unit tests**
+- [x] **Step 2: Write manifest-state unit tests**
 
 Extract a pure `build_manifest_contract(args, asset_path, init_checkpoint, train_cfg)` helper and assert exact fields:
 ```python
@@ -631,7 +631,7 @@ assert manifest["guard"]["minimum_completed_episodes"] == 100
 assert manifest["fresh_policy"] is True
 ```
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run:
 ```bash
@@ -639,7 +639,7 @@ PYTHONPATH=Go2Pvcnn:Go2Pvcnn/rsl_rl /home/xk/miniconda3/envs/go2/bin/python -m p
 ```
 Expected: FAIL on fixed schedule/frozen std/old config and missing controller contract.
 
-- [ ] **Step 4: Implement the new train path**
+- [x] **Step 4: Implement the new train path**
 
 Keep `--init-a1-checkpoint` provenance-only and required. Set `--max_iterations` default `600`; reject values above 600. Construct the Task 1 config without post-hoc PPO overrides. Update zero initialization to:
 ```python
@@ -663,11 +663,11 @@ atomic_write_json(manifest_path, manifest)
 
 On exceptions, preserve failed manifest state and any valid prior best; never overwrite it with a failed final.
 
-- [ ] **Step 5: Run GREEN and full relevant local regression**
+- [x] **Step 5: Run GREEN and full relevant local regression**
 
 Run Step 3 plus Tasks 1–6 tests, existing coordinated tests, Teacher std/disturbance tests, and runner checkpoint tests. Compile all changed Python modules. Expected: all pass; no CUDA process required.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Go2Pvcnn/scripts/m1_panda_coordinated_train.py Go2Pvcnn/tests/test_m1_panda_coordinated_train_static.py Go2Pvcnn/tests/test_m1_panda_coordinated_train_manifest.py

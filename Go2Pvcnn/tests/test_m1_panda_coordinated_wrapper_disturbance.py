@@ -105,12 +105,19 @@ class FakeEnv:
 
     def step(self, actions):
         self.call_log.append("env_step")
+        log = {
+            "Episode_Termination/time_out": 0,
+            "Episode_Termination/base_contact": 1,
+            "Episode_Termination/bad_orientation": 0,
+            "Episode_Reward/base_target": torch.tensor(2.0),
+            "Episode_Reward/ee_tracking": torch.tensor(1.0),
+        }
         return (
             self.observation_manager.compute(),
             torch.ones(2),
             torch.tensor([False, True]),
             torch.tensor([False, False]),
-            {},
+            {"log": log},
         )
 
 
@@ -129,6 +136,21 @@ def test_enabled_wrapper_applies_hand_wrench_before_step_and_resets_done(
     assert body_ids == [1]
     assert torch.equal(wrapper.current_wrench_b[1], torch.zeros(6))
     assert not torch.equal(wrapper.current_wrench_b[0], torch.zeros(6))
+
+
+def test_wrapper_expands_reset_aggregates_to_completed_episode_metrics(
+    monkeypatch,
+) -> None:
+    wrapper_cls = _load_wrapper(monkeypatch)
+    wrapper = wrapper_cls(FakeEnv(), training_randomization=True, seed=7)
+
+    _, _, dones, extras = wrapper.step(torch.zeros(2, 23))
+
+    assert int(dones.sum()) == 1
+    assert torch.equal(
+        extras["log"]["Termination/base_contact"], torch.ones(1)
+    )
+    assert torch.equal(extras["log"]["Reward/base_target"], torch.full((1,), 2.0))
 
 
 def test_default_wrapper_does_not_create_or_advance_disturbance(monkeypatch) -> None:

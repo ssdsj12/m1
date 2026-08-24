@@ -249,17 +249,18 @@ class OnPolicyRunner:
                     # ========================================
                     # 日志记录（episode统计）
                     # ========================================
-                    # Collect callback and logger metrics independently of the logger backend.
-                    if "episode" in infos:
-                        ep_infos.append(infos["episode"])
-                    elif "log" in infos:
-                        ep_infos.append(infos["log"])
-
                     cur_reward_sum += rewards
                     cur_episode_length += 1
                     new_ids = (
                         (dones > 0).reshape(-1).nonzero(as_tuple=False).flatten()
                     )
+                    # Isaac Lab retains its last reset log on non-reset steps.
+                    # Consume episode metrics only when this step completed episodes.
+                    if new_ids.numel() > 0:
+                        if "episode" in infos:
+                            ep_infos.append(infos["episode"])
+                        elif "log" in infos:
+                            ep_infos.append(infos["log"])
                     finished_rewards = (
                         cur_reward_sum[new_ids].detach().reshape(-1).cpu().tolist()
                     )
