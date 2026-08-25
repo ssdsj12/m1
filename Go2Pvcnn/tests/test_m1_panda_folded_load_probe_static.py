@@ -86,8 +86,9 @@ def test_runbook_contains_gpu0_probe_smokes_and_long_curriculum_commands():
     assert launcher in text
     assert "scripts/m1_panda_folded_load_probe.py --num_envs 8 --steps 16 --device cuda:0" in text
     assert "scripts/m1_panda_folded_load_probe.py --num_envs 8 --steps 256 --device cuda:0" in text
-    assert "probe-pd120-8x16.json" in text
-    assert "probe-pd120-8x256.json" in text
+    assert "probe-pd120-j4m2650-8x16.json" in text
+    assert "probe-pd120-j4m2650-8x256.json" in text
+    assert "panda_joint4=-2.650 rad" in text
     assert "--stage L0-C0 --num_envs 8 --max_iterations 1 --device cuda:0 --run_dir logs/m1_panda_folded_load/smoke-pd120-8x1" in text
     assert "--stage L0-C0 --num_envs 64 --max_iterations 10 --device cuda:0 --run_dir logs/m1_panda_folded_load/smoke-pd120-64x10" in text
     assert "--start_stage L0-C0 --num_envs 4096 --device cuda:0 --experiment_root logs/m1_panda_folded_load/foundation-v1" in text

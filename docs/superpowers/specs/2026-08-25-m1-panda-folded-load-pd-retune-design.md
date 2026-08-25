@@ -1,7 +1,7 @@
 # M1 + Panda Folded-Load PD Retune Design
 
 **Date:** 2026-08-25  
-**Status:** implemented; GPU0 8×16 passed, 8×256 blocked by unchanged joint-margin gate
+**Status:** implemented; user-approved joint4 target amendment passes the complete GPU0 qualification ladder
 **Scope:** folded-load locomotion task only
 
 ## 1. Problem Evidence
@@ -27,10 +27,10 @@ Use fixed gains throughout stationary and moving folded-load stages:
 | `panda_joint1–4` | `120` | `8` | unchanged `87 Nm` |
 | `panda_joint5–7` | unchanged `80` | unchanged `4` | unchanged `12 Nm` |
 
-The controller continues to write the approved position target before every physics step:
+The controller writes the amended, task-local position target before every physics step:
 
 ```text
-(0.0, -0.569, 0.0, -2.810, 0.0, 3.037, 0.741)
+(0.0, -0.569, 0.0, -2.650, 0.0, 3.037, 0.741)
 ```
 
 and writes zero arm velocity targets. Panda remains a dynamic part of the combined articulation; its mass, inertia, gravity, joint reaction, and mount reaction continue to affect M1.
@@ -73,7 +73,7 @@ Implementation is accepted only in this order:
 
 Failed smoke artifacts remain diagnostic-only and can never initialize another stage. No threshold is weakened to obtain a pass.
 
-Actual qualification stopped after step 3: the 8×256 report recorded fold error `0.2149408 rad`, joint-limit proximity `-0.1032410 rad`, effort utilization `1.0`, and exact-zero inactive action. Therefore the 8×1/64×10 smokes and long curriculum were not started. See the [GPU log](../../../notes/log/2026-08-25-m1-panda-folded-load-pd-retune-gpu.md).
+The original `-2.810 rad` target stopped qualification at 8×256 with joint proximity `-0.1032410 rad`. After explicit user approval, only the folded-load copy changed joint4 to `-2.650 rad`; the 8×256 probe then passed with joint proximity `0.0400658 rad`, followed by clean 8×1 and 64×10 smokes. See the [GPU log](../../../notes/log/2026-08-25-m1-panda-folded-load-pd-retune-gpu.md).
 
 ## 6. Non-Goals
 

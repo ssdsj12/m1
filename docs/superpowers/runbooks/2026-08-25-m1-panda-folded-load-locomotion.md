@@ -4,7 +4,7 @@
 
 本链只训练 M1 携带动态、PD 折叠 Panda 的前进、后退和转向。策略接口保持 103 维观测和 23 维输出，但仅动作 0:16 生效；Panda 7 维动作始终严格为零。没有外力事件、Panda 主动运动、抓取、Student 或实机能力声明。
 
-所有命令固定 GPU 0。`Go2Pvcnn/` 中没有 `./isaaclab.sh`，本机真实 launcher 是 `/home/xk/coding/IsaacLab/isaaclab.sh`。非交互式启动必须同时提供 `TERM=xterm-256color` 和 Go2 环境的 `CONDA_PREFIX=/home/xk/miniconda3/envs/go2`。
+所有命令固定 GPU 0。folded-load 任务独立使用 `panda_joint4=-2.650 rad` 折叠目标和 shoulder `120/8` PD，不修改全局 Panda 默认。`Go2Pvcnn/` 中没有 `./isaaclab.sh`，本机真实 launcher 是 `/home/xk/coding/IsaacLab/isaaclab.sh`。非交互式启动必须同时提供 `TERM=xterm-256color` 和 Go2 环境的 `CONDA_PREFIX=/home/xk/miniconda3/envs/go2`。
 
 ## 1. 8 环境物理 Probe
 
@@ -12,13 +12,13 @@
 
 ```bash
 cd /home/xk/coding/M1/.worktrees/m1-panda-ppo-stability/Go2Pvcnn
-TERM=xterm-256color CONDA_PREFIX=/home/xk/miniconda3/envs/go2 CUDA_VISIBLE_DEVICES=0 /home/xk/coding/IsaacLab/isaaclab.sh -p scripts/m1_panda_folded_load_probe.py --num_envs 8 --steps 16 --device cuda:0 --report logs/m1_panda_folded_load/probe-pd120-8x16.json --headless
+TERM=xterm-256color CONDA_PREFIX=/home/xk/miniconda3/envs/go2 CUDA_VISIBLE_DEVICES=0 /home/xk/coding/IsaacLab/isaaclab.sh -p scripts/m1_panda_folded_load_probe.py --num_envs 8 --steps 16 --device cuda:0 --report logs/m1_panda_folded_load/probe-pd120-j4m2650-8x16.json --headless
 ```
 
 短 probe 通过后必须再覆盖完整 PPO horizon：
 
 ```bash
-TERM=xterm-256color CONDA_PREFIX=/home/xk/miniconda3/envs/go2 CUDA_VISIBLE_DEVICES=0 /home/xk/coding/IsaacLab/isaaclab.sh -p scripts/m1_panda_folded_load_probe.py --num_envs 8 --steps 256 --device cuda:0 --report logs/m1_panda_folded_load/probe-pd120-8x256.json --headless
+TERM=xterm-256color CONDA_PREFIX=/home/xk/miniconda3/envs/go2 CUDA_VISIBLE_DEVICES=0 /home/xk/coding/IsaacLab/isaaclab.sh -p scripts/m1_panda_folded_load_probe.py --num_envs 8 --steps 256 --device cuda:0 --report logs/m1_panda_folded_load/probe-pd120-j4m2650-8x256.json --headless
 ```
 
 两份原子报告都必须为 `passed=true`，且 shell 状态为 0，才能进入 smoke。失败报告和旧的 `80/4` 诊断必须保留，不得覆盖或删除。

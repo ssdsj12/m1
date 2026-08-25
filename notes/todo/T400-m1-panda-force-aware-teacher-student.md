@@ -94,6 +94,8 @@ T400.10b Task 8 已完成 CPU 编排合同：严格八阶段顺序，每阶段 t
 
 T400.10b Task 9 已实现 folded-load-only Panda shoulder `120/8` 配置副本、每步 fold position/零速度 target、原子 GPU0 probe 和 runbook；全局 `M1_PANDA_CFG` 仍为 `80/4`。Focused `16 passed`。8×16 probe 通过，fold `0.065997 rad`、joint margin `0.045702 rad`；8×256 probe 失败，fold `0.214941 rad`、joint margin `-0.103241 rad`、effort utilization `1.0`、inactive action `0.0`。joint4 target 到 soft lower limit 仅约 `0.1117 rad`，且 `87 Nm` 已饱和，因此当前目标/力矩约束下单纯提高 Kp 不能关闭门槛。按 stop policy 未启动 8×1、64×10 或长训。
 
+用户随后批准只将 folded-load joint4 target 改为 `-2.650 rad`。TDD 证明 task-local init state 隔离，全局仍为 `-2.810 rad`。复验四级门全部关闭：8×16 margin `0.201676`；8×256 fold/margin `0.231634/0.040066`；8×1 smoke fold/margin `0.190140/0.081560`；64×10 最终 fold/margin `0.185009/0.086691`，effort `0.255274`，hard failure 和 inactive action 均为 `0`。两个 smoke 正确保持 `accepted=false`。64×10 有 9/10 update 触发 KL abort，长训需重点监控但不构成物理门失败。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
@@ -294,7 +296,7 @@ T400.10b Task 9 已实现 folded-load-only Panda shoulder `120/8` 配置副本�
 
 ## Next Step
 
-当前最小下一步需要用户新授权：在保持安全门槛不变的前提下，选择将 joint4 fold target 从 soft lower limit 移远，或引入重力补偿/feedforward torque。不应在 `87 Nm` 已饱和时继续只提高 Kp，也不得放宽 `0.01 rad` joint-margin gate。新选择通过 8×256 probe 前不得启动 smoke 或长训。
+当前下一步是在 fresh 实验目录启动 L0-C0 长训，以 atomic manifest、KL abort/LR/std、fold/margin/effort 和 hard failure 持续监控。只有 L0-C0 达到 training eligible 并完成 seed 42/43/44 固定评估才能进入后续 stage；smoke 和启动本身不构成收敛声明。
 
 协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
 

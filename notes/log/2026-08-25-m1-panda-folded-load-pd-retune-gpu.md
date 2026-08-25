@@ -87,4 +87,13 @@ Per the approved stop policy, the 8×1 smoke, 64×10 smoke, and long curriculum 
 
 ## Follow-Up
 
-A new user-approved controller choice is required. At least one current constraint must change: move joint4's fold target farther from the soft lower limit, add model-based gravity compensation/feedforward torque, or revise actuator effort authority with separate physical justification. Increasing Kp beyond `120` while keeping the same saturated effort limit is not recommended.
+The user approved moving only the folded-load joint4 target to `-2.650 rad`. Global `M1_PANDA_CFG` remains `-2.810 rad` and `80/4`; the folded-load task retains `120/8` and unchanged effort limits.
+
+The resumed qualification produced:
+
+- 8×16 probe: `passed=true`, fold `0.0700233 rad`, joint margin `0.2016764 rad`, effort `1.0`, inactive action `0.0`;
+- 8×256 probe: `passed=true`, fold `0.2316339 rad`, joint margin `0.0400658 rad`, effort `1.0`, inactive action `0.0`;
+- 8×1 smoke: completed iteration `1`, fold `0.1901395 rad`, margin `0.0815601 rad`, hard failure `0.0`, `accepted=false`;
+- 64×10 smoke: completed iterations `10`, final fold `0.1850085 rad`, margin `0.0866911 rad`, effort `0.2552736`, hard failure `0.0`, inactive action `0.0`, `accepted=false`.
+
+The 64×10 PPO diagnostic stayed finite and bounded, but KL abort activated on 9 of 10 updates (`KL 0.00451–0.22023`), so KL/learning-rate behavior remains a mandatory long-run monitoring signal. With all four physical/smoke gates closed, an isolated fresh L0-C0 long run is authorized; no locomotion acceptance is claimed until its manifest and fixed evaluation pass.

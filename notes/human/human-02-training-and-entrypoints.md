@@ -404,7 +404,7 @@ python Go2Pvcnn/scripts/m1_checkpoint_eval.py \
 - `m1_panda_folded_load_train.py` 一次只训练一个 L0-C0 到 L2-D3 stage。L0 必须从零开始；后续 stage 只能读取紧邻上一 stage 的 accepted manifest，并同时核对 final checkpoint SHA，不能继承旧 coordinated 失败模型或优化器。
 - `m1_panda_folded_load_eval.py` 对 eligible best 使用 64 环境、确定性策略均值、固定平衡命令以及 seed 42/43/44。三个报告全部通过后才复制 `model_final.pt` 并设置 `accepted=true`。
 - 已结束 episode 通过 wrapper 直接带 env ID 和三维命令送入 guard，不经过 runner 的扁平日志，因此前进、后退、左转、右转和静止分桶不会错配。
-- GPU0 8×16 零动作 probe 已通过，但完整 8×256 horizon 的 joint margin 为 `-0.10324 rad`，因此 smoke 和长训均未启动；详见 [PD retune GPU 日志](../log/2026-08-25-m1-panda-folded-load-pd-retune-gpu.md)。
+- 批准 task-local joint4 `-2.650 rad` 后，GPU0 8×256 零动作 probe 和 8×1/64×10 smoke 均通过物理门，已解锁隔离 L0-C0 长训；详见 [PD retune GPU 日志](../log/2026-08-25-m1-panda-folded-load-pd-retune-gpu.md)。
 - `m1_panda_folded_load_curriculum.py` 是自动晋级入口：严格按八个 stage 运行 train 和三个 eval，每次都从 L0 重新核对完整 accepted SHA 链；任何一步失败就保留上一 accepted checkpoint 作为 rollback 并停止，不会自动降低难度后继续。
 
 ### M1 + Panda Teacher 专用 Play

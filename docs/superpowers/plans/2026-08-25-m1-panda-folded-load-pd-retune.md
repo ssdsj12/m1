@@ -13,7 +13,7 @@
 - Folded-load `panda_joint1–4`: fixed `Kp=120`, `Kd=8` in stationary and moving stages.
 - `panda_joint5–7`: retain `Kp=80`, `Kd=4`; effort limits remain `87 Nm` and `12 Nm`.
 - The global `M1_PANDA_CFG`, combined USD, asset SHA, 103-observation boundary, 23-action boundary, 200 Hz step rate, and active mask `[1]*16+[0]*7` remain unchanged.
-- The fold target remains `(0.0, -0.569, 0.0, -2.810, 0.0, 3.037, 0.741)` with zero velocity targets.
+- After the failed `-2.810 rad` qualification and explicit user approval, the folded-load-only joint4 target is `-2.650 rad`; all other target coordinates and zero velocity targets remain unchanged.
 - Never weaken the finite-state, inactive-action, `0.35 rad` fold-error, `1.0` effort-utilization, or `0.01 rad` joint-margin gates.
 - GPU validation uses GPU0 and must pass in order: 8×16 zero-action, 8×256 zero-action, 8×1 training, then 64×10 training.
 
@@ -173,7 +173,7 @@ Expected: shell exit `0`, report `passed=true`, inactive action exactly zero, fo
 
 - [ ] **Step 2: Run the 8×256 probe**
 
-Use the same command with `--num_steps 256` and report `probe-pd120-8x256.json`. Expected: the same gates pass over the full PPO horizon.
+Use the same command with `--steps 256` and report `probe-pd120-j4m2650-8x256.json`. Expected: the same gates pass over the full PPO horizon.
 
 - [ ] **Step 3: Run the 8×1 training smoke in a fresh directory**
 
