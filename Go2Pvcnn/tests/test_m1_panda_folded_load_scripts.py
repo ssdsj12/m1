@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,121 @@ def test_fixed_evaluation_uses_same_physical_gates_and_all_64_environments():
     bad = _balanced_records()
     bad[0] = _episode((0.05, 0.0, 0.0), env_id=0, contact=True)
     assert evaluate.evaluate_records("L0-C0", 42, bad)["passed"] is False
+
+
+def test_fixed_evaluation_reports_each_directional_gate_explicitly():
+    evaluate = _load(EVAL, "folded_eval_directional_report")
+    report = evaluate.evaluate_records("L0-C0", 42, _balanced_records())
+
+    metrics = report["directional_metrics"]
+    assert set(metrics) == {"forward", "reverse", "left", "right"}
+    expected = {
+        "forward": ("vx_rmse", 0.04),
+        "reverse": ("vx_rmse", 0.04),
+        "left": ("wz_rmse", 0.12),
+        "right": ("wz_rmse", 0.12),
+    }
+    for name, (tracking_metric, tracking_limit) in expected.items():
+        item = metrics[name]
+        assert set(item) == {
+            "episode_count",
+            "tracking_metric",
+            "tracking_rmse",
+            "tracking_limit",
+            "base_contact_rate",
+            "bad_orientation_rate",
+            "passed",
+        }
+        assert item["episode_count"] >= 8
+        assert item["tracking_metric"] == tracking_metric
+        assert item["tracking_limit"] == tracking_limit
+        assert item["passed"] is True
+    assert report["directional_pass"] is True
+    assert report["passed"] is True
+
+
+@pytest.mark.parametrize(
+    ("direction", "env_id", "vx_error", "wz_error"),
+    (
+        ("forward", 0, 0.2, 0.02),
+        ("reverse", 1, 0.2, 0.02),
+        ("left", 2, 0.01, 0.5),
+        ("right", 3, 0.01, 0.5),
+    ),
+)
+def test_directional_tracking_failure_identifies_only_affected_bucket(
+    direction, env_id, vx_error, wz_error
+):
+    evaluate = _load(EVAL, f"folded_eval_{direction}_tracking")
+    records = _balanced_records()
+    records[env_id] = _episode(
+        records[env_id].command,
+        env_id=env_id,
+        vx_error=vx_error,
+        wz_error=wz_error,
+    )
+
+    report = evaluate.evaluate_records("L0-C0", 42, records)
+
+    assert report["vx_rmse"] <= 0.04
+    assert report["wz_rmse"] <= 0.12
+    assert report["directional_metrics"][direction]["passed"] is False
+    assert all(
+        item["passed"] is True
+        for name, item in report["directional_metrics"].items()
+        if name != direction
+    )
+    assert report["directional_pass"] is False
+    assert report["passed"] is False
+
+
+@pytest.mark.parametrize("defect", ("contact", "orientation"))
+def test_directional_physical_failure_identifies_only_affected_bucket(defect):
+    evaluate = _load(EVAL, f"folded_eval_directional_{defect}")
+    records = _balanced_records()
+    records[0] = _episode(
+        records[0].command,
+        env_id=0,
+        contact=defect == "contact",
+        orientation=defect == "orientation",
+    )
+
+    report = evaluate.evaluate_records("L0-C0", 42, records)
+
+    assert report["base_contact_rate"] <= 0.02
+    assert report["bad_orientation_rate"] <= 0.02
+    assert report["directional_metrics"]["forward"]["passed"] is False
+    assert all(
+        item["passed"] is True
+        for name, item in report["directional_metrics"].items()
+        if name != "forward"
+    )
+
+
+def test_empty_directional_bucket_is_json_safe_and_fails_closed():
+    evaluate = _load(EVAL, "folded_eval_empty_direction")
+    records = [_episode((0.0, 0.0, 0.0), env_id=env_id) for env_id in range(64)]
+
+    report = evaluate.evaluate_records("L0-C0", 42, records)
+
+    for item in report["directional_metrics"].values():
+        assert item["episode_count"] == 0
+        assert item["tracking_rmse"] is None
+        assert item["base_contact_rate"] is None
+        assert item["bad_orientation_rate"] is None
+        assert item["passed"] is False
+    assert report["directional_pass"] is False
+    assert report["passed"] is False
+    json.dumps(report, allow_nan=False)
+
+
+def test_non_finite_evaluation_input_is_rejected_before_json_serialization():
+    evaluate = _load(EVAL, "folded_eval_non_finite")
+    records = _balanced_records()
+    records[0] = _episode(records[0].command, env_id=0, vx_error=math.inf)
+
+    with pytest.raises(ValueError, match="finite"):
+        evaluate.evaluate_records("L0-C0", 42, records)
 
 
 def test_scripts_and_runner_contain_exact_operational_contracts():

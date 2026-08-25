@@ -30,6 +30,12 @@ from go2_pvcnn.tasks.m1_panda_folded_load_training_guard import (
 
 TASK_ID = "Isaac-M1-Panda-Folded-Load-v0"
 EVALUATION_SEEDS = (42, 43, 44)
+DIRECTIONAL_TRACKING = {
+    "forward": ("vx_error_sq_sum", "vx_rmse", 0.04),
+    "reverse": ("vx_error_sq_sum", "vx_rmse", 0.04),
+    "left": ("wz_error_sq_sum", "wz_rmse", 0.12),
+    "right": ("wz_error_sq_sum", "wz_rmse", 0.12),
+}
 
 
 def _bucket(records: list[EpisodeRecord], name: str) -> list[EpisodeRecord]:
@@ -46,9 +52,68 @@ def _bucket(records: list[EpisodeRecord], name: str) -> list[EpisodeRecord]:
     raise KeyError(name)
 
 
+def _finite_non_negative(value: float, label: str, *, positive: bool = False) -> float:
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{label} must be finite")
+    if value < 0.0 or (positive and value == 0.0):
+        qualifier = "positive" if positive else "non-negative"
+        raise ValueError(f"{label} must be {qualifier}")
+    return value
+
+
+def _total_steps(records: list[EpisodeRecord]) -> float:
+    return sum(
+        _finite_non_negative(record.steps, "episode steps", positive=True)
+        for record in records
+    )
+
+
 def _rmse(records: list[EpisodeRecord], field: str) -> float:
-    steps = sum(record.steps for record in records)
-    return math.sqrt(sum(getattr(record, field) for record in records) / steps)
+    steps = _total_steps(records)
+    squared_error = sum(
+        _finite_non_negative(getattr(record, field), field) for record in records
+    )
+    return math.sqrt(squared_error / steps)
+
+
+def _event_rate(records: list[EpisodeRecord], field: str) -> float:
+    rate = sum(bool(getattr(record, field)) for record in records) / len(records)
+    if not math.isfinite(rate):
+        raise ValueError(f"{field} rate must be finite")
+    return rate
+
+
+def _directional_report(records: list[EpisodeRecord], name: str) -> dict[str, object]:
+    field, tracking_metric, tracking_limit = DIRECTIONAL_TRACKING[name]
+    values = _bucket(records, name)
+    if not values:
+        return {
+            "episode_count": 0,
+            "tracking_metric": tracking_metric,
+            "tracking_rmse": None,
+            "tracking_limit": tracking_limit,
+            "base_contact_rate": None,
+            "bad_orientation_rate": None,
+            "passed": False,
+        }
+    tracking_rmse = _rmse(values, field)
+    contact_rate = _event_rate(values, "base_contact")
+    orientation_rate = _event_rate(values, "bad_orientation")
+    return {
+        "episode_count": len(values),
+        "tracking_metric": tracking_metric,
+        "tracking_rmse": tracking_rmse,
+        "tracking_limit": tracking_limit,
+        "base_contact_rate": contact_rate,
+        "bad_orientation_rate": orientation_rate,
+        "passed": bool(
+            len(values) >= 8
+            and contact_rate <= 0.02
+            and orientation_rate <= 0.02
+            and tracking_rmse <= tracking_limit
+        ),
+    }
 
 
 def evaluate_records(stage: str, seed: int, episodes) -> dict[str, object]:
@@ -61,25 +126,26 @@ def evaluate_records(stage: str, seed: int, episodes) -> dict[str, object]:
     if len(records) != 64 or sorted(env_ids) != list(range(64)):
         raise ValueError("evaluation requires exactly one episode from each of 64 environments")
     count = len(records)
-    timeout = sum(record.time_out for record in records) / count
-    contact = sum(record.base_contact for record in records) / count
-    orientation = sum(record.bad_orientation for record in records) / count
+    timeout = _event_rate(records, "time_out")
+    contact = _event_rate(records, "base_contact")
+    orientation = _event_rate(records, "bad_orientation")
     vx_rmse = _rmse(records, "vx_error_sq_sum")
     wz_rmse = _rmse(records, "wz_error_sq_sum")
     buckets = {name: _bucket(records, name) for name in ("forward", "reverse", "left", "right")}
-    directional_pass = True
-    for name, values in buckets.items():
-        directional_pass &= len(values) >= 8
-        if values:
-            directional_pass &= sum(record.base_contact for record in values) / len(values) <= 0.02
-            directional_pass &= sum(record.bad_orientation for record in values) / len(values) <= 0.02
-            field = "vx_error_sq_sum" if name in ("forward", "reverse") else "wz_error_sq_sum"
-            limit = 0.04 if name in ("forward", "reverse") else 0.12
-            directional_pass &= _rmse(values, field) <= limit
+    directional_metrics = {
+        name: _directional_report(records, name) for name in DIRECTIONAL_TRACKING
+    }
+    directional_pass = all(item["passed"] for item in directional_metrics.values())
     stationary = _bucket(records, "stationary")
-    stationary_steps = sum(record.steps for record in stationary)
-    stationary_vx = sum(record.stationary_abs_vx_sum for record in stationary) / stationary_steps
-    stationary_wz = sum(record.stationary_abs_wz_sum for record in stationary) / stationary_steps
+    stationary_steps = _total_steps(stationary)
+    stationary_vx = sum(
+        _finite_non_negative(record.stationary_abs_vx_sum, "stationary_abs_vx_sum")
+        for record in stationary
+    ) / stationary_steps
+    stationary_wz = sum(
+        _finite_non_negative(record.stationary_abs_wz_sum, "stationary_abs_wz_sum")
+        for record in stationary
+    ) / stationary_steps
     passed = bool(
         timeout >= 0.95
         and contact <= 0.02
@@ -103,6 +169,8 @@ def evaluate_records(stage: str, seed: int, episodes) -> dict[str, object]:
         "stationary_abs_vx": stationary_vx,
         "stationary_abs_wz": stationary_wz,
         "bucket_counts": tuple(sorted((name, len(values)) for name, values in buckets.items())),
+        "directional_metrics": directional_metrics,
+        "directional_pass": directional_pass,
     }
 
 
