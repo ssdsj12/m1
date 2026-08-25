@@ -96,6 +96,8 @@ T400.10b Task 9 已实现 folded-load-only Panda shoulder `120/8` 配置副本�
 
 用户随后批准只将 folded-load joint4 target 改为 `-2.650 rad`。TDD 证明 task-local init state 隔离，全局仍为 `-2.810 rad`。复验四级门全部关闭：8×16 margin `0.201676`；8×256 fold/margin `0.231634/0.040066`；8×1 smoke fold/margin `0.190140/0.081560`；64×10 最终 fold/margin `0.185009/0.086691`，effort `0.255274`，hard failure 和 inactive action 均为 `0`。两个 smoke 正确保持 `accepted=false`。64×10 有 9/10 update 触发 KL abort，长训需重点监控但不构成物理门失败。
 
+T400.10b Task 10 已启动 fresh 长期编排器：GPU0、4096 env、每 stage 最多 600 iterations，当前 L0-C0 manifest 为 `running`，curriculum/train PID `2660373/2660477`。首个 update 完成，update4 fold/margin `0.185018/0.086682`、effort `0.255313`、hard failure/inactive action `0`；GPU 占用约 `8.63/12.23GB`，无 OOM。KL `0.02775` 且 abort 仍激活，当前只是健康启动证据，不是 eligible/accepted 或收敛结论。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
@@ -296,7 +298,7 @@ T400.10b Task 9 已实现 folded-load-only Panda shoulder `120/8` 配置副本�
 
 ## Next Step
 
-当前下一步是在 fresh 实验目录启动 L0-C0 长训，以 atomic manifest、KL abort/LR/std、fold/margin/effort 和 hard failure 持续监控。只有 L0-C0 达到 training eligible 并完成 seed 42/43/44 固定评估才能进入后续 stage；smoke 和启动本身不构成收敛声明。
+当前下一步是持续监控已启动的 L0-C0，以 atomic manifest、KL abort/LR/std、fold/margin/effort 和 hard failure 决定是否停止。只有 L0-C0 达到 training eligible 并完成 seed 42/43/44 固定评估才能进入后续 stage；启动本身不构成收敛声明。
 
 协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
 

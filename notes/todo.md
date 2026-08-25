@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | T400.10b Task 9 在用户批准 folded-load-only joint4 `-2.650 rad` 后通过四级 GPU0 门；8×256 margin `0.04007`，64×10 fold/margin `0.18501/0.08669`，hard failure/inactive action 为 `0`。 | 启动隔离 fresh L0-C0 长训，持续监控 KL abort、物理门和 manifest；不提前宣称收敛。 |
+| T400 | active | T400.10b fresh L0-C0 已在 GPU0 启动：4096×600，curriculum/train PID `2660373/2660477`，update4 fold/margin `0.18502/0.08668`，hard failure/inactive action `0`，manifest `running`。 | 持续监控 KL abort、LR/std、物理门和 atomic manifest；只有 L0 三 seed accepted 后才允许编排器进阶。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
