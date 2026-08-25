@@ -90,11 +90,13 @@ T400.10b Task 6 已完成纯 guard：catastrophe 不依赖 eligible best，`>0.5
 
 T400.10b Task 7 已完成 CPU 入口合同：L0 强制 fresh，后续 stage 只接受紧邻 `accepted=true` 且 manifest/checkpoint SHA 一致的父阶段；wrapper 用 env-id 保留并一次性排出完整 episode 记录。单阶段 train 串接 guard/best checkpoint/manifest，eval 固定 64 env、确定性均值、平衡命令和 seed 42/43/44；runner 新增 KL max/abort、minibatch、grad、active std 与物理失败诊断。有效 RED `6 failed, 4 passed`，最终 related `72 passed`；真实 Isaac/GPU 尚未运行。
 
+T400.10b Task 8 已完成 CPU 编排合同：严格八阶段顺序，每阶段 train 后固定执行 42/43/44 eval；每次晋级重新验证从 L0 到当前的 accepted 状态、父 manifest path/SHA、父 final path/SHA 与当前 final SHA。首个失败原子写 `curriculum_state.json`、保留上一 accepted rollback 且不创建下一 stage。有效 RED `5 failed`，最终 related `17 passed`；真实 subprocess/GPU 尚未运行。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
 - [ ] T400.10a 监控 Coordinated PPO 稳定重训：实现、GPU probe/短门和旧 checkpoint 审计清理已完成，fresh 64×600 进入长期行为门监控。
-- [ ] T400.10b 完成折叠 Panda 动态负载基础运动课程：Tasks 1–7 已完成；Tasks 8–10（编排、GPU probe/runbook、长训验收）仍开放。
+- [ ] T400.10b 完成折叠 Panda 动态负载基础运动课程：Tasks 1–8 已完成；Tasks 9–10（GPU probe/runbook、完整回归与长训验收）仍开放。
   - [x] Task 1：新增独立 coordinated 200 Hz PPO 配置并通过 RED→GREEN。
   - [x] Task 2：实现 bounded adaptive KL/LR 与 physical std clamp/诊断。
   - [x] Task 3：实现通用不可变 runner iteration summary/callback。
@@ -168,6 +170,7 @@ T400.10b Task 7 已完成 CPU 入口合同：L0 强制 fresh，后续 stage 只�
 
 ## Related Logs
 
+- [Folded-load curriculum orchestrator Task 8](../log/2026-08-25-m1-panda-folded-load-curriculum-orchestrator.md)
 - [Folded-load train/eval entrypoints Task 7](../log/2026-08-25-m1-panda-folded-load-train-eval-entrypoints.md)
 - [Folded-load training guard Task 6](../log/2026-08-25-m1-panda-folded-load-training-guard.md)
 - [Folded-load wrapper/DR Task 5](../log/2026-08-25-m1-panda-folded-load-wrapper-dr.md)
@@ -289,7 +292,7 @@ T400.10b Task 7 已完成 CPU 入口合同：L0 强制 fresh，后续 stage 只�
 
 ## Next Step
 
-当前授权的最小下一步是 T400.10b Task 8：实现原子课程编排器，逐 stage 启动 train 和三种子 eval，校验完整 SHA 父链，失败时停在上一 accepted checkpoint；不得降级难度或从 T400.10a rejected policy 初始化。
+当前授权的最小下一步是 T400.10b Task 9：实现 8-env 零动作 GPU0 物理 probe 与书面 runbook，再按 probe -> 8x1 smoke -> 64-env smoke 的顺序验证；smoke 不得被标记为 accepted stage。
 
 协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
 
