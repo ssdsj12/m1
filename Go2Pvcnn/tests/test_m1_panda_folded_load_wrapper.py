@@ -59,9 +59,17 @@ class _Robot:
                 (torch.full_like(joint_pos, -4.0), torch.full_like(joint_pos, 4.0)), dim=-1
             ),
         )
+        self.position_target_calls = []
+        self.velocity_target_calls = []
 
     def find_joints(self, names, preserve_order=False):
         return [self.joint_names.index(name) for name in names], list(names)
+
+    def set_joint_position_target(self, target, joint_ids=None):
+        self.position_target_calls.append((target.clone(), joint_ids.clone()))
+
+    def set_joint_velocity_target(self, target, joint_ids=None):
+        self.velocity_target_calls.append((target.clone(), joint_ids.clone()))
 
 
 class _Env:
@@ -196,3 +204,18 @@ def test_fixed_evaluation_commands_require_exact_finite_shape(wrapper_cls):
     commands[0, 0] = torch.nan
     with pytest.raises(ValueError, match="finite"):
         wrapper.set_evaluation_commands(commands)
+
+
+def test_each_step_writes_fold_position_and_zero_velocity_pd_targets(wrapper_cls):
+    env = _Env()
+    wrapper = wrapper_cls(env, stage="L0-C0", seed=3)
+
+    wrapper.step(torch.zeros(4, 23))
+
+    position, position_ids = env.robot.position_target_calls[-1]
+    velocity, velocity_ids = env.robot.velocity_target_calls[-1]
+    expected = torch.tensor((0.0, -0.569, 0.0, -2.810, 0.0, 3.037, 0.741))
+    torch.testing.assert_close(position, expected.expand(4, -1))
+    assert velocity.eq(0.0).all()
+    assert position_ids.tolist() == list(range(16, 23))
+    torch.testing.assert_close(position_ids, velocity_ids)

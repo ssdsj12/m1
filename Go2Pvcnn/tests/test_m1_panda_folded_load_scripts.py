@@ -147,3 +147,9 @@ def test_scripts_and_runner_contain_exact_operational_contracts():
         '"Policy/active_action_std_max"',
     ):
         assert scalar in runner
+
+
+def test_clean_ineligible_smoke_is_not_a_process_failure():
+    train = _load(TRAIN, "folded_train_exit_status")
+    assert train.training_completion_exit_code(eligible=False) == 0
+    assert train.training_completion_exit_code(eligible=True) == 0

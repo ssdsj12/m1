@@ -166,7 +166,7 @@ git commit -m "feat: guard folded-load GPU validation"
 - [ ] **Step 1: Preserve earlier failed diagnostics and run the 8×16 probe**
 
 ```bash
-TERM=xterm-256color CONDA_PREFIX=/home/xk/miniconda3/envs/go2 CUDA_VISIBLE_DEVICES=0 /home/xk/coding/IsaacLab/isaaclab.sh -p Go2Pvcnn/scripts/m1_panda_folded_load_probe.py --num_envs 8 --num_steps 16 --device cuda:0 --report Go2Pvcnn/logs/m1_panda_folded_load/probe-pd120-8x16.json --headless
+TERM=xterm-256color CONDA_PREFIX=/home/xk/miniconda3/envs/go2 CUDA_VISIBLE_DEVICES=0 /home/xk/coding/IsaacLab/isaaclab.sh -p Go2Pvcnn/scripts/m1_panda_folded_load_probe.py --num_envs 8 --steps 16 --device cuda:0 --report Go2Pvcnn/logs/m1_panda_folded_load/probe-pd120-8x16.json --headless
 ```
 
 Expected: shell exit `0`, report `passed=true`, inactive action exactly zero, fold error `<=0.35`, effort utilization `<=1.0`, and joint margin `>0.01`.

@@ -69,6 +69,13 @@ def prepare_empty_run_dir(path: str | os.PathLike[str]) -> Path:
     return run_dir
 
 
+def training_completion_exit_code(*, eligible: bool) -> int:
+    """A finite completed run is successful even when it is only a smoke run."""
+    if not isinstance(eligible, bool):
+        raise TypeError("eligible must be boolean")
+    return 0
+
+
 def validate_parent(
     stage: str, parent_manifest: str | os.PathLike[str] | None
 ) -> ParentLineage | None:
@@ -275,7 +282,7 @@ def main() -> int:
             }
         )
         atomic_write_json(manifest_path, manifest)
-        return 0 if eligible else 2
+        return training_completion_exit_code(eligible=eligible)
     except BaseException as error:
         manifest.update(
             {

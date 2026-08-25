@@ -42,6 +42,9 @@ class M1PandaFoldedLoadEnvWrapper(VecEnv):
         if tuple(arm_names) != _ARM_NAMES or len(set(map(int, arm_ids))) != 7:
             raise RuntimeError("folded-load wrapper requires seven canonical Panda joints")
         self._arm_ids = torch.tensor(arm_ids, device=self.device, dtype=torch.long)
+        self._arm_fold_target = self._robot.data.default_joint_pos.index_select(
+            1, self._arm_ids
+        ).clone()
         self._seed = seed
         self._command_generation = 0
         self.commands = torch.zeros(self.num_envs, 3, device=self.device)
@@ -163,6 +166,17 @@ class M1PandaFoldedLoadEnvWrapper(VecEnv):
         )
         self._episode_steps += 1
 
+    def _apply_fold_pd_targets(self) -> None:
+        """Keep the inactive effort coordinates tied to the approved dynamic fold."""
+        if not bool(torch.isfinite(self._arm_fold_target).all()):
+            raise RuntimeError("Panda fold target must remain finite")
+        self._robot.set_joint_position_target(
+            self._arm_fold_target, joint_ids=self._arm_ids
+        )
+        self._robot.set_joint_velocity_target(
+            torch.zeros_like(self._arm_fold_target), joint_ids=self._arm_ids
+        )
+
     def _termination_term(self, name: str) -> torch.Tensor:
         value = self.env.unwrapped.termination_manager.get_term(name)
         value = torch.as_tensor(value, device=self.device, dtype=torch.bool)
@@ -229,6 +243,7 @@ class M1PandaFoldedLoadEnvWrapper(VecEnv):
         self._inactive_action_max = torch.maximum(
             self._inactive_action_max, safe_actions[:, 16:23].abs().max()
         )
+        self._apply_fold_pd_targets()
         obs, rewards, terminated, truncated, extras = self.env.step(safe_actions)
         dones = terminated | truncated
         extras = dict(extras or {})
