@@ -61,3 +61,12 @@ graph LR
 - Action width is exactly 16 and controls only M1: 12 leg position plus 4 wheel velocity channels. Panda remains dynamically attached but fixed outside policy action/observation control.
 - A0 applies the approved small quasi-static BASE_LINK-frame wrench curriculum; A1 applies the stronger hold/ramp/pulse curriculum. Live wrench is transformed to `panda_hand` local coordinates immediately before the physics step.
 - Teacher rewards are alive, base height, vertical velocity, roll/pitch angular velocity, flat orientation, XY drift, wheel speed, residual amplitude/rate, M1 torque, and foot slide; termination remains timeout/base contact/bad orientation.
+
+## M1 + Panda Folded-Load Locomotion Contract
+
+- Gym ID `Isaac-M1-Panda-Folded-Load-v0` is isolated from the rejected coordinated training route.
+- The boundary stays 103 observations, 23 actions, and 200 Hz. Policy actions retain 12 leg + 4 wheel + 7 Panda order, but only the first 16 dimensions are active.
+- Panda uses the unchanged dynamic `M1_PANDA_CFG` fold pose and implicit PD; it is not converted to a fixed visual payload.
+- Legacy base-target and EE-error slots are finite zero compatibility padding. The desired-twist slot carries episode-constant body `vx` and yaw-rate commands.
+- Rewards are body-X/yaw tracking plus balance, slip, first-16 action/rate, torque, and non-timeout termination. Learned base-position, EE, folded-arm objectives and external-wrench events are absent.
+- Current evidence is pure/static only; see [Task 4 log](../log/2026-08-25-m1-panda-folded-load-mdp-env.md). Wrapper, GPU physics, and behavior acceptance remain open.

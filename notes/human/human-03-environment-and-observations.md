@@ -61,3 +61,12 @@ graph LR
 - policy / critic 观测各自包含什么
 - curriculum 在哪些 env cfg 中启用
 - PLAY 和训练版配置的真实差异
+
+## M1 + Panda 折叠负载基础运动
+
+- 新任务 ID 是 `Isaac-M1-Panda-Folded-Load-v0`，与之前失败的 coordinated 长训路线隔离。
+- 接口仍是 103 维观测、23 维动作和 200 Hz；动作顺序保持 12 腿 + 4 轮 + 7 Panda，但当前只允许前 16 维参与策略。
+- Panda 仍是具有质量、惯量、重力和关节反作用的动态部件，使用既有折叠姿态与隐式 PD，不是固定视觉负载。
+- 原 base target / EE error 观测槽保留为有限零兼容位；desired twist 槽承载每个 episode 固定的前进/后退/转向命令。
+- 奖励只学习速度跟踪、平衡、侧滑、前 16 维动作变化和力矩；不学习旧 base 位置、EE 或折叠臂目标，也没有外力事件。
+- 当前只完成纯函数和静态配置验证，详见 [Task 4 日志](../log/2026-08-25-m1-panda-folded-load-mdp-env.md)；真实 GPU 动力学和运动能力尚未验收。
