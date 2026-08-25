@@ -96,8 +96,7 @@ def test_default_events_are_deterministic_and_have_no_external_wrench_event():
     source = CFG.read_text(encoding="utf-8")
     assert "M1PandaFoldedLoadEventsCfg" in source
     assert '"leg_position_range": (0.0, 0.0)' in source
-    assert '"arm_position_range": (0.0, 0.0)' in source
-    assert '"velocity_range": (0.0, 0.0)' in source
+    assert '"arm_position_range"' not in source
     assert '"static_friction_range": (1.0, 1.0)' in source
     assert "apply_external_force_torque" not in source
 

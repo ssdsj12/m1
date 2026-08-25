@@ -70,7 +70,14 @@ def folded_load_compat_ee_error_b(env) -> torch.Tensor:
 def folded_load_desired_twist_b(env) -> torch.Tensor:
     """Map episode command ``[vx, 0, wz]`` into the existing six-value slot."""
 
-    commands = _require_finite("folded_load_commands", env.folded_load_commands)
+    commands = getattr(env, "folded_load_commands", None)
+    if commands is None:
+        reference = _require_finite(
+            "root_lin_vel_b", env.scene["robot"].data.root_lin_vel_b
+        )
+        commands = reference.new_zeros((env.num_envs, 3))
+        env.folded_load_commands = commands
+    commands = _require_finite("folded_load_commands", commands)
     if commands.shape != (env.num_envs, 3):
         raise ValueError("folded_load_commands must have shape [num_envs, 3]")
     desired = commands.new_zeros((env.num_envs, 6))

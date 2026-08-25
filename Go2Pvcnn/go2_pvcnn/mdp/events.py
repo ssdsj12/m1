@@ -155,6 +155,39 @@ def reset_coordinated_joints_by_offset(
     asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
 
+def reset_folded_load_joints_by_offset(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    leg_position_range: tuple[float, float],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> None:
+    """Randomize only M1 leg positions and keep wheel/Panda state at defaults."""
+    from go2_pvcnn.assets import M1_LEG_JOINT_NAMES
+
+    leg_range = _finite_ordered_range(
+        leg_position_range, label="leg_position_range"
+    )
+    asset: Articulation = env.scene[asset_cfg.name]
+    leg_ids = _canonical_joint_ids(asset, tuple(M1_LEG_JOINT_NAMES))
+    env_ids = env_ids.to(device=asset.device, dtype=torch.long)
+    joint_pos = asset.data.default_joint_pos[env_ids].clone()
+    joint_vel = asset.data.default_joint_vel[env_ids].clone()
+    offsets = torch.empty(
+        (len(env_ids), len(leg_ids)),
+        device=asset.device,
+        dtype=joint_pos.dtype,
+    ).uniform_(*leg_range)
+    joint_pos[:, leg_ids] += offsets
+    position_limits = asset.data.soft_joint_pos_limits[env_ids]
+    joint_pos = torch.maximum(joint_pos, position_limits[..., 0])
+    joint_pos = torch.minimum(joint_pos, position_limits[..., 1])
+    if not bool(torch.isfinite(joint_pos).all()) or not bool(
+        torch.isfinite(joint_vel).all()
+    ):
+        raise ValueError("folded-load reset joint state must be finite")
+    asset.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+
+
 def reset_dynamic_objects_position(
     env: ManagerBasedRLEnv,
     env_ids: torch.Tensor,

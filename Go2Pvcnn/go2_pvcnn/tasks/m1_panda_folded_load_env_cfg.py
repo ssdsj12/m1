@@ -24,6 +24,7 @@ from go2_pvcnn.assets.m1_panda import (
 )
 import go2_pvcnn.mdp as mdp
 from go2_pvcnn.tasks.m1_panda_wbc_roll_teacher_env_cfg import M1PandaWbcRollTeacherEnvCfg
+from go2_pvcnn.tasks.m1_panda_folded_load_curriculum import stage_spec
 from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEventsCfg
 
 
@@ -203,12 +204,10 @@ class M1PandaFoldedLoadEventsCfg(M1SmokeEventsCfg):
         },
     )
     reset_robot_joints = EventTerm(
-        func=mdp.reset_coordinated_joints_by_offset,
+        func=mdp.reset_folded_load_joints_by_offset,
         mode="reset",
         params={
             "leg_position_range": (0.0, 0.0),
-            "arm_position_range": (0.0, 0.0),
-            "velocity_range": (0.0, 0.0),
             "asset_cfg": SceneEntityCfg("robot"),
         },
     )
@@ -233,8 +232,53 @@ class M1PandaFoldedLoadEnvCfg(M1PandaWbcRollTeacherEnvCfg):
         self.episode_length_s = 30.0
 
 
+def configure_folded_load_stage(cfg, stage: str) -> None:
+    """Apply the exact reset/material ranges for one curriculum stage."""
+
+    contract = stage_spec(stage)
+    reset = contract.reset
+    x, y = reset.root_xy, reset.root_xy
+    roll, pitch, yaw = reset.root_rpy
+    linear = reset.root_linear_velocity
+    angular = reset.root_angular_velocity
+    cfg.events.reset_base.params = {
+        "pose_range": {
+            "x": (-x, x),
+            "y": (-y, y),
+            "z": (0.0, 0.0),
+            "roll": (-roll, roll),
+            "pitch": (-pitch, pitch),
+            "yaw": (-yaw, yaw),
+        },
+        "velocity_range": {
+            "x": (-linear, linear),
+            "y": (-linear, linear),
+            "z": (-linear, linear),
+            "roll": (-angular, angular),
+            "pitch": (-angular, angular),
+            "yaw": (-angular, angular),
+        },
+    }
+    cfg.events.reset_robot_joints.params = {
+        "leg_position_range": (-reset.leg_position, reset.leg_position),
+        "asset_cfg": cfg.events.reset_robot_joints.params.get(
+            "asset_cfg", SceneEntityCfg("robot")
+        ),
+    }
+    cfg.events.physics_material.params = {
+        "asset_cfg": cfg.events.physics_material.params.get(
+            "asset_cfg", SceneEntityCfg("robot", body_names=".*")
+        ),
+        "static_friction_range": reset.friction,
+        "dynamic_friction_range": reset.friction,
+        "restitution_range": (0.0, 0.0),
+        "num_buckets": 64,
+    }
+
+
 __all__ = [
     "FOLDED_LOAD_POLICY_OBSERVATION_DIM",
     "FOLDED_LOAD_POLICY_OBSERVATION_WIDTHS",
     "M1PandaFoldedLoadEnvCfg",
+    "configure_folded_load_stage",
 ]

@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | T400.10b Tasks 1–4 已完成：独立 103/23、200 Hz folded-load MDP/Gym ID 已加入，旧任务回归通过。 | 实现 wrapper 的命令生命周期、exact-zero arm boundary、L2 reset DR 与诊断。 |
+| T400 | active | T400.10b Tasks 1–5 已完成：exact-zero arm wrapper、episode 命令归属、D1–D3 配置和 leg-only selected-env reset 回归通过。 | 实现独立 always-on catastrophe/eligibility/atomic acceptance guard。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
@@ -161,7 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T400.10b | T400 | active | P0 | Tasks 1–4 通过；独立 folded-load Gym ID 保持 103/23/200 Hz、动态 Panda PD 和纯 locomotion reward，尚未接 wrapper/GPU。 | [Task 4 log](log/2026-08-25-m1-panda-folded-load-mdp-env.md) |
+| T400.10b | T400 | active | P0 | Tasks 1–5 通过；wrapper 在 physics 前 exact-zero arm，命令/episode 指标与 D1–D3 reset 已接线；GPU 尚未运行。 | [Task 5 log](log/2026-08-25-m1-panda-folded-load-wrapper-dr.md) |
 | T400.10a | T400 | active | P0 | Tasks 1–9 implementation/短门/清理完成；fresh 64×600 已在 GPU0 启动，PID `1128844`，首个 update 健康；尚无 acceptance claim。 | [launch evidence](log/2026-08-24-m1-panda-coordinated-stable-long-launch.md) |
 | T400.9 | T400 | active | P0 | Student Tasks 1–12 contract path complete: 100/10/23 contracts, isolated Teacher runtime, S1 collection/trainer, Student-only Play and exact 42/43/44 evaluation; regression `109 passed`, 64×4000 CPU evaluation passes. Physical Isaac side-label and GPU gates remain open. | [Student S1 evaluation smoke](log/2026-08-20-m1-panda-student-s1-evaluation-smoke.md) |
 | T400.8 | T400 | done | P0 | C0 Tasks 1–10 accepted: `177 passed`; GPU0 8+2000-step exits 0; all hard metrics pass with zero snap/reset/contact/limit failures. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
@@ -211,6 +211,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 - [T200-semantic-static-course-viewer.md](todo/T200-semantic-static-course-viewer.md)
 
 ## Recent Logs
+
+| 2026-08-25 | M1 + Panda folded-load wrapper/DR | Task 5 action/command/reset boundary | valid missing-wrapper RED; `34 passed`; exact-zero arm, selective commands, D1–D3 ranges, leg-only selected-env writes, finite diagnostics | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-25-m1-panda-folded-load-wrapper-dr.md](log/2026-08-25-m1-panda-folded-load-wrapper-dr.md) |
 
 | 2026-08-25 | M1 + Panda folded-load MDP/environment | Task 4 isolated Isaac contract | RED missing MDP; final `29 passed`; 103/23/200 Hz, unchanged dynamic PD asset, exact rewards, deterministic/no-wrench defaults | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-25-m1-panda-folded-load-mdp-env.md](log/2026-08-25-m1-panda-folded-load-mdp-env.md) |
 
