@@ -187,6 +187,18 @@ def build_arg_parser():
     return parser
 
 
+def _finalize_report_set(
+    artifacts: AtomicStageArtifacts,
+    checkpoint: Path,
+    reports: list[Path],
+    *,
+    diagnostic_only: bool,
+) -> dict[str, object]:
+    if diagnostic_only:
+        return artifacts.finalize_diagnostics(checkpoint, reports)
+    return artifacts.finalize_evaluations(checkpoint, reports)
+
+
 def main() -> int:
     args = build_arg_parser().parse_args()
     if args.num_envs != 64:
@@ -248,9 +260,18 @@ def main() -> int:
         artifacts.write_evaluation(args.seed, report)
         reports = [run_dir / f"evaluation_seed_{seed}.json" for seed in EVALUATION_SEEDS]
         if all(path.is_file() for path in reports):
-            decision = artifacts.finalize_evaluations(checkpoint, reports)
+            diagnostic_only = manifest.get("diagnostic_only") is True
+            decision = _finalize_report_set(
+                artifacts,
+                checkpoint,
+                reports,
+                diagnostic_only=diagnostic_only,
+            )
             manifest.update(decision)
-            manifest["status"] = "accepted" if decision["accepted"] else "rejected"
+            if diagnostic_only:
+                manifest["status"] = "diagnostic_complete"
+            else:
+                manifest["status"] = "accepted" if decision["accepted"] else "rejected"
             from m1_panda_folded_load_train import atomic_write_json
             atomic_write_json(manifest_path, manifest)
         return 0 if report["passed"] else 2

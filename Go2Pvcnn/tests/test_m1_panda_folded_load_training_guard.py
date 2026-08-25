@@ -142,3 +142,67 @@ def test_failed_or_wrong_seed_evaluation_cannot_promote(tmp_path: Path):
     assert decision["accepted"] is False
     assert not (tmp_path / "model_final.pt").exists()
 
+
+def test_diagnostic_evaluations_are_recorded_but_never_promoted(tmp_path: Path):
+    artifacts = AtomicStageArtifacts(tmp_path)
+    best = tmp_path / "model_best.pt"
+    best.write_bytes(b"diagnostic-policy")
+    checkpoint_sha = sha256_file(best)
+    reports = [
+        artifacts.write_evaluation(
+            seed,
+            {
+                "seed": seed,
+                "passed": True,
+                "checkpoint_sha256": checkpoint_sha,
+            },
+        )
+        for seed in (42, 43, 44)
+    ]
+
+    decision = artifacts.finalize_diagnostics(best, reports)
+
+    assert decision["diagnostic_only"] is True
+    assert decision["reports_passed"] is True
+    assert decision["accepted"] is False
+    assert decision["final_checkpoint"] is None
+    assert not (tmp_path / "model_final.pt").exists()
+    aggregate = json.loads((tmp_path / "evaluation_aggregate.json").read_text())
+    assert aggregate == decision
+
+
+def test_diagnostic_evaluation_rejects_report_from_another_checkpoint(tmp_path: Path):
+    artifacts = AtomicStageArtifacts(tmp_path)
+    best = tmp_path / "model_best.pt"
+    best.write_bytes(b"diagnostic-policy")
+    reports = [
+        artifacts.write_evaluation(
+            seed,
+            {"seed": seed, "passed": False, "checkpoint_sha256": "wrong"},
+        )
+        for seed in (42, 43, 44)
+    ]
+
+    with pytest.raises(ValueError, match="checkpoint SHA"):
+        artifacts.finalize_diagnostics(best, reports)
+
+
+def test_diagnostic_evaluation_rejects_invalid_fixed_seed_set(tmp_path: Path):
+    artifacts = AtomicStageArtifacts(tmp_path)
+    best = tmp_path / "model_best.pt"
+    best.write_bytes(b"diagnostic-policy")
+    checkpoint_sha = sha256_file(best)
+    reports = [
+        artifacts.write_evaluation(
+            seed,
+            {"seed": seed, "passed": False, "checkpoint_sha256": checkpoint_sha},
+        )
+        for seed in (42, 43, 44)
+    ]
+    reports[-1].write_text(
+        json.dumps({"seed": None, "passed": False, "checkpoint_sha256": checkpoint_sha}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="seeds 42, 43, and 44"):
+        artifacts.finalize_diagnostics(best, reports)

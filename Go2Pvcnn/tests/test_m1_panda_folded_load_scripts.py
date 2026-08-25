@@ -107,6 +107,17 @@ def test_parent_checkpoint_sha_and_empty_run_directory_are_enforced(tmp_path):
         train.prepare_empty_run_dir(run_dir)
 
 
+def test_diagnostic_manifest_can_never_be_used_as_curriculum_parent(tmp_path):
+    train = _load(TRAIN, "folded_train_diagnostic_parent")
+    manifest = _manifest(tmp_path)
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    document["diagnostic_only"] = True
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="diagnostic-only"):
+        train.validate_parent("L1-C1", manifest)
+
+
 def test_fixed_evaluation_uses_same_physical_gates_and_all_64_environments():
     evaluate = _load(EVAL, "folded_eval_gates")
     report = evaluate.evaluate_records("L0-C0", 42, _balanced_records())
@@ -237,6 +248,24 @@ def test_non_finite_evaluation_input_is_rejected_before_json_serialization():
 
     with pytest.raises(ValueError, match="finite"):
         evaluate.evaluate_records("L0-C0", 42, records)
+
+
+def test_diagnostic_manifest_dispatches_to_non_promoting_finalizer(tmp_path):
+    evaluate = _load(EVAL, "folded_eval_diagnostic_dispatch")
+
+    class FakeArtifacts:
+        def finalize_diagnostics(self, checkpoint, reports):
+            return {"mode": "diagnostic", "checkpoint": checkpoint, "reports": reports}
+
+        def finalize_evaluations(self, checkpoint, reports):
+            raise AssertionError("normal promotion path must not run")
+
+    checkpoint = tmp_path / "model_best.pt"
+    reports = [tmp_path / "evaluation_seed_42.json"]
+    decision = evaluate._finalize_report_set(
+        FakeArtifacts(), checkpoint, reports, diagnostic_only=True
+    )
+    assert decision["mode"] == "diagnostic"
 
 
 def test_scripts_and_runner_contain_exact_operational_contracts():

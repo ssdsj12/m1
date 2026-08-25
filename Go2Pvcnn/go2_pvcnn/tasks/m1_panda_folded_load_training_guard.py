@@ -343,6 +343,38 @@ class AtomicStageArtifacts:
         _atomic_json(self.run_dir / "evaluation_aggregate.json", decision)
         return decision
 
+    def finalize_diagnostics(
+        self, best_checkpoint: str | os.PathLike[str], reports: Iterable[Path]
+    ) -> dict[str, object]:
+        """Aggregate fixed-seed evidence without ever publishing a parent policy."""
+        best = Path(best_checkpoint).expanduser().resolve()
+        if not best.is_file():
+            raise FileNotFoundError(best)
+        documents = [json.loads(Path(path).read_text(encoding="utf-8")) for path in reports]
+        seeds = [document.get("seed") for document in documents]
+        if not all(isinstance(seed, int) and not isinstance(seed, bool) for seed in seeds):
+            raise ValueError("diagnostic reports must contain seeds 42, 43, and 44")
+        if sorted(seeds) != [42, 43, 44]:
+            raise ValueError("diagnostic reports must contain seeds 42, 43, and 44")
+        checkpoint_sha = sha256_file(best)
+        if any(
+            document.get("checkpoint_sha256") != checkpoint_sha
+            for document in documents
+        ):
+            raise ValueError("diagnostic report checkpoint SHA does not match model_best.pt")
+        decision = {
+            "accepted": False,
+            "diagnostic_only": True,
+            "reports_passed": all(document.get("passed") is True for document in documents),
+            "seeds": sorted(seeds),
+            "best_checkpoint": str(best),
+            "best_checkpoint_sha256": checkpoint_sha,
+            "final_checkpoint": None,
+            "final_checkpoint_sha256": None,
+        }
+        _atomic_json(self.run_dir / "evaluation_aggregate.json", decision)
+        return decision
+
 
 __all__ = [
     "AtomicStageArtifacts",

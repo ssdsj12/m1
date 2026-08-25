@@ -90,6 +90,8 @@ def validate_parent(
     if not manifest_path.is_file():
         raise FileNotFoundError(manifest_path)
     document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if document.get("diagnostic_only") is True:
+        raise ValueError("diagnostic-only manifest cannot be used as a curriculum parent")
     if document.get("accepted") is not True:
         raise ValueError("parent manifest must contain accepted=true")
     if document.get("stage") != contract.parent:

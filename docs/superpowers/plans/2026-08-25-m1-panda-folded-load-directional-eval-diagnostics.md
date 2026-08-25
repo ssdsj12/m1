@@ -67,7 +67,7 @@ git commit -m "feat: report folded-load directional evaluation gates"
 - Modify: `Go2Pvcnn/tests/test_m1_panda_folded_load_scripts.py`
 - Modify: `Go2Pvcnn/scripts/m1_panda_folded_load_train.py`
 - Modify: `Go2Pvcnn/scripts/m1_panda_folded_load_eval.py`
-- Modify: `Go2Pvcnn/scripts/m1_panda_folded_load_artifacts.py`
+- Modify: `Go2Pvcnn/go2_pvcnn/tasks/m1_panda_folded_load_training_guard.py`
 
 ### Step 1: Write failing isolation tests
 
@@ -100,7 +100,7 @@ Run the command from Step 1. Expected: PASS.
 ### Step 4: Commit
 
 ```bash
-git add Go2Pvcnn/scripts/m1_panda_folded_load_artifacts.py Go2Pvcnn/scripts/m1_panda_folded_load_eval.py Go2Pvcnn/scripts/m1_panda_folded_load_train.py Go2Pvcnn/tests/test_m1_panda_folded_load_scripts.py Go2Pvcnn/tests/test_m1_panda_folded_load_training_guard.py
+git add Go2Pvcnn/go2_pvcnn/tasks/m1_panda_folded_load_training_guard.py Go2Pvcnn/scripts/m1_panda_folded_load_eval.py Go2Pvcnn/scripts/m1_panda_folded_load_train.py Go2Pvcnn/tests/test_m1_panda_folded_load_scripts.py Go2Pvcnn/tests/test_m1_panda_folded_load_training_guard.py
 git commit -m "fix: isolate folded-load diagnostic evaluations"
 ```
 
