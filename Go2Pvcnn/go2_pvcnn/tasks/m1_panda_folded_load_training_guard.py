@@ -85,8 +85,6 @@ class FoldedLoadTrainingGuard:
         self.diagnostic_best: EligibilitySnapshot | None = None
         self.high_failure_updates = 0
         self.medium_failure_updates = 0
-        self.patience_without_improvement = 0
-        self.updates_observed = 0
 
     @staticmethod
     def _validated(record: EpisodeRecord) -> EpisodeRecord:
@@ -215,7 +213,6 @@ class FoldedLoadTrainingGuard:
         inactive_action_max: float = 0.0,
         fold_hard_failure: bool = False,
     ) -> GuardDecision:
-        self.updates_observed += 1
         if not finite:
             return GuardDecision(True, False, False, "nonfinite", None)
         inactive_action_max = _finite(inactive_action_max, "inactive_action_max")
@@ -232,7 +229,6 @@ class FoldedLoadTrainingGuard:
             self._episodes.extend(current)
         snapshot = self._snapshot(iteration)
         save_best = False
-        improved = False
         if snapshot is not None:
             if self.diagnostic_best is None or snapshot.rank < self.diagnostic_best.rank:
                 self.diagnostic_best = snapshot
@@ -241,19 +237,12 @@ class FoldedLoadTrainingGuard:
             ):
                 self.eligible_best = snapshot
                 save_best = True
-                improved = True
-        if self.eligible_best is not None:
-            self.patience_without_improvement = 0 if improved else self.patience_without_improvement + 1
 
         reason = None
         if self.high_failure_updates >= 2:
             reason = "hard_failure_rate_gt_0.50_for_2_updates"
         elif self.medium_failure_updates >= 5:
             reason = "hard_failure_rate_gt_0.20_for_5_updates"
-        elif self.patience_without_improvement >= 50:
-            reason = "eligible_patience_50_updates"
-        elif self.updates_observed >= 600:
-            reason = "max_iterations_600"
         return GuardDecision(
             stop=reason is not None,
             eligible=bool(snapshot is not None and snapshot.eligible),

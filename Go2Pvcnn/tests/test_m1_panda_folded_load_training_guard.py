@@ -98,6 +98,22 @@ def test_command_level_eligibility_checks_shared_and_directional_gates():
     assert not FoldedLoadTrainingGuard(stage_spec("L0-C0")).update(1, bad_reverse).eligible
 
 
+def test_eligible_plateau_never_stops_normal_learning():
+    guard = FoldedLoadTrainingGuard(stage_spec("L0-C0"))
+    first = guard.update(1, _eligible_window())
+    assert first.eligible and first.save_best and not first.stop
+
+    decision = first
+    for iteration in range(2, 3001):
+        decision = guard.update(iteration, [])
+        assert decision.reason not in {
+            "eligible_patience_50_updates",
+            "max_iterations_600",
+        }
+        assert decision.stop is False
+    assert decision.reason is None
+
+
 def test_stationary_and_minimum_bucket_gates_are_enforced():
     fast_stationary = _eligible_window()
     for index in range(160, 200):
