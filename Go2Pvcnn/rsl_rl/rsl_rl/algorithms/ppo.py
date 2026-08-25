@@ -32,6 +32,7 @@ class PPO:
         use_clipped_value_loss=True,
         schedule="fixed",
         desired_kl=0.01,
+        kl_abort_threshold=None,
         device="cpu",
         clip_min_std=1e-15,
         clip_max_std=None,
@@ -87,13 +88,25 @@ class PPO:
             or (scalar_min_std is not None and scalar_max_std < scalar_min_std)
         ):
             raise ValueError("std bounds must be finite, positive, and ordered")
+        if kl_abort_threshold is not None and (
+            not math.isfinite(float(kl_abort_threshold))
+            or float(kl_abort_threshold) <= 0.0
+        ):
+            raise ValueError("kl_abort_threshold must be finite and positive")
 
         self.desired_kl = desired_kl
+        self.kl_abort_threshold = (
+            None if kl_abort_threshold is None else float(kl_abort_threshold)
+        )
         self.schedule = schedule
         self.learning_rate = float(learning_rate)
         self.min_learning_rate = float(min_learning_rate)
         self.max_learning_rate = float(max_learning_rate)
         self.last_kl_mean = 0.0
+        self.last_kl_max = 0.0
+        self.last_kl_aborted = False
+        self.last_completed_mini_batches = 0
+        self.last_grad_norm = 0.0
         self.last_lr_adjustment = "hold"
 
         # PPO components
@@ -172,6 +185,32 @@ class PPO:
             self.actor_critic.clip_std(
                 min=self.clip_min_std, max=self.clip_max_std
             )
+
+    def _compute_kl_mean(self, old_mu, old_sigma, mu, sigma) -> float:
+        """Compute mean old-to-new policy KL over active action dimensions."""
+        active_mask = getattr(self.actor_critic, "active_action_mask", None)
+        if active_mask is not None:
+            old_mu = old_mu[:, active_mask]
+            old_sigma = old_sigma[:, active_mask]
+            mu = mu[:, active_mask]
+            sigma = sigma[:, active_mask]
+        tiny = torch.finfo(sigma.dtype).tiny
+        safe_old_sigma = old_sigma.clamp_min(tiny)
+        safe_sigma = sigma.clamp_min(tiny)
+        kl = torch.sum(
+            torch.log(safe_sigma / safe_old_sigma)
+            + (
+                torch.square(safe_old_sigma)
+                + torch.square(old_mu - mu)
+            )
+            / (2.0 * torch.square(safe_sigma))
+            - 0.5,
+            dim=-1,
+        )
+        kl_mean = torch.mean(kl)
+        if not torch.isfinite(kl_mean):
+            raise FloatingPointError("PPO KL is non-finite")
+        return float(kl_mean.item())
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
         self.storage = RolloutStorage(
@@ -329,6 +368,11 @@ class PPO:
     def update(self):
         mean_value_loss = 0
         mean_surrogate_loss = 0
+        self.last_kl_mean = 0.0
+        self.last_kl_max = 0.0
+        self.last_kl_aborted = False
+        self.last_completed_mini_batches = 0
+        self.last_grad_norm = 0.0
         if self.actor_critic.is_recurrent:
             generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
         else:
@@ -358,16 +402,11 @@ class PPO:
             entropy_batch = self.actor_critic.entropy
 
             # KL
-            if self.desired_kl is not None and self.schedule == "adaptive":
+            if self.desired_kl is not None or self.kl_abort_threshold is not None:
                 with torch.inference_mode():
-                    kl = torch.sum(
-                        torch.log(sigma_batch / old_sigma_batch + 1.0e-5)
-                        + (torch.square(old_sigma_batch) + torch.square(old_mu_batch - mu_batch))
-                        / (2.0 * torch.square(sigma_batch))
-                        - 0.5,
-                        axis=-1,
+                    kl_mean = self._compute_kl_mean(
+                        old_mu_batch, old_sigma_batch, mu_batch, sigma_batch
                     )
-                    kl_mean = torch.mean(kl)
                     
                     # 🔧 Multi-GPU: Synchronize KL divergence for consistent LR adjustment
                     if self.distributed:
@@ -376,6 +415,13 @@ class PPO:
                         kl_mean = (kl_tensor / self.world_size).item()
 
                     self._adapt_learning_rate(float(kl_mean))
+                    self.last_kl_max = max(self.last_kl_max, float(kl_mean))
+                    if (
+                        self.kl_abort_threshold is not None
+                        and float(kl_mean) > self.kl_abort_threshold
+                    ):
+                        self.last_kl_aborted = True
+                        break
 
             # Surrogate loss
             ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
@@ -398,6 +444,8 @@ class PPO:
 
             # Compute PPO loss
             loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
+            if not torch.isfinite(loss):
+                raise FloatingPointError("PPO loss is non-finite")
 
             # Gradient step
             self.optimizer.zero_grad()
@@ -412,16 +460,23 @@ class PPO:
                         param.grad.data /= self.world_size
             
             # Clip gradients (only actor_critic, PVCNN not trained)
-            nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+            grad_norm = nn.utils.clip_grad_norm_(
+                self.actor_critic.parameters(), self.max_grad_norm
+            )
+            if not torch.isfinite(grad_norm):
+                raise FloatingPointError("PPO gradient norm is non-finite")
+            self.last_grad_norm = float(grad_norm.item())
             
             self.optimizer.step()
+            self.last_completed_mini_batches += 1
 
             mean_value_loss += value_loss.item()
             mean_surrogate_loss += surrogate_loss.item()
 
-        num_updates = self.num_learning_epochs * self.num_mini_batches
-        mean_value_loss /= num_updates
-        mean_surrogate_loss /= num_updates
+        num_updates = self.last_completed_mini_batches
+        if num_updates:
+            mean_value_loss /= num_updates
+            mean_surrogate_loss /= num_updates
         
         # 🔧 Multi-GPU: Synchronize losses for consistent logging
         if self.distributed:
@@ -437,5 +492,7 @@ class PPO:
         self.storage.clear()
 
         self._clamp_policy_std()
+        if not torch.isfinite(self.actor_critic.effective_action_std).all():
+            raise FloatingPointError("PPO action std is non-finite")
 
         return mean_value_loss, mean_surrogate_loss

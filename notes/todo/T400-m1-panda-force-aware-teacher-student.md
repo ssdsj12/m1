@@ -80,11 +80,13 @@ T400.10b 替代路线已由用户批准：先训练 M1 携带 PD 折叠、保持
 
 T400.10b Task 2 已完成：vendored ActorCritic 新增非持久 active-action mask，`[1]*16+[0]*7` 可保持 23 输出/旧 checkpoint key，同时 inactive action、mean、log-prob、entropy、actor/std gradient 和最终 actor 行均严格隔离。有效 RED `9 failed`，最终 mask+legacy 回归 `63 passed`；尚未接入 folded-load PPO 配置或 Isaac action manager。
 
+T400.10b Task 3 已完成：新增专用 256-step/200 Hz PPO cfg、fresh zero-output actor 和 `[1]*16+[0]*7` policy contract；PPO KL 只统计 active 维度，超过 `0.015` 时中止当前 update 剩余 minibatch，并在下一 update 复位状态。最终 config/mask/adaptive/legacy 回归 `35 passed`；尚未创建 Isaac task。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
 - [ ] T400.10a 监控 Coordinated PPO 稳定重训：实现、GPU probe/短门和旧 checkpoint 审计清理已完成，fresh 64×600 进入长期行为门监控。
-- [ ] T400.10b 完成折叠 Panda 动态负载基础运动课程：Tasks 1–2 已完成；Tasks 3–10（PPO、Isaac、guard、评估和长训）仍开放。
+- [ ] T400.10b 完成折叠 Panda 动态负载基础运动课程：Tasks 1–3 已完成；Tasks 4–10（Isaac、guard、评估和长训）仍开放。
   - [x] Task 1：新增独立 coordinated 200 Hz PPO 配置并通过 RED→GREEN。
   - [x] Task 2：实现 bounded adaptive KL/LR 与 physical std clamp/诊断。
   - [x] Task 3：实现通用不可变 runner iteration summary/callback。
@@ -158,6 +160,7 @@ T400.10b Task 2 已完成：vendored ActorCritic 新增非持久 active-action m
 
 ## Related Logs
 
+- [Folded-load PPO guard Task 3](../log/2026-08-25-m1-panda-folded-load-ppo-guard.md)
 - [Folded-load active-action mask Task 2](../log/2026-08-25-m1-panda-folded-load-active-action-mask.md)
 - [Folded-load curriculum Task 1](../log/2026-08-25-m1-panda-folded-load-curriculum-contracts.md)
 - [设计记录与自审](../log/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
@@ -274,7 +277,7 @@ T400.10b Task 2 已完成：vendored ActorCritic 新增非持久 active-action m
 
 ## Next Step
 
-当前授权的最小下一步是 T400.10b Task 3：冻结 256-step/200 Hz PPO 参数并实现 `KL>0.015` 时只中止当前 update 剩余 minibatch，后续 update 保持 bounded adaptive LR。不得从 T400.10a rejected policy 初始化。
+当前授权的最小下一步是 T400.10b Task 4：创建独立 `Isaac-M1-Panda-Folded-Load-v0`，保持 103/23/200 Hz，移除外力与 base-position/EE/fold 学习奖励，仅保留批准的 locomotion reward。不得从 T400.10a rejected policy 初始化。
 
 协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
 

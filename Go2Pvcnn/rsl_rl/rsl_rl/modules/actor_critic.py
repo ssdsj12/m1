@@ -25,6 +25,7 @@ class ActorCritic(nn.Module):
         init_noise_std=1.0,
         noise_std_type="scalar",
         active_action_mask=None,
+        zero_actor_output=False,
         **kwargs,
     ):
         if kwargs:
@@ -69,8 +70,12 @@ class ActorCritic(nn.Module):
             module for module in reversed(self.actor) if isinstance(module, nn.Linear)
         )
         with torch.no_grad():
-            final_actor_layer.weight[~action_mask] = 0.0
-            final_actor_layer.bias[~action_mask] = 0.0
+            if zero_actor_output:
+                final_actor_layer.weight.zero_()
+                final_actor_layer.bias.zero_()
+            else:
+                final_actor_layer.weight[~action_mask] = 0.0
+                final_actor_layer.bias[~action_mask] = 0.0
 
         # Value function
         critic_layers = []
