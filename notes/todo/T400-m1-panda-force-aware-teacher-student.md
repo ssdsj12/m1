@@ -92,6 +92,8 @@ T400.10b Task 7 已完成 CPU 入口合同：L0 强制 fresh，后续 stage 只�
 
 T400.10b Task 8 已完成 CPU 编排合同：严格八阶段顺序，每阶段 train 后固定执行 42/43/44 eval；每次晋级重新验证从 L0 到当前的 accepted 状态、父 manifest path/SHA、父 final path/SHA 与当前 final SHA。首个失败原子写 `curriculum_state.json`、保留上一 accepted rollback 且不创建下一 stage。有效 RED `5 failed`，最终 related `17 passed`；真实 subprocess/GPU 尚未运行。
 
+T400.10b Task 9 已实现 folded-load-only Panda shoulder `120/8` 配置副本、每步 fold position/零速度 target、原子 GPU0 probe 和 runbook；全局 `M1_PANDA_CFG` 仍为 `80/4`。Focused `16 passed`。8×16 probe 通过，fold `0.065997 rad`、joint margin `0.045702 rad`；8×256 probe 失败，fold `0.214941 rad`、joint margin `-0.103241 rad`、effort utilization `1.0`、inactive action `0.0`。joint4 target 到 soft lower limit 仅约 `0.1117 rad`，且 `87 Nm` 已饱和，因此当前目标/力矩约束下单纯提高 Kp 不能关闭门槛。按 stop policy 未启动 8×1、64×10 或长训。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
@@ -292,7 +294,7 @@ T400.10b Task 8 已完成 CPU 编排合同：严格八阶段顺序，每阶段 t
 
 ## Next Step
 
-当前授权的最小下一步是 T400.10b Task 9：实现 8-env 零动作 GPU0 物理 probe 与书面 runbook，再按 probe -> 8x1 smoke -> 64-env smoke 的顺序验证；smoke 不得被标记为 accepted stage。
+当前最小下一步需要用户新授权：在保持安全门槛不变的前提下，选择将 joint4 fold target 从 soft lower limit 移远，或引入重力补偿/feedforward torque。不应在 `87 Nm` 已饱和时继续只提高 Kp，也不得放宽 `0.01 rad` joint-margin gate。新选择通过 8×256 probe 前不得启动 smoke 或长训。
 
 协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
 
