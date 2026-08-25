@@ -76,10 +76,13 @@ T400.10a Task 9 清理与本地验收已完成：long-v4 中恰好 15 个 >3500 
 
 T400.10a fresh 64×600 已在 GPU0 启动，PID `1128844`。首个 update 生成 `model_0.pt`，16,384 timesteps，KL/LR/std 和 reset DR diagnostics 均 finite/bounded；当前 manifest 仍为 `running`，尚无 eligible/accepted 结论。
 
+T400.10b 替代路线已由用户批准：先训练 M1 携带 PD 折叠、保持真实动力学的 Panda 完成前进、后退和转向，不施加外力、不解锁 arm action。Task 1 已以纯 PyTorch TDD 完成八阶段父链、C0-C4 命令、D1-D3 重置范围、命令族采样和 64 环境固定评估表，focused `7 passed`；尚未接入 PPO 或 Isaac。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
 - [ ] T400.10a 监控 Coordinated PPO 稳定重训：实现、GPU probe/短门和旧 checkpoint 审计清理已完成，fresh 64×600 进入长期行为门监控。
+- [ ] T400.10b 完成折叠 Panda 动态负载基础运动课程：Task 1 纯合同已完成；Tasks 2–10（动作 mask、PPO、Isaac、guard、评估和长训）仍开放。
   - [x] Task 1：新增独立 coordinated 200 Hz PPO 配置并通过 RED→GREEN。
   - [x] Task 2：实现 bounded adaptive KL/LR 与 physical std clamp/诊断。
   - [x] Task 3：实现通用不可变 runner iteration summary/callback。
@@ -153,6 +156,7 @@ T400.10a fresh 64×600 已在 GPU0 启动，PID `1128844`。首个 update 生成
 
 ## Related Logs
 
+- [Folded-load curriculum Task 1](../log/2026-08-25-m1-panda-folded-load-curriculum-contracts.md)
 - [设计记录与自审](../log/2026-08-14-m1-panda-force-aware-teacher-student-design.md)
 - [Asset/wrench foundation plan](../log/2026-08-14-m1-panda-asset-wrench-foundation-plan.md)
 - [Task 1 offline asset inputs](../log/2026-08-14-m1-panda-offline-asset-inputs.md)
@@ -266,6 +270,8 @@ T400.10a fresh 64×600 已在 GPU0 启动，PID `1128844`。首个 update 生成
   - [Teacher 测试](../../Go2Pvcnn/tests/test_m1_panda_wbc_teacher.py)
 
 ## Next Step
+
+当前授权的最小下一步是 T400.10b Task 2：在 23 维 ActorCritic 概率边界实现 `[1]*16+[0]*7` active-action mask，证明 inactive arm output、log-prob/entropy、actor/std gradient 和 checkpoint row 均严格为零。不得从 T400.10a rejected policy 初始化。
 
 协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
 

@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | T400.10a 稳定重训代码、GPU probe、64×50 guard 和旧 checkpoint SHA 清理已完成；短训 `accepted=false`，未声明收敛。 | 监控 fresh 64×600 guard 结果；仅以 manifest 的 eligible best/accepted 判定行为门，保留启动 wrench 峰值诊断。 |
+| T400 | active | T400.10b 已改为“折叠 Panda 动态负载基础运动”独立路线；Task 1 纯阶段/命令/DR 合同 `7 passed`。旧 T400.10a 长训保持 rejected evidence，不作为新路线初始化。 | 完成 16/23 active-action mask，再接入无 wrench 的独立 103/23、200 Hz 任务。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
@@ -161,6 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
+| T400.10b | T400 | active | P0 | 已批准 L0-C0→L2-D3 折叠负载课程；Task 1 阶段、命令与 DR 纯合同 `7 passed`，尚未接入 PPO/Isaac。 | [Task 1 log](log/2026-08-25-m1-panda-folded-load-curriculum-contracts.md) |
 | T400.10a | T400 | active | P0 | Tasks 1–9 implementation/短门/清理完成；fresh 64×600 已在 GPU0 启动，PID `1128844`，首个 update 健康；尚无 acceptance claim。 | [launch evidence](log/2026-08-24-m1-panda-coordinated-stable-long-launch.md) |
 | T400.9 | T400 | active | P0 | Student Tasks 1–12 contract path complete: 100/10/23 contracts, isolated Teacher runtime, S1 collection/trainer, Student-only Play and exact 42/43/44 evaluation; regression `109 passed`, 64×4000 CPU evaluation passes. Physical Isaac side-label and GPU gates remain open. | [Student S1 evaluation smoke](log/2026-08-20-m1-panda-student-s1-evaluation-smoke.md) |
 | T400.8 | T400 | done | P0 | C0 Tasks 1–10 accepted: `177 passed`; GPU0 8+2000-step exits 0; all hard metrics pass with zero snap/reset/contact/limit failures. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
@@ -210,6 +211,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 - [T200-semantic-static-course-viewer.md](todo/T200-semantic-static-course-viewer.md)
 
 ## Recent Logs
+
+| 2026-08-25 | M1 + Panda folded-load curriculum contracts | Task 1 pure stage/command/DR contract | RED missing module; GREEN `7 passed`; exact eight-stage lineage, command bounds/proportions, DR ranges and balanced eval table | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-25-m1-panda-folded-load-curriculum-contracts.md](log/2026-08-25-m1-panda-folded-load-curriculum-contracts.md) |
 
 | 2026-08-20 | M1 + Panda Student S1 Student-only Play/evaluation | Tasks 10–12 pass at contract level: strict checkpoint load, Student-only execution, exact seeds `42,43,44` | `109 passed`; 3×64-env×4000-step CPU evaluation generated ranking; no Teacher action execution; Isaac physical/GPU gate remains open | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-20-m1-panda-student-s1-evaluation-smoke.md](log/2026-08-20-m1-panda-student-s1-evaluation-smoke.md) |
 
