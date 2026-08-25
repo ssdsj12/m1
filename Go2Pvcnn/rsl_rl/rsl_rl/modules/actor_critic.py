@@ -24,6 +24,7 @@ class ActorCritic(nn.Module):
         activation="elu",
         init_noise_std=1.0,
         noise_std_type="scalar",
+        active_action_mask=None,
         **kwargs,
     ):
         if kwargs:
@@ -47,6 +48,29 @@ class ActorCritic(nn.Module):
                 actor_layers.append(nn.Linear(actor_hidden_dims[layer_index], actor_hidden_dims[layer_index + 1]))
                 actor_layers.append(activation)
         self.actor = nn.Sequential(*actor_layers)
+
+        if isinstance(active_action_mask, (str, bytes)):
+            raise TypeError("active_action_mask must be a numeric sequence")
+        if active_action_mask is None:
+            action_mask = torch.ones(num_actions, dtype=torch.bool)
+        else:
+            action_mask_values = torch.as_tensor(active_action_mask)
+            if action_mask_values.ndim != 1 or action_mask_values.numel() != num_actions:
+                raise ValueError("active_action_mask must contain num_actions entries")
+            if not torch.all((action_mask_values == 0) | (action_mask_values == 1)):
+                raise ValueError("active_action_mask entries must be 0 or 1")
+            action_mask = action_mask_values.to(dtype=torch.bool)
+            if not bool(action_mask.any()):
+                raise ValueError("active_action_mask must contain at least one active action")
+        # The mask is a runtime policy contract rather than checkpoint state.  A
+        # non-persistent buffer keeps old no-mask checkpoints load-compatible.
+        self.register_buffer("active_action_mask", action_mask, persistent=False)
+        final_actor_layer = next(
+            module for module in reversed(self.actor) if isinstance(module, nn.Linear)
+        )
+        with torch.no_grad():
+            final_actor_layer.weight[~action_mask] = 0.0
+            final_actor_layer.bias[~action_mask] = 0.0
 
         # Value function
         critic_layers = []
@@ -109,7 +133,7 @@ class ActorCritic(nn.Module):
 
     @property
     def entropy(self):
-        return self.distribution.entropy().sum(dim=-1)
+        return self.distribution.entropy()[:, self.active_action_mask].sum(dim=-1)
 
     @property
     def noise_parameter(self):
@@ -124,19 +148,25 @@ class ActorCritic(nn.Module):
         return torch.exp(self.log_std)
 
     def update_distribution(self, observations):
-        mean = self.actor(observations)
+        mean = self.actor(observations) * self.active_action_mask.to(
+            device=observations.device, dtype=observations.dtype
+        )
         std = self.effective_action_std.expand_as(mean)
         self.distribution = Normal(mean, std)
 
     def act(self, observations, **kwargs):
         self.update_distribution(observations)
-        return self.distribution.sample()
+        return self.distribution.sample() * self.active_action_mask.to(
+            device=observations.device, dtype=observations.dtype
+        )
 
     def get_actions_log_prob(self, actions):
-        return self.distribution.log_prob(actions).sum(dim=-1)
+        return self.distribution.log_prob(actions)[:, self.active_action_mask].sum(dim=-1)
 
     def act_inference(self, observations):
-        actions_mean = self.actor(observations)
+        actions_mean = self.actor(observations) * self.active_action_mask.to(
+            device=observations.device, dtype=observations.dtype
+        )
         return actions_mean
 
     def evaluate(self, critic_observations, **kwargs):
