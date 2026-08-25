@@ -69,4 +69,4 @@ graph LR
 - Panda uses the unchanged dynamic `M1_PANDA_CFG` fold pose and implicit PD; it is not converted to a fixed visual payload.
 - Legacy base-target and EE-error slots are finite zero compatibility padding. The desired-twist slot carries episode-constant body `vx` and yaw-rate commands.
 - Rewards are body-X/yaw tracking plus balance, slip, first-16 action/rate, torque, and non-timeout termination. Learned base-position, EE, folded-arm objectives and external-wrench events are absent.
-- Current evidence is pure/static only; see [Task 4 log](../log/2026-08-25-m1-panda-folded-load-mdp-env.md). Wrapper, GPU physics, and behavior acceptance remain open.
+- Wrapper now exact-zeros Panda actions, preserves unflattened per-env completed-episode records, and supports fixed evaluation commands. Train/eval/guard wiring is CPU/static verified; see [Task 7 log](../log/2026-08-25-m1-panda-folded-load-train-eval-entrypoints.md). GPU physics and behavior acceptance remain open.

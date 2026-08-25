@@ -88,11 +88,13 @@ T400.10b Task 5 已完成 CPU contract：wrapper 在 `env.step` 前 clone 并 ex
 
 T400.10b Task 6 已完成纯 guard：catastrophe 不依赖 eligible best，`>0.50×2`、`>0.20×5`、nonfinite/mask/fold immediate stop 均通过；200/400 episode shared + direction + stationary gates和 42/43/44 atomic SHA acceptance 通过。focused `8 passed`；runner/manifest/GPU 尚未接入。
 
+T400.10b Task 7 已完成 CPU 入口合同：L0 强制 fresh，后续 stage 只接受紧邻 `accepted=true` 且 manifest/checkpoint SHA 一致的父阶段；wrapper 用 env-id 保留并一次性排出完整 episode 记录。单阶段 train 串接 guard/best checkpoint/manifest，eval 固定 64 env、确定性均值、平衡命令和 seed 42/43/44；runner 新增 KL max/abort、minibatch、grad、active std 与物理失败诊断。有效 RED `6 failed, 4 passed`，最终 related `72 passed`；真实 Isaac/GPU 尚未运行。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
 - [ ] T400.10a 监控 Coordinated PPO 稳定重训：实现、GPU probe/短门和旧 checkpoint 审计清理已完成，fresh 64×600 进入长期行为门监控。
-- [ ] T400.10b 完成折叠 Panda 动态负载基础运动课程：Tasks 1–6 已完成；Tasks 7–10（训练入口、评估、编排、GPU/长训）仍开放。
+- [ ] T400.10b 完成折叠 Panda 动态负载基础运动课程：Tasks 1–7 已完成；Tasks 8–10（编排、GPU probe/runbook、长训验收）仍开放。
   - [x] Task 1：新增独立 coordinated 200 Hz PPO 配置并通过 RED→GREEN。
   - [x] Task 2：实现 bounded adaptive KL/LR 与 physical std clamp/诊断。
   - [x] Task 3：实现通用不可变 runner iteration summary/callback。
@@ -166,6 +168,7 @@ T400.10b Task 6 已完成纯 guard：catastrophe 不依赖 eligible best，`>0.5
 
 ## Related Logs
 
+- [Folded-load train/eval entrypoints Task 7](../log/2026-08-25-m1-panda-folded-load-train-eval-entrypoints.md)
 - [Folded-load training guard Task 6](../log/2026-08-25-m1-panda-folded-load-training-guard.md)
 - [Folded-load wrapper/DR Task 5](../log/2026-08-25-m1-panda-folded-load-wrapper-dr.md)
 - [Folded-load MDP/environment Task 4](../log/2026-08-25-m1-panda-folded-load-mdp-env.md)
@@ -286,7 +289,7 @@ T400.10b Task 6 已完成纯 guard：catastrophe 不依赖 eligible best，`>0.5
 
 ## Next Step
 
-当前授权的最小下一步是 T400.10b Task 7：实现单 stage train 与 seed 42/43/44 eval 入口，严格 parent accepted/SHA、空目录、fresh L0 和 runner diagnostics。不得从 T400.10a rejected policy 初始化。
+当前授权的最小下一步是 T400.10b Task 8：实现原子课程编排器，逐 stage 启动 train 和三种子 eval，校验完整 SHA 父链，失败时停在上一 accepted checkpoint；不得降级难度或从 T400.10a rejected policy 初始化。
 
 协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
 

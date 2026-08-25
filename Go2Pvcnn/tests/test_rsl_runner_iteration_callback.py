@@ -13,6 +13,7 @@ from rsl_rl.runners.on_policy_runner import (
     LearnResult,
     freeze_environment_metrics,
     freeze_episode_metrics,
+    policy_active_std_range,
 )
 
 
@@ -73,3 +74,17 @@ def test_callback_is_optional_and_default_save_loop_is_preserved() -> None:
     assert source.index("if new_ids.numel() > 0:") < source.index(
         'ep_infos.append(infos["log"])'
     )
+
+
+def test_active_std_range_ignores_inactive_coordinates_and_rejects_nonfinite():
+    actor = torch.nn.Module()
+    actor.std = torch.nn.Parameter(torch.tensor((0.01, 0.02, 100.0)))
+    actor.register_buffer("active_action_mask", torch.tensor((True, True, False)))
+
+    minimum, maximum = policy_active_std_range(actor)
+
+    assert minimum.item() == pytest.approx(0.01)
+    assert maximum.item() == pytest.approx(0.02)
+    actor.std.data[0] = float("nan")
+    with pytest.raises(ValueError, match="finite"):
+        policy_active_std_range(actor)

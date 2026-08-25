@@ -73,3 +73,10 @@ graph LR
 - `Go2Pvcnn/agent/m1_panda_teacher_train_cfg.py`: independent fresh PPO config factory; do not reuse a dict already passed to `OnPolicyRunner`, because the runner pops class names.
 - Exact formal/resume commands are in [M1 + Panda Teacher runbook](../../docs/superpowers/runbooks/2026-08-14-m1-panda-teacher-a0-a1-training.md).
 - Do not route these checkpoints through generic `m1_play.py` / `M1RslRlEnvWrapper`; that path does not reconstruct A1's frozen-A0 plus second residual composer.
+
+## M1 + Panda Folded-Load Locomotion Entrypoints
+
+- `Go2Pvcnn/scripts/m1_panda_folded_load_train.py` trains exactly one `L0-C0` through `L2-D3` stage. L0 accepts no parent; later stages require the immediate parent's accepted manifest and verified final-checkpoint SHA. It refuses non-empty run directories and never resumes optimizer state.
+- `Go2Pvcnn/scripts/m1_panda_folded_load_eval.py` evaluates one eligible `model_best.pt` with 64 environments, deterministic actor means, the fixed balanced command table, and one of seeds `42/43/44`. Only all three atomic passing reports publish `model_final.pt` and `accepted=true`.
+- The wrapper exposes lossless env-ID episode records directly to the training guard; runner summaries are not used to flatten command vectors. TensorBoard includes mean/max KL, KL abort, completed minibatches, gradient norm, active-only std range, inactive action, fold/effort/limit, and hard-failure diagnostics.
+- This entrypoint chain is CPU/static verified only; see [Task 7 log](../log/2026-08-25-m1-panda-folded-load-train-eval-entrypoints.md). Do not use it as a locomotion acceptance claim before GPU probe and fixed physical evaluation.

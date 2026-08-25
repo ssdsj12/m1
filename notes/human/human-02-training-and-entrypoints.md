@@ -399,6 +399,13 @@ python Go2Pvcnn/scripts/m1_checkpoint_eval.py \
 - `train.py` / `play.py` 保留给原 Go2 teacher 系列，不是 M1 当前主入口
 - 旧 `train_go2_pvcnn.py` 不再作为 M1 可复现链的一部分
 
+### M1 + Panda 折叠负载基础运动入口
+
+- `m1_panda_folded_load_train.py` 一次只训练一个 L0-C0 到 L2-D3 stage。L0 必须从零开始；后续 stage 只能读取紧邻上一 stage 的 accepted manifest，并同时核对 final checkpoint SHA，不能继承旧 coordinated 失败模型或优化器。
+- `m1_panda_folded_load_eval.py` 对 eligible best 使用 64 环境、确定性策略均值、固定平衡命令以及 seed 42/43/44。三个报告全部通过后才复制 `model_final.pt` 并设置 `accepted=true`。
+- 已结束 episode 通过 wrapper 直接带 env ID 和三维命令送入 guard，不经过 runner 的扁平日志，因此前进、后退、左转、右转和静止分桶不会错配。
+- 当前只有 CPU/静态入口验证，详见 [Task 7 日志](../log/2026-08-25-m1-panda-folded-load-train-eval-entrypoints.md)；尚不能据此声称 GPU 动力学或移动能力通过。
+
 ### M1 + Panda Teacher 专用 Play
 
 `Go2Pvcnn/scripts/m1_panda_teacher_play.py` 是 60 维 Teacher checkpoint 的唯一专用回放入口，不能换成通用 `m1_play.py`。A0 使用 zero-base residual；A1 先从 `--base-checkpoint` 恢复并冻结 A0 actor，再加载 `--checkpoint` 指定的 A1 residual actor。GUI 和六维扰动默认开启，`--disable-disturbance` 仅作为零外力对照且不会绕过策略与 composer。完整 GPU0 命令见 [Teacher A0/A1 runbook](../../docs/superpowers/runbooks/2026-08-14-m1-panda-teacher-a0-a1-training.md)。当前 A1 只可诊断，不属于 accepted 策略。

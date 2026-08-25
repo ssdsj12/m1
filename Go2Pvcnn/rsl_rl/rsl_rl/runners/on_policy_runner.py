@@ -31,6 +31,12 @@ class IterationSummary:
     learning_rate: float
     kl_mean: float
     environment_metrics: Sequence[tuple[str, float]]
+    kl_max: float = 0.0
+    kl_aborted: bool = False
+    completed_mini_batches: int = 0
+    grad_norm: float = 0.0
+    active_action_std_min: float = 0.0
+    active_action_std_max: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,26 @@ def policy_noise_diagnostics(actor_critic):
         raise AttributeError("actor_critic does not expose policy noise")
     mean_std = std.mean()
     return mean_std, mean_std
+
+
+def policy_active_std_range(actor_critic):
+    """Return finite min/max policy noise over active action dimensions only."""
+    std = getattr(actor_critic, "effective_action_std", None)
+    if not isinstance(std, torch.Tensor):
+        std = getattr(actor_critic, "std", None)
+    if not isinstance(std, torch.Tensor):
+        raise AttributeError("actor_critic does not expose effective action std")
+    mask = getattr(actor_critic, "active_action_mask", None)
+    if mask is None:
+        active = std.reshape(-1)
+    else:
+        mask = torch.as_tensor(mask, device=std.device, dtype=torch.bool).reshape(-1)
+        if mask.numel() != std.numel() or not bool(mask.any()):
+            raise ValueError("active action mask is incompatible with policy std")
+        active = std.reshape(-1)[mask]
+    if not bool(torch.isfinite(active).all()):
+        raise ValueError("active policy std must be finite")
+    return active.min(), active.max()
 
 
 class OnPolicyRunner:
@@ -326,6 +352,9 @@ class OnPolicyRunner:
 
             completed_iterations += 1
             if iteration_callback is not None:
+                active_std_min, active_std_max = policy_active_std_range(
+                    self.alg.actor_critic
+                )
                 callback_reason = iteration_callback(
                     IterationSummary(
                         iteration=it,
@@ -337,6 +366,20 @@ class OnPolicyRunner:
                         ),
                         kl_mean=_finite_float(self.alg.last_kl_mean, label="KL mean"),
                         environment_metrics=environment_metrics,
+                        kl_max=_finite_float(self.alg.last_kl_max, label="KL max"),
+                        kl_aborted=bool(self.alg.last_kl_aborted),
+                        completed_mini_batches=int(
+                            self.alg.last_completed_mini_batches
+                        ),
+                        grad_norm=_finite_float(
+                            self.alg.last_grad_norm, label="gradient norm"
+                        ),
+                        active_action_std_min=_finite_float(
+                            active_std_min, label="active action std min"
+                        ),
+                        active_action_std_max=_finite_float(
+                            active_std_max, label="active action std max"
+                        ),
                     )
                 )
                 if callback_reason is not None:
@@ -393,12 +436,25 @@ class OnPolicyRunner:
         mean_noise_parameter, mean_action_std = policy_noise_diagnostics(
             self.alg.actor_critic
         )
+        active_std_min, active_std_max = policy_active_std_range(
+            self.alg.actor_critic
+        )
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs["collection_time"] + locs["learn_time"]))
 
         self.writer.add_scalar("Loss/value_function", locs["mean_value_loss"], locs["it"])
         self.writer.add_scalar("Loss/surrogate", locs["mean_surrogate_loss"], locs["it"])
         self.writer.add_scalar("Loss/learning_rate", self.alg.learning_rate, locs["it"])
         self.writer.add_scalar("Loss/kl", self.alg.last_kl_mean, locs["it"])
+        self.writer.add_scalar("Loss/kl_max", self.alg.last_kl_max, locs["it"])
+        self.writer.add_scalar(
+            "Loss/kl_aborted", float(self.alg.last_kl_aborted), locs["it"]
+        )
+        self.writer.add_scalar(
+            "Loss/completed_mini_batches",
+            self.alg.last_completed_mini_batches,
+            locs["it"],
+        )
+        self.writer.add_scalar("Loss/grad_norm", self.alg.last_grad_norm, locs["it"])
         lr_adjustment = {"decrease": -1, "hold": 0, "increase": 1}[
             self.alg.last_lr_adjustment
         ]
@@ -413,6 +469,12 @@ class OnPolicyRunner:
         )
         self.writer.add_scalar(
             "Policy/mean_noise_std", mean_action_std.item(), locs["it"]
+        )
+        self.writer.add_scalar(
+            "Policy/active_action_std_min", active_std_min.item(), locs["it"]
+        )
+        self.writer.add_scalar(
+            "Policy/active_action_std_max", active_std_max.item(), locs["it"]
         )
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])
         self.writer.add_scalar("Perf/collection time", locs["collection_time"], locs["it"])

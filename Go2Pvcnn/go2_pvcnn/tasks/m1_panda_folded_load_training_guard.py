@@ -45,6 +45,7 @@ class EpisodeRecord:
     wz_error_sq_sum: float
     stationary_abs_vx_sum: float
     stationary_abs_wz_sum: float
+    env_id: int = -1
 
 
 @dataclass(frozen=True)

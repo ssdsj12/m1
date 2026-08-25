@@ -69,4 +69,4 @@ graph LR
 - Panda 仍是具有质量、惯量、重力和关节反作用的动态部件，使用既有折叠姿态与隐式 PD，不是固定视觉负载。
 - 原 base target / EE error 观测槽保留为有限零兼容位；desired twist 槽承载每个 episode 固定的前进/后退/转向命令。
 - 奖励只学习速度跟踪、平衡、侧滑、前 16 维动作变化和力矩；不学习旧 base 位置、EE 或折叠臂目标，也没有外力事件。
-- 当前只完成纯函数和静态配置验证，详见 [Task 4 日志](../log/2026-08-25-m1-panda-folded-load-mdp-env.md)；真实 GPU 动力学和运动能力尚未验收。
+- wrapper 已在环境 step 前严格清零 Panda 动作，并以 env ID 保留完整 episode 命令/结果；固定评估命令、train/eval/guard 接线已通过 CPU/静态验证，详见 [Task 7 日志](../log/2026-08-25-m1-panda-folded-load-train-eval-entrypoints.md)。真实 GPU 动力学和运动能力尚未验收。

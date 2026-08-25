@@ -14,6 +14,7 @@ from go2_pvcnn.tasks.m1_panda_folded_load_curriculum import (
     sample_episode_commands,
     stage_spec,
 )
+from go2_pvcnn.tasks.m1_panda_folded_load_training_guard import EpisodeRecord
 
 
 _ARM_NAMES = tuple(f"panda_joint{index}" for index in range(1, 8))
@@ -56,6 +57,10 @@ class M1PandaFoldedLoadEnvWrapper(VecEnv):
             self.num_envs, device=self.device, dtype=torch.long
         )
         self._inactive_action_max = torch.zeros((), device=self.device)
+        self._last_base_contact_rate = 0.0
+        self._last_bad_orientation_rate = 0.0
+        self._last_hard_failure_rate = 0.0
+        self._completed_episode_records: list[EpisodeRecord] = []
         self._resample_commands(torch.arange(self.num_envs, device=self.device))
 
     @property
@@ -112,6 +117,36 @@ class M1PandaFoldedLoadEnvWrapper(VecEnv):
         obs, _ = self.env.reset()
         return self._format(obs)
 
+    def set_evaluation_commands(self, commands: torch.Tensor) -> None:
+        """Install one fixed command per environment before deterministic evaluation."""
+        if not isinstance(commands, torch.Tensor) or tuple(commands.shape) != (
+            self.num_envs,
+            3,
+        ):
+            raise ValueError("evaluation commands must have shape (num_envs, 3)")
+        commands = commands.to(device=self.device, dtype=self.commands.dtype)
+        if not bool(torch.isfinite(commands).all()):
+            raise ValueError("evaluation commands must be finite")
+        self.commands.copy_(commands)
+        buckets = classify_command_buckets(commands)
+        family = torch.full(
+            (self.num_envs,), 3, device=self.device, dtype=torch.long
+        )
+        family[buckets["stationary"]] = 0
+        family[(buckets["forward"] | buckets["reverse"]) & ~(
+            buckets["left"] | buckets["right"]
+        )] = 1
+        family[(buckets["left"] | buckets["right"]) & ~(
+            buckets["forward"] | buckets["reverse"]
+        )] = 2
+        self.command_family.copy_(family)
+
+    def drain_completed_episode_records(self) -> tuple[EpisodeRecord, ...]:
+        """Return completed records exactly once without flattening command attribution."""
+        records = tuple(self._completed_episode_records)
+        self._completed_episode_records.clear()
+        return records
+
     def _accumulate_tracking(self) -> None:
         linear = self._robot.data.root_lin_vel_b
         angular = self._robot.data.root_ang_vel_b
@@ -155,6 +190,29 @@ class M1PandaFoldedLoadEnvWrapper(VecEnv):
             "bad_orientation": self._termination_term("bad_orientation")[done_ids].clone(),
         }
 
+    def _queue_completed_records(self, metrics: dict[str, object]) -> None:
+        env_ids = metrics["env_id"]
+        commands = metrics["command"]
+        for row in range(int(env_ids.numel())):
+            self._completed_episode_records.append(
+                EpisodeRecord(
+                    command=tuple(float(value) for value in commands[row].tolist()),
+                    steps=int(metrics["steps"][row].item()),
+                    time_out=bool(metrics["time_out"][row].item()),
+                    base_contact=bool(metrics["base_contact"][row].item()),
+                    bad_orientation=bool(metrics["bad_orientation"][row].item()),
+                    vx_error_sq_sum=float(metrics["vx_error_sq_sum"][row].item()),
+                    wz_error_sq_sum=float(metrics["wz_error_sq_sum"][row].item()),
+                    stationary_abs_vx_sum=float(
+                        metrics["stationary_abs_vx_sum"][row].item()
+                    ),
+                    stationary_abs_wz_sum=float(
+                        metrics["stationary_abs_wz_sum"][row].item()
+                    ),
+                    env_id=int(env_ids[row].item()),
+                )
+            )
+
     def step(self, actions):
         if not isinstance(actions, torch.Tensor) or tuple(actions.shape) != (
             self.num_envs,
@@ -178,7 +236,16 @@ class M1PandaFoldedLoadEnvWrapper(VecEnv):
         extras["truncated"] = truncated
         if bool(dones.any()):
             done_ids = dones.nonzero(as_tuple=False).flatten()
-            extras["episode_metrics"] = self._completed_metrics(done_ids, truncated)
+            metrics = self._completed_metrics(done_ids, truncated)
+            extras["episode_metrics"] = metrics
+            self._queue_completed_records(metrics)
+            base_contact = metrics["base_contact"].float()
+            bad_orientation = metrics["bad_orientation"].float()
+            self._last_base_contact_rate = float(base_contact.mean().item())
+            self._last_bad_orientation_rate = float(bad_orientation.mean().item())
+            self._last_hard_failure_rate = float(
+                torch.maximum(base_contact, bad_orientation).mean().item()
+            )
             for buffer in (
                 self._vx_error_sq,
                 self._wz_error_sq,
@@ -224,6 +291,9 @@ class M1PandaFoldedLoadEnvWrapper(VecEnv):
             "effort_utilization_max": float(effort_utilization.item()),
             "joint_limit_proximity_min": float(joint_limit_proximity.item()),
             "mount_wrench_norm_max": float(mount_wrench_norm.item()),
+            "base_contact_rate": self._last_base_contact_rate,
+            "bad_orientation_rate": self._last_bad_orientation_rate,
+            "hard_failure_rate": self._last_hard_failure_rate,
         }
         if not all(torch.isfinite(torch.tensor(value)) for value in values.values()):
             raise RuntimeError("folded-load diagnostics must be finite")

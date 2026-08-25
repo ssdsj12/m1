@@ -154,3 +154,45 @@ def test_reset_samples_commands_before_observation_and_diagnostics_are_finite(wr
     diagnostics = wrapper.get_training_diagnostics()
     assert diagnostics["fold_error_max"] == pytest.approx(0.0)
     assert all(torch.isfinite(torch.tensor(value)) for value in diagnostics.values())
+
+
+def test_completed_records_are_lossless_and_drained_once(wrapper_cls):
+    env = _Env()
+    wrapper = wrapper_cls(env, stage="L1-C2", seed=9)
+    wrapper.set_evaluation_commands(
+        torch.tensor(
+            [
+                [0.10, 0.0, 0.0],
+                [-0.10, 0.0, 0.0],
+                [0.0, 0.0, 0.30],
+                [0.0, 0.0, -0.30],
+            ]
+        )
+    )
+    env.robot.data.root_lin_vel_b[1, 0] = -0.08
+    env.next_truncated[1] = True
+
+    wrapper.step(torch.zeros(4, 23))
+
+    records = wrapper.drain_completed_episode_records()
+    assert len(records) == 1
+    assert records[0].env_id == 1
+    assert records[0].command == pytest.approx((-0.10, 0.0, 0.0))
+    assert records[0].steps == 1
+    assert records[0].time_out is True
+    assert records[0].vx_error_sq_sum == pytest.approx(0.02**2)
+    assert wrapper.drain_completed_episode_records() == ()
+
+
+def test_fixed_evaluation_commands_require_exact_finite_shape(wrapper_cls):
+    wrapper = wrapper_cls(_Env(), stage="L0-C0", seed=3)
+    commands = torch.zeros(4, 3)
+    commands[:, 0] = torch.tensor((0.01, -0.01, 0.0, 0.0))
+    wrapper.set_evaluation_commands(commands)
+    torch.testing.assert_close(wrapper.commands, commands)
+
+    with pytest.raises(ValueError, match=r"\(num_envs, 3\)"):
+        wrapper.set_evaluation_commands(torch.zeros(3, 3))
+    commands[0, 0] = torch.nan
+    with pytest.raises(ValueError, match="finite"):
+        wrapper.set_evaluation_commands(commands)
