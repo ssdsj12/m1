@@ -29,6 +29,14 @@ from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEventsCfg
 
 
 PANDA_ARM_JOINT_NAMES = tuple(f"panda_joint{index}" for index in range(1, 8))
+M1_PANDA_FOLDED_LOAD_CFG = M1_PANDA_CFG.copy()
+M1_PANDA_FOLDED_LOAD_CFG.actuators = {
+    **M1_PANDA_CFG.actuators,
+    "panda_shoulder": M1_PANDA_CFG.actuators["panda_shoulder"].replace(
+        stiffness=120.0,
+        damping=8.0,
+    ),
+}
 FOLDED_LOAD_POLICY_OBSERVATION_DIM = 103
 FOLDED_LOAD_POLICY_OBSERVATION_WIDTHS = (
     ("base_lin_vel", 3),
@@ -225,7 +233,9 @@ class M1PandaFoldedLoadEnvCfg(M1PandaWbcRollTeacherEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        self.scene.robot = M1_PANDA_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.scene.robot = M1_PANDA_FOLDED_LOAD_CFG.replace(
+            prim_path="{ENV_REGEX_NS}/Robot"
+        )
         self.decimation = 1
         self.sim.dt = 0.005
         self.sim.render_interval = 4
@@ -279,6 +289,7 @@ def configure_folded_load_stage(cfg, stage: str) -> None:
 __all__ = [
     "FOLDED_LOAD_POLICY_OBSERVATION_DIM",
     "FOLDED_LOAD_POLICY_OBSERVATION_WIDTHS",
+    "M1_PANDA_FOLDED_LOAD_CFG",
     "M1PandaFoldedLoadEnvCfg",
     "configure_folded_load_stage",
 ]

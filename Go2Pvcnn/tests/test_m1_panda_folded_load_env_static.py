@@ -19,7 +19,19 @@ def test_folded_load_task_has_isolated_id_and_103_by_23_200hz_contract():
     assert "combined_action_dim: int = 23" in source
     assert "self.decimation = 1" in source
     assert "self.sim.dt = 0.005" in source
-    assert "self.scene.robot = M1_PANDA_CFG.replace" in source
+    assert "self.scene.robot = M1_PANDA_FOLDED_LOAD_CFG.replace" in source
+
+
+def test_folded_load_pd_override_is_task_local_and_preserves_global_asset():
+    source = CFG.read_text(encoding="utf-8")
+    asset = ASSET.read_text(encoding="utf-8")
+    assert "M1_PANDA_FOLDED_LOAD_CFG = M1_PANDA_CFG.copy()" in source
+    assert '"panda_shoulder": M1_PANDA_CFG.actuators["panda_shoulder"].replace(' in source
+    assert "stiffness=120.0" in source
+    assert "damping=8.0" in source
+    assert "self.scene.robot = M1_PANDA_FOLDED_LOAD_CFG.replace" in source
+    assert "stiffness=80.0" in asset
+    assert "damping=4.0" in asset
 
 
 def test_observation_order_and_widths_preserve_checkpoint_boundary():
