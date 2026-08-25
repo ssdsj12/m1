@@ -30,6 +30,9 @@ from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEventsCfg
 
 PANDA_ARM_JOINT_NAMES = tuple(f"panda_joint{index}" for index in range(1, 8))
 M1_PANDA_FOLDED_LOAD_CFG = M1_PANDA_CFG.copy()
+M1_PANDA_FOLDED_LOAD_CFG.init_state = M1_PANDA_CFG.init_state.replace(
+    joint_pos={**M1_PANDA_CFG.init_state.joint_pos, "panda_joint4": -2.650}
+)
 M1_PANDA_FOLDED_LOAD_CFG.actuators = {
     **M1_PANDA_CFG.actuators,
     "panda_shoulder": M1_PANDA_CFG.actuators["panda_shoulder"].replace(

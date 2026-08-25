@@ -34,6 +34,15 @@ def test_folded_load_pd_override_is_task_local_and_preserves_global_asset():
     assert "damping=4.0" in asset
 
 
+def test_folded_load_joint4_target_moves_away_from_soft_limit_only_in_task_copy():
+    source = CFG.read_text(encoding="utf-8")
+    asset = ASSET.read_text(encoding="utf-8")
+    assert "M1_PANDA_FOLDED_LOAD_CFG.init_state = M1_PANDA_CFG.init_state.replace(" in source
+    assert "joint_pos={**M1_PANDA_CFG.init_state.joint_pos, \"panda_joint4\": -2.650}" in source
+    assert '"panda_joint4": -2.810' in asset
+    assert '"panda_joint4": -2.650' not in asset
+
+
 def test_observation_order_and_widths_preserve_checkpoint_boundary():
     source = CFG.read_text(encoding="utf-8")
     ordered_terms = (
