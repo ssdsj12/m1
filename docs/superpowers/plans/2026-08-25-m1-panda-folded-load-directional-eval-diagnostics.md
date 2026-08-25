@@ -156,7 +156,7 @@ Append the exact per-seed directional failures and aggregate conclusion to the e
 
 ```bash
 cd /home/xk/coding/M1/.worktrees/m1-panda-ppo-stability/Go2Pvcnn
-PYTHONPATH=rsl_rl PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/xk/miniconda3/envs/go2/bin/python -m pytest tests/test_m1_panda_folded_load_scripts.py tests/test_m1_panda_folded_load_training_guard.py tests/test_m1_panda_folded_load_curriculum_script.py -q
+PYTHONPATH=rsl_rl PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /home/xk/miniconda3/envs/go2/bin/python -m pytest tests/test_m1_panda_folded_load_scripts.py tests/test_m1_panda_folded_load_training_guard.py tests/test_m1_panda_folded_load_curriculum.py tests/test_m1_panda_folded_load_orchestrator.py -q
 git diff --check
 ```
 

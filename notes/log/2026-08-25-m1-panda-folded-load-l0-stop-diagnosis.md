@@ -44,7 +44,7 @@ All seeds 42/43/44 produced the same deterministic fixed-evaluation summary:
 - forward/reverse/left/right counts `16/16/16/16`;
 - `passed=false`.
 
-Every reported global gate passes. By elimination against `evaluate_records`, the failed condition is inside `directional_pass`: at least one of forward/reverse has bucket `vx_rmse > 0.04`, or at least one of left/right has bucket `wz_rmse > 0.12`. The current evaluation artifact does not serialize per-direction RMSE, so the exact failing direction is not observable from retained output.
+Every reported global gate passes. The original reports did not serialize per-direction RMSE, so the exact failure was initially only identifiable as `directional_pass=false`.
 
 The curriculum state therefore correctly records:
 
@@ -60,12 +60,48 @@ reason=ValueError: stage L0-C0 must contain accepted=true
 
 This was a designed early stop followed by a failed fixed-direction acceptance test, not a crash. Restarting the same experiment blindly would discard the preserved rejection evidence and is not justified.
 
-## Follow-Up
+## Directional Re-Evaluation
 
-First add per-direction RMSE/pass fields to evaluation reports and re-run the existing `model_best.pt` evaluation. Only after identifying the failed direction should training behavior, command curriculum, reward, or patience be redesigned. Do not weaken the existing thresholds merely to promote L0-C0.
+Commit `23864b8` added JSON-safe per-direction metrics without changing any reward, threshold, training configuration, or acceptance decision. Commit `b03645c` added a `diagnostic_only` artifact path that can never publish `model_final.pt` and is explicitly rejected by curriculum parent validation.
+
+The preserved checkpoint was copied, with identical SHA, into:
+
+```text
+Go2Pvcnn/logs/m1_panda_folded_load/foundation-v1/L0-C0-directional-diagnostic-v1/model_best.pt
+sha256=f231009992ae07ae3de2560cfadb4d812fdb6cd38c8fa6deca7d4b2b8466ae8e
+```
+
+GPU 0 fixed evaluation was re-run for seeds 42, 43, and 44. All three produced identical results:
+
+| Direction | Metric | Observed | Limit | Pass |
+|---|---:|---:|---:|---:|
+| forward | `vx_rmse` | `0.0496233165` | `0.04` | false |
+| reverse | `vx_rmse` | `0.0504485387` | `0.04` | false |
+| left | `wz_rmse` | `0.1498265562` | `0.12` | false |
+| right | `wz_rmse` | `0.1501748692` | `0.12` | false |
+
+Each direction contained 16 episodes and had zero base-contact and bad-orientation events. The global values remained `vx_rmse=0.0354079389 <= 0.04` and `wz_rmse=0.1060668891 <= 0.12`; averaging stationary and directional episodes therefore hid the four individual tracking failures.
+
+The exact rejection cause is now established: **all four directional tracking buckets fail**, not only one direction. This is a tracking-quality problem under non-zero commands; it is not a stability/contact failure and not an evaluator crash.
+
+Isolation checks after all three evaluations:
+
+- diagnostic aggregate: `accepted=false`, `reports_passed=false`, `diagnostic_only=true`;
+- diagnostic manifest: `status=diagnostic_complete`, `final_checkpoint=null`;
+- diagnostic `model_final.pt`: absent;
+- original L0-C0 manifest: still `status=rejected`, `accepted=false`, with no diagnostic marker;
+- original checkpoint SHA: unchanged.
+
+No retraining or curriculum restart was launched during this diagnosis.
+
+## Recommended Follow-Up
+
+Keep the existing acceptance thresholds. Redesign the first-stage command/tracking curriculum so forward, reverse, left, and right tracking improve independently, then train in a new run directory from iteration 0. Do not use this diagnostic directory as a parent or resume source.
 
 ## Git Refs
 
 - Candidate code: `9314467`
 - Launch record: `179e8f0`
+- Directional report code: `23864b8`
+- Diagnostic isolation code: `b03645c`
 - Current Work Ref: `codex/m1-panda-ppo-stability`
