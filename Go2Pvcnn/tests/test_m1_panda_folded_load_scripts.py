@@ -13,6 +13,8 @@ from go2_pvcnn.tasks.m1_panda_folded_load_training_guard import EpisodeRecord, s
 ROOT = Path(__file__).resolve().parents[1]
 TRAIN = ROOT / "scripts/m1_panda_folded_load_train.py"
 EVAL = ROOT / "scripts/m1_panda_folded_load_eval.py"
+CURRICULUM = ROOT / "scripts/m1_panda_folded_load_curriculum.py"
+GUARD = ROOT / "go2_pvcnn/tasks/m1_panda_folded_load_training_guard.py"
 RUNNER = ROOT / "rsl_rl/rsl_rl/runners/on_policy_runner.py"
 
 
@@ -271,11 +273,18 @@ def test_diagnostic_manifest_dispatches_to_non_promoting_finalizer(tmp_path):
 def test_scripts_and_runner_contain_exact_operational_contracts():
     train = TRAIN.read_text(encoding="utf-8")
     evaluate = EVAL.read_text(encoding="utf-8")
+    curriculum = CURRICULUM.read_text(encoding="utf-8")
+    guard = GUARD.read_text(encoding="utf-8")
     runner = RUNNER.read_text(encoding="utf-8")
     assert 'TASK_ID = "Isaac-M1-Panda-Folded-Load-v0"' in train
     assert "M1PandaFoldedLoadEnvWrapper" in train
     assert "configure_folded_load_stage" in train
     assert "--run_dir" in train and "--parent_manifest" in train
+    assert "default=MAX_TRAINING_ITERATIONS" in train
+    assert "default=MAX_TRAINING_ITERATIONS" in curriculum
+    assert "validate_max_iterations(args.max_iterations)" in train
+    assert "validate_max_iterations(args.max_iterations)" in curriculum
+    assert "eligible_patience_50_updates" not in guard
     assert "load_optimizer=False" in train and "clip_std(max=0.01)" in train
     assert "apply_external_force_torque" not in train
     assert "--num_envs" in evaluate and "default=64" in evaluate

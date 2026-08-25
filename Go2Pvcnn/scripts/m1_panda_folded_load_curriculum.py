@@ -18,7 +18,12 @@ ROOT = THIS_FILE.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from go2_pvcnn.tasks.m1_panda_folded_load_curriculum import STAGE_ORDER, stage_spec
+from go2_pvcnn.tasks.m1_panda_folded_load_curriculum import (
+    MAX_TRAINING_ITERATIONS,
+    STAGE_ORDER,
+    stage_spec,
+    validate_max_iterations,
+)
 from go2_pvcnn.tasks.m1_panda_folded_load_training_guard import sha256_file
 
 
@@ -277,7 +282,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--experiment_root", type=Path, required=True)
     parser.add_argument("--start_stage", choices=STAGE_ORDER, default="L0-C0")
     parser.add_argument("--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=600)
+    parser.add_argument(
+        "--max_iterations", type=int, default=MAX_TRAINING_ITERATIONS
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--headless", action=argparse.BooleanOptionalAction, default=True)
     return parser
@@ -287,8 +294,7 @@ def main() -> int:
     args = build_arg_parser().parse_args()
     if args.num_envs <= 0:
         raise ValueError("num_envs must be positive")
-    if not 0 < args.max_iterations <= 600:
-        raise ValueError("max_iterations must be in [1, 600]")
+    validate_max_iterations(args.max_iterations)
     executor = ProcessStageExecutor(
         num_envs=args.num_envs,
         max_iterations=args.max_iterations,

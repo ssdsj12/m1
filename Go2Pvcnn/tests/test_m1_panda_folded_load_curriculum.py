@@ -23,6 +23,15 @@ sys.modules[SPEC.name] = curriculum
 SPEC.loader.exec_module(curriculum)
 
 
+def test_training_iteration_contract_allows_full_3000_updates():
+    assert curriculum.MAX_TRAINING_ITERATIONS == 3000
+    assert curriculum.validate_max_iterations(1) == 1
+    assert curriculum.validate_max_iterations(3000) == 3000
+    for invalid in (0, 3001, -1, True, 3.5):
+        with pytest.raises((TypeError, ValueError)):
+            curriculum.validate_max_iterations(invalid)
+
+
 def test_stage_order_command_limits_and_parents_are_exact():
     assert curriculum.STAGE_ORDER == (
         "L0-C0",

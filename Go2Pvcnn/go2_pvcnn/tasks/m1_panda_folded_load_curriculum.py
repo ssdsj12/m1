@@ -8,6 +8,18 @@ from enum import IntEnum
 import torch
 
 
+MAX_TRAINING_ITERATIONS = 3000
+
+
+def validate_max_iterations(value: int) -> int:
+    """Return a valid requested PPO update count."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("max_iterations must be an integer")
+    if not 1 <= value <= MAX_TRAINING_ITERATIONS:
+        raise ValueError("max_iterations must be in [1, 3000]")
+    return value
+
+
 class CommandFamily(IntEnum):
     """Episode-level command families used for exact metric attribution."""
 
@@ -236,6 +248,7 @@ def classify_command_buckets(commands: torch.Tensor) -> dict[str, torch.Tensor]:
 __all__ = [
     "CommandBatch",
     "CommandFamily",
+    "MAX_TRAINING_ITERATIONS",
     "ResetRanges",
     "STAGE_ORDER",
     "StageSpec",
@@ -243,4 +256,5 @@ __all__ = [
     "classify_command_buckets",
     "sample_episode_commands",
     "stage_spec",
+    "validate_max_iterations",
 ]

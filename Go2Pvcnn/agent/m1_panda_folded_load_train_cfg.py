@@ -8,7 +8,7 @@ def get_m1_panda_folded_load_train_cfg() -> dict:
 
     return {
         "num_steps_per_env": 256,
-        "save_interval": 25,
+        "save_interval": 100,
         "empirical_normalization": False,
         "algorithm": {
             "class_name": "PPO",

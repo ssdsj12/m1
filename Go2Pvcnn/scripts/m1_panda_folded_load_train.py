@@ -22,7 +22,11 @@ for path in (ROOT, ROOT / "rsl_rl"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from go2_pvcnn.tasks.m1_panda_folded_load_curriculum import stage_spec
+from go2_pvcnn.tasks.m1_panda_folded_load_curriculum import (
+    MAX_TRAINING_ITERATIONS,
+    stage_spec,
+    validate_max_iterations,
+)
 from go2_pvcnn.tasks.m1_panda_folded_load_training_guard import (
     FoldedLoadTrainingGuard,
     sha256_file,
@@ -130,7 +134,9 @@ def build_arg_parser():
     parser.add_argument("--parent_manifest", type=Path)
     parser.add_argument("--num_envs", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--max_iterations", type=int, default=600)
+    parser.add_argument(
+        "--max_iterations", type=int, default=MAX_TRAINING_ITERATIONS
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser
 
@@ -197,8 +203,7 @@ def main() -> int:
     args = build_arg_parser().parse_args()
     if args.num_envs <= 0:
         raise ValueError("num_envs must be positive")
-    if not 0 < args.max_iterations <= 600:
-        raise ValueError("max_iterations must be in [1, 600]")
+    validate_max_iterations(args.max_iterations)
     contract = stage_spec(args.stage)
     parent = validate_parent(args.stage, args.parent_manifest)
     run_dir = prepare_empty_run_dir(args.run_dir)

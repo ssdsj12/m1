@@ -78,7 +78,7 @@ class _FakeStorage:
 def test_folded_load_ppo_configuration_is_exact_and_fresh():
     cfg = get_m1_panda_folded_load_train_cfg()
     assert cfg["num_steps_per_env"] == 256
-    assert cfg["save_interval"] == 25
+    assert cfg["save_interval"] == 100
     assert cfg["algorithm"] == {
         "class_name": "PPO",
         "num_learning_epochs": 2,
