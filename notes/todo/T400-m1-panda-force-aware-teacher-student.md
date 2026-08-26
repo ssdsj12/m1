@@ -104,6 +104,8 @@ T400.10b 分方向 evaluation diagnostics 交互设计已获用户确认并写�
 
 T400.12 8D Residual WBC 第一版 Phase 1–4 已完成。新增与现有 103/23 Coordinated PPO、Folded Load 和 C0/C1a 并行的独立控制链：8D contract、6D virtual wrench 到既有 WBC/QP、height/stance、连续 base participation、安装点六维力反馈、103D observation、runtime wrapper、Gym 注册与 play 入口。CPU 最终回归 `185 passed`；GPU0 零残差 256 步和八轴正负 `0.1` 共 16 组探针全部通过，QP 可行率 `1.0`，四轮接触、无机身触地/越界/reset。本版不包含 Arm MPC 或 PPO 长训。
 
+T400.13 Phase 5 Arm MPC + Phase 6 8D Residual PPO 交互设计已获用户逐节确认并写入书面规格。首轮严格限定 `M1 原地 + Panda 小幅六自由度 EE 运动`：50 Hz、0.4 s 线性化末端空间 MPC 生成 arm reference 与预测 mount wrench，200 Hz WBC/QP 执行；103D 多分支单头 actor 从零训练 8D residual，安全层最终投影。payload、rolling、抓取、外界推力、Phase 7 和实机均不在本规格范围。下一步等待用户复核书面规格，尚未修改运行代码或启动训练。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
@@ -121,6 +123,7 @@ T400.12 8D Residual WBC 第一版 Phase 1–4 已完成。新增与现有 103/23
   - [ ] Long monitor：等待 fresh 64×600 guard 停止并审计 eligible best/final manifest。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 - [x] T400.12 按 PDF 推荐顺序完成 8D Residual WBC 第一版 Phase 1–4；CPU 和 GPU0 硬门通过，Arm MPC/PPO 留待独立阶段。
+- [ ] T400.13 按批准规格实现 Phase 5 Arm MPC 与 Phase 6 8D Residual PPO；当前仅完成交互设计，等待书面规格复核。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
 - [x] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
@@ -185,6 +188,7 @@ T400.12 8D Residual WBC 第一版 Phase 1–4 已完成。新增与现有 103/23
 
 - [8D Residual WBC implementation](../log/2026-08-26-m1-panda-8d-residual-wbc-implementation.md)
 - [8D Residual WBC GPU0 smoke](../log/2026-08-26-m1-panda-8d-residual-wbc-gpu0-smoke.md)
+- [Phase 5–6 Arm MPC + 8D PPO design](../../docs/superpowers/specs/2026-08-26-m1-panda-arm-mpc-8d-ppo-design.md)
 - [Folded-load curriculum orchestrator Task 8](../log/2026-08-25-m1-panda-folded-load-curriculum-orchestrator.md)
 - [Folded-load train/eval entrypoints Task 7](../log/2026-08-25-m1-panda-folded-load-train-eval-entrypoints.md)
 - [Folded-load training guard Task 6](../log/2026-08-25-m1-panda-folded-load-training-guard.md)

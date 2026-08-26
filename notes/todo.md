@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | T400.12 8D Residual WBC 第一版 Phase 1–4 已实现并通过 CPU 回归与 GPU0 零残差/16 组轴向探针；保留 23D/C0/C1a/Folded Load 基线。 | 等待后续独立授权：Arm MPC 或 8D PPO 训练不在本版范围。 |
+| T400 | active | T400.12 Phase 1–4 已验收；Phase 5 Arm MPC + Phase 6 8D PPO 交互设计已确认，首轮限定原地 M1 + Panda 小幅六自由度运动。 | 用户复核 Phase 5–6 书面规格后，编写单代理 TDD 实施计划。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
