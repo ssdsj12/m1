@@ -102,6 +102,8 @@ T400.10b L0-C0 后续在 update74 正常停止，原因是 update23 产生 eligi
 
 T400.10b 分方向 evaluation diagnostics 交互设计已获用户确认并写入书面规格。选定在 `evaluate_records` 唯一计算边界输出 forward/reverse/left/right 的 count、metric、RMSE、limit、contact/orientation rate 和 pass，顶层 `directional_pass` 由同一布尔值汇总。所有旧门槛、训练、reward、命令和 checkpoint 选择不变；现有 SHA-pinned `model_best.pt` 只在隔离诊断目录复评，不覆盖原 artifact。
 
+T400.12 8D Residual WBC 第一版交互设计已获用户确认并写入书面规格。采用与现有 103/23 Coordinated PPO、Folded Load 和 C0/C1a 并行的独立控制链；本阶段只覆盖 8D contract、6D virtual wrench 到既有 WBC/QP、height/stance 和安装点六维力反馈，不实现 Arm MPC 或 PPO 长训。当前等待书面规格复核，尚未修改运行代码。
+
 ## Open Children
 
 - [x] T400.10 补齐 Coordinated Teacher 可学习 observation/action/reward 合同，通过短训行为 sanity 后启动并完成 GPU0 长训（long v4 已完成但因后期策略坍塌被拒绝，由 T400.10a 接续）。
@@ -118,6 +120,7 @@ T400.10b 分方向 evaluation diagnostics 交互设计已获用户确认并写�
   - [x] Task 9：完成 >3500 checkpoint SHA 审计清理、完整回归与稳定训练 runbook。
   - [ ] Long monitor：等待 fresh 64×600 guard 停止并审计 eligible best/final manifest。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
+- [ ] T400.12 按 PDF 推荐顺序完成 8D Residual WBC 第一版 Phase 1–4；书面设计已完成，实施计划和代码尚未开始。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
 - [x] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
