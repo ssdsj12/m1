@@ -54,6 +54,7 @@ from .arm_mpc import (
     ArmMpcSolution,
     CondensedArmDynamics,
     LinearizedArmRollout,
+    LinearizedArmMpc,
     condense_arm_dynamics,
     rollout_linearized_arm,
 )
@@ -106,6 +107,7 @@ __all__ = [
     "ArmMpcSolution",
     "CondensedArmDynamics",
     "LinearizedArmRollout",
+    "LinearizedArmMpc",
     "condense_arm_dynamics",
     "rollout_linearized_arm",
 ]

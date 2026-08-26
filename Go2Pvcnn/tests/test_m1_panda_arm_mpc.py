@@ -1,3 +1,5 @@
+import math
+
 import pytest
 import torch
 
@@ -6,6 +8,7 @@ from go2_pvcnn.control.m1_panda_coordination.arm_mpc import (
     ARM_TASK_DOF,
     ArmMpcCfg,
     ArmMpcInput,
+    LinearizedArmMpc,
     condense_arm_dynamics,
     rollout_linearized_arm,
 )
@@ -154,3 +157,125 @@ def test_rollout_rejects_malformed_inputs(kwargs, error):
 
     with pytest.raises((TypeError, ValueError), match=error):
         rollout_linearized_arm(**values)
+
+
+def _tracking_input(**overrides) -> ArmMpcInput:
+    jacobian = torch.eye(ARM_TASK_DOF, ARM_DOF, dtype=DTYPE)
+    target = torch.zeros((20, ARM_TASK_DOF), dtype=DTYPE)
+    target[:, 0] = 0.01
+    coupling = torch.zeros((ARM_TASK_DOF, ARM_DOF), dtype=DTYPE)
+    coupling[:ARM_TASK_DOF, :ARM_TASK_DOF] = torch.eye(ARM_TASK_DOF, dtype=DTYPE)
+    values = {
+        "jacobian_b": jacobian,
+        "target_pose_b": target,
+        "base_arm_coupling": coupling,
+        "q_min": -0.5 * torch.ones(ARM_DOF, dtype=DTYPE),
+        "q_max": 0.5 * torch.ones(ARM_DOF, dtype=DTYPE),
+        "qd_max": 0.5 * torch.ones(ARM_DOF, dtype=DTYPE),
+        "qdd_max": 2.0 * torch.ones(ARM_DOF, dtype=DTYPE),
+        "effort_max": 3.0 * torch.ones(ARM_DOF, dtype=DTYPE),
+    }
+    values.update(overrides)
+    return _input(**values)
+
+
+def test_mpc_tracks_target_and_obeys_position_velocity_acceleration_effort_limits():
+    sample = _tracking_input()
+
+    solution = LinearizedArmMpc().plan(sample)
+
+    assert solution.diagnostics.feasible
+    assert not solution.diagnostics.fallback_used
+    assert solution.q_ref[0] > sample.q[0]
+    assert torch.all(solution.predicted_q >= sample.q_min - 1.0e-8)
+    assert torch.all(solution.predicted_q <= sample.q_max + 1.0e-8)
+    assert torch.all(solution.predicted_qd.abs() <= sample.qd_max + 1.0e-8)
+    assert torch.all(solution.qdd.abs() <= sample.qdd_max + 1.0e-8)
+    effort = solution.qdd @ sample.arm_mass_matrix.T + sample.arm_bias
+    assert torch.all(effort.abs() <= sample.effort_max + 1.0e-8)
+
+
+def test_predicted_dynamic_mount_wrench_uses_first_acceleration_and_coupling_sign():
+    sample = _tracking_input()
+
+    solution = LinearizedArmMpc().plan(sample)
+
+    assert torch.allclose(
+        solution.predicted_dynamic_mount_wrench_b,
+        sample.base_arm_coupling @ solution.qdd[0],
+        atol=1.0e-10,
+    )
+    assert solution.predicted_dynamic_mount_wrench_b[0] > 0.0
+
+
+def test_static_target_has_zero_dynamic_wrench_and_hold_reference():
+    sample = _input(jacobian_b=torch.eye(ARM_TASK_DOF, ARM_DOF, dtype=DTYPE))
+
+    solution = LinearizedArmMpc().plan(sample)
+
+    assert solution.diagnostics.feasible
+    assert torch.allclose(solution.qdd, torch.zeros_like(solution.qdd), atol=1.0e-12)
+    assert torch.allclose(solution.q_ref, sample.q, atol=1.0e-12)
+    assert torch.allclose(
+        solution.predicted_dynamic_mount_wrench_b,
+        torch.zeros(ARM_TASK_DOF, dtype=DTYPE),
+        atol=1.0e-12,
+    )
+
+
+def test_repeated_plans_are_deterministic():
+    sample = _tracking_input()
+
+    left = LinearizedArmMpc().plan(sample)
+    right = LinearizedArmMpc().plan(sample)
+
+    assert torch.equal(left.qdd, right.qdd)
+    assert left.diagnostics == right.diagnostics
+
+
+def test_infeasible_plan_falls_back_to_previous_safe_reference_and_zero_wrench():
+    planner = LinearizedArmMpc()
+    safe = planner.plan(_tracking_input())
+    impossible = _tracking_input(
+        arm_bias=5.0 * torch.ones(ARM_DOF, dtype=DTYPE),
+        qdd_max=0.1 * torch.ones(ARM_DOF, dtype=DTYPE),
+        effort_max=0.1 * torch.ones(ARM_DOF, dtype=DTYPE),
+    )
+
+    fallback = planner.plan(impossible)
+
+    assert not fallback.diagnostics.feasible
+    assert fallback.diagnostics.fallback_used
+    assert fallback.diagnostics.fallback_reason == "qp_infeasible"
+    assert torch.equal(fallback.q_ref, safe.q_ref)
+    assert torch.equal(fallback.qd_ref, safe.qd_ref)
+    assert torch.equal(
+        fallback.predicted_dynamic_mount_wrench_b,
+        torch.zeros(ARM_TASK_DOF, dtype=DTYPE),
+    )
+
+
+def test_first_infeasible_plan_holds_current_state_with_zero_feedforward():
+    q = torch.linspace(-0.2, 0.2, ARM_DOF, dtype=DTYPE)
+    impossible = _tracking_input(
+        q=q,
+        arm_bias=5.0 * torch.ones(ARM_DOF, dtype=DTYPE),
+        qdd_max=0.1 * torch.ones(ARM_DOF, dtype=DTYPE),
+        effort_max=0.1 * torch.ones(ARM_DOF, dtype=DTYPE),
+    )
+
+    fallback = LinearizedArmMpc().plan(impossible)
+
+    assert fallback.diagnostics.fallback_used
+    assert torch.equal(fallback.q_ref, q)
+    assert torch.equal(fallback.qd_ref, torch.zeros(ARM_DOF, dtype=DTYPE))
+    assert torch.equal(fallback.qdd, torch.zeros((20, ARM_DOF), dtype=DTYPE))
+    numeric_diagnostics = (
+        fallback.diagnostics.saturation_fraction,
+        fallback.diagnostics.sigma_min,
+        fallback.diagnostics.min_joint_margin,
+        fallback.diagnostics.mean_joint_margin,
+        fallback.diagnostics.ee_position_error,
+        fallback.diagnostics.ee_orientation_error,
+    )
+    assert all(math.isfinite(value) for value in numeric_diagnostics)
