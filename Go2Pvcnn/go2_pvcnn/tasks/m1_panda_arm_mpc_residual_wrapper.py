@@ -167,6 +167,10 @@ class M1PandaArmMpcResidualRuntime:
         self._targets = torch.zeros((self.num_envs, 6), dtype=torch.float64)
         self._previous_normalized = torch.zeros((self.num_envs, 8), dtype=torch.float64)
         self._last_metrics: dict[str, float] = {}
+        self._last_measured = torch.zeros((self.num_envs, 6), dtype=torch.float64)
+        self._last_predicted = torch.zeros((self.num_envs, 6), dtype=torch.float64)
+        self._last_effort = torch.zeros((self.num_envs, 23), dtype=torch.float64)
+        self._last_qp_feasible = torch.zeros(self.num_envs, dtype=torch.bool)
 
     @staticmethod
     def _default_teacher(state, env_id):
@@ -279,6 +283,12 @@ class M1PandaArmMpcResidualRuntime:
         )
         commands = step.teacher_commands
         effort = torch.stack([command.effort for command in commands])
+        self._last_measured = measured.clone()
+        self._last_predicted = predicted.clone()
+        self._last_effort = effort.clone()
+        self._last_qp_feasible = torch.tensor(
+            [bool(command.qp_result.success) for command in commands], dtype=torch.bool
+        )
         joint_margins = []
         for state in self.states:
             q = state.coord_q[-7:]
@@ -335,6 +345,26 @@ class M1PandaArmMpcResidualRuntime:
             ) / self.num_envs,
         }
         return effort, reward, dict(self._last_metrics)
+
+    def diagnostics_snapshot(self) -> dict[str, object]:
+        if any(value is None for value in self._solutions):
+            raise RuntimeError("diagnostics require at least one completed MPC plan")
+        solutions = self._solutions
+        return {
+            "measured_mount_wrench_b": self._last_measured.clone(),
+            "predicted_mount_wrench_b": self._last_predicted.clone(),
+            "target_pose": self._targets.clone(),
+            "effort": self._last_effort.clone(),
+            "mpc_fallback": torch.tensor(
+                [value.diagnostics.fallback_used for value in solutions],
+                dtype=torch.bool,
+            ),
+            "mpc_feasible": torch.tensor(
+                [value.diagnostics.feasible for value in solutions],
+                dtype=torch.bool,
+            ),
+            "qp_feasible": self._last_qp_feasible.clone(),
+        }
 
     def observations(self) -> torch.Tensor:
         if self.controller is None or len(self.states) != self.num_envs:

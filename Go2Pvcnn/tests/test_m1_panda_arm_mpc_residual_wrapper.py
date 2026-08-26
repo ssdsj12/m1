@@ -218,3 +218,9 @@ def test_physical_runtime_replans_every_four_steps_and_builds_exact_public_contr
     assert reward.shape == (1,)
     assert runtime.observations().shape == (1, 103)
     assert metrics["mpc_feasible_rate"] == 1.0
+    snapshot = runtime.diagnostics_snapshot()
+    assert snapshot["measured_mount_wrench_b"].shape == (1, 6)
+    assert snapshot["predicted_mount_wrench_b"].shape == (1, 6)
+    assert snapshot["target_pose"].shape == (1, 6)
+    assert snapshot["effort"].shape == (1, 23)
+    assert snapshot["mpc_fallback"].tolist() == [False]
