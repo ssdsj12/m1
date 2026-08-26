@@ -14,6 +14,7 @@ from go2_pvcnn.control.m1_panda_coordination.standing_wbc import (
     StandingWbcResult,
 )
 from go2_pvcnn.control.m1_panda_coordination.teacher import (
+    ArmReference,
     M1PandaWbcTeacher,
     TeacherCfg,
     TeacherState,
@@ -218,6 +219,39 @@ def _residual_command(wrench=1.0, height=0.02, stance=0.04):
 
 def _leg_limits():
     return torch.tensor([[-1.0, 1.0]] * 12, dtype=torch.float64)
+
+
+def test_teacher_arm_reference_overrides_panda_position_and_velocity_only():
+    wbc = _RecordingWbcSolver()
+    teacher = _teacher(_RecordingMotionDistributor(), wbc)
+    state = _teacher_state()
+    teacher.reset(state, seed=42)
+    reference = ArmReference(
+        q_ref=torch.full((7,), 0.2, dtype=torch.float64),
+        qd_ref=torch.full((7,), 0.1, dtype=torch.float64),
+    )
+
+    command = teacher.step(state, arm_reference=reference)
+
+    assert torch.allclose(
+        wbc.inputs[0].arm_acceleration,
+        torch.full((7,), 4.5, dtype=torch.float64),
+    )
+    assert torch.equal(command.q_des[-7:], reference.q_ref)
+    assert torch.equal(command.qd_des[-7:], reference.qd_ref)
+
+
+def test_teacher_rejects_nonfinite_arm_reference_before_wbc():
+    wbc = _RecordingWbcSolver()
+    teacher = _teacher(_RecordingMotionDistributor(), wbc)
+    state = _teacher_state()
+    teacher.reset(state, seed=42)
+    with pytest.raises(ValueError, match="q_ref must contain only finite"):
+        ArmReference(
+            q_ref=torch.full((7,), torch.nan, dtype=torch.float64),
+            qd_ref=torch.zeros(7, dtype=torch.float64),
+        )
+    assert wbc.inputs == []
 
 
 def test_teacher_optional_residual_changes_only_approved_wbc_targets_and_leg_reference():

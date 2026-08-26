@@ -65,6 +65,26 @@ class TeacherState:
 
 
 @dataclass(frozen=True)
+class ArmReference:
+    """One finite Panda joint reference supplied by an external arm planner."""
+
+    q_ref: torch.Tensor
+    qd_ref: torch.Tensor
+
+    def __post_init__(self) -> None:
+        for name, value in (("q_ref", self.q_ref), ("qd_ref", self.qd_ref)):
+            require_tensor(
+                name,
+                value,
+                trailing_shape=(7,),
+                dtype=torch.float64,
+                device="cpu",
+            )
+            if value.shape != (7,):
+                raise ValueError(f"{name} must have shape (7,)")
+
+
+@dataclass(frozen=True)
 class TeacherCommand:
     effort: torch.Tensor
     q_des: torch.Tensor
@@ -257,6 +277,7 @@ class M1PandaWbcTeacher:
         state: TeacherState,
         *,
         arm_target_override: torch.Tensor | None = None,
+        arm_velocity_override: torch.Tensor | None = None,
         stop_wheels: bool = False,
     ) -> StandingWbcInput:
         distribution_dt = self.cfg.physics_dt * self.cfg.distribution_interval
@@ -275,10 +296,16 @@ class M1PandaWbcTeacher:
                 self._coord_velocity[3:] - state.controlled_qd[-7:]
             ) / distribution_dt
         else:
+            desired_velocity = (
+                torch.zeros_like(state.controlled_qd[-7:])
+                if arm_velocity_override is None
+                else arm_velocity_override
+            )
             arm_acceleration = (
                 self.cfg.arm_position_gain
                 * (arm_target_override - state.controlled_q[-7:])
-                - self.cfg.arm_velocity_gain * state.controlled_qd[-7:]
+                + self.cfg.arm_velocity_gain
+                * (desired_velocity - state.controlled_qd[-7:])
             )
         wheel_acceleration = state.wbc_input.wheel_acceleration.clone()
         if stop_wheels:
@@ -306,10 +333,18 @@ class M1PandaWbcTeacher:
         *,
         residual_command: WholeBodyResidualCommand | None = None,
         leg_soft_limits: torch.Tensor | None = None,
+        arm_reference: ArmReference | None = None,
     ) -> TeacherCommand:
         if not self._initialized:
             raise RuntimeError("teacher must be reset before step")
         self._validate_state(state)
+        if arm_reference is not None:
+            if not isinstance(arm_reference, ArmReference):
+                raise TypeError("arm_reference must be an ArmReference or None")
+            if arm_reference.q_ref.dtype != state.controlled_q.dtype or (
+                arm_reference.q_ref.device != state.controlled_q.device
+            ):
+                raise ValueError("arm_reference dtype and device must match Teacher state")
         self._wheel_velocity_integral = torch.clamp(
             self._wheel_velocity_integral
             - state.controlled_qd[12:16] * self.cfg.physics_dt,
@@ -340,7 +375,9 @@ class M1PandaWbcTeacher:
         distribution = self._last_distribution
         assert distribution is not None
 
-        if not warmup and not high_level_hold:
+        if arm_reference is not None and not high_level_hold:
+            self._arm_target = arm_reference.q_ref.detach().clone()
+        elif not warmup and not high_level_hold:
             distribution_dt = self.cfg.physics_dt * self.cfg.distribution_interval
             self._arm_target = (
                 state.controlled_q[-7:]
@@ -348,7 +385,14 @@ class M1PandaWbcTeacher:
             )
         wbc_input = self._build_wbc_input(
             state,
-            arm_target_override=self._arm_target if warmup else None,
+            arm_target_override=(
+                self._arm_target if warmup or arm_reference is not None else None
+            ),
+            arm_velocity_override=(
+                arm_reference.qd_ref
+                if arm_reference is not None and not high_level_hold
+                else None
+            ),
         )
         wbc_input, residual_leg_target = self._apply_optional_residual(
             wbc_input,
@@ -423,7 +467,11 @@ class M1PandaWbcTeacher:
             qd_des[-7:] = (
                 torch.zeros_like(self._coord_velocity[3:])
                 if decision.state >= SafetyState.HOLD
-                else self._coord_velocity[3:]
+                else (
+                    arm_reference.qd_ref
+                    if arm_reference is not None
+                    else self._coord_velocity[3:]
+                )
             )
             q_des = state.controlled_q + qd_des * self.cfg.physics_dt
             q_des[:12] = residual_leg_target

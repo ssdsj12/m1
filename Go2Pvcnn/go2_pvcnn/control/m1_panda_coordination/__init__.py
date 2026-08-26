@@ -58,6 +58,7 @@ from .arm_mpc import (
     condense_arm_dynamics,
     rollout_linearized_arm,
 )
+from .teacher import ArmReference
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -110,4 +111,5 @@ __all__ = [
     "LinearizedArmMpc",
     "condense_arm_dynamics",
     "rollout_linearized_arm",
+    "ArmReference",
 ]

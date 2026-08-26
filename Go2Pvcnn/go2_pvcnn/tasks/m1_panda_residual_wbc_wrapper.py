@@ -25,6 +25,7 @@ class ResidualWbcStep:
     correction_wrench_b: torch.Tensor
     filtered_mount_wrench_b: torch.Tensor
     residual_diagnostics: WholeBodyResidualDiagnostics
+    predicted_mount_wrench_b: torch.Tensor
 
 
 class M1PandaResidualWbcController:
@@ -96,6 +97,7 @@ class M1PandaResidualWbcController:
         normalized_residual: torch.Tensor,
         measured_mount_wrench_b: torch.Tensor,
         leg_soft_limits: torch.Tensor,
+        predicted_mount_wrench_b: torch.Tensor | None = None,
     ) -> None:
         if isinstance(states, (str, bytes)) or not isinstance(states, Sequence):
             raise TypeError("states must be a sequence")
@@ -123,6 +125,18 @@ class M1PandaResidualWbcController:
                 raise ValueError(f"{name} must contain only finite values")
         if torch.any(leg_soft_limits[..., 0] > leg_soft_limits[..., 1]).item():
             raise ValueError("leg_soft_limits lower bounds must not exceed upper bounds")
+        if predicted_mount_wrench_b is not None:
+            name = "predicted_mount_wrench_b"
+            if not isinstance(predicted_mount_wrench_b, torch.Tensor):
+                raise TypeError(f"{name} must be a torch.Tensor")
+            if tuple(predicted_mount_wrench_b.shape) != (self.num_envs, 6):
+                raise ValueError(f"{name} shape must be ({self.num_envs}, 6)")
+            if predicted_mount_wrench_b.dtype != self.dtype:
+                raise TypeError(f"{name} dtype must match controller dtype")
+            if predicted_mount_wrench_b.device != self.device:
+                raise ValueError(f"{name} device must match controller device")
+            if not torch.isfinite(predicted_mount_wrench_b).all().item():
+                raise ValueError(f"{name} must contain only finite values")
 
     def reset(
         self,
@@ -152,6 +166,7 @@ class M1PandaResidualWbcController:
         normalized_residual: torch.Tensor,
         measured_mount_wrench_b: torch.Tensor,
         leg_soft_limits: torch.Tensor,
+        predicted_mount_wrench_b: torch.Tensor | None = None,
         teacher_kwargs: Sequence[dict] | None = None,
     ) -> ResidualWbcStep:
         self._validate_step_inputs(
@@ -159,7 +174,14 @@ class M1PandaResidualWbcController:
             normalized_residual,
             measured_mount_wrench_b,
             leg_soft_limits,
+            predicted_mount_wrench_b,
         )
+        if predicted_mount_wrench_b is None:
+            predicted_mount_wrench_b = torch.zeros(
+                (self.num_envs, 6), dtype=self.dtype, device=self.device
+            )
+        else:
+            predicted_mount_wrench_b = predicted_mount_wrench_b.clone()
         if teacher_kwargs is None:
             kwargs_per_env = [{} for _ in range(self.num_envs)]
         else:
@@ -170,7 +192,8 @@ class M1PandaResidualWbcController:
             kwargs_per_env = [dict(value) for value in teacher_kwargs]
         raw_command, diagnostics = self._composer.step(normalized_residual)
         correction = self._feedback.update(
-            measured_mount_wrench_b, raw_command.wrench_b
+            measured_mount_wrench_b,
+            raw_command.wrench_b - predicted_mount_wrench_b,
         )
         physical = raw_command.physical.clone()
         physical[:, :6] = correction
@@ -206,6 +229,7 @@ class M1PandaResidualWbcController:
             correction_wrench_b=correction.clone(),
             filtered_mount_wrench_b=self._feedback.filtered_wrench,
             residual_diagnostics=diagnostics,
+            predicted_mount_wrench_b=predicted_mount_wrench_b.clone(),
         )
 
 
