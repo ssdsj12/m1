@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 import torch
 
+from .standing_wbc import StandingWbcInput
+
 
 RESIDUAL_DIM = 8
 WRENCH_DIM = 6
@@ -361,13 +363,194 @@ class MountWrenchFeedback:
         self._bias_sample_count[ids] = 0
 
 
+@dataclass(frozen=True)
+class ResidualWbcCfg:
+    """Map height and lateral stance references into accepted WBC task targets."""
+
+    base_height_position_gain: float = 40.0
+    leg_position_gain: float = 80.0
+    abad_indices: tuple[int, ...] = (0, 3, 6, 9)
+    stance_signs: tuple[float, ...] = (1.0, -1.0, 1.0, -1.0)
+
+    def __post_init__(self) -> None:
+        for name in ("base_height_position_gain", "leg_position_gain"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) <= 0.0
+            ):
+                raise ValueError(f"{name} must be finite and positive")
+        if (
+            not isinstance(self.abad_indices, tuple)
+            or len(self.abad_indices) != 4
+            or any(
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or index < 0
+                or index >= 12
+                for index in self.abad_indices
+            )
+            or len(set(self.abad_indices)) != 4
+        ):
+            raise ValueError("abad_indices must contain four unique leg indices")
+        _finite_tuple("stance_signs", self.stance_signs, 4)
+        if any(abs(float(sign)) != 1.0 for sign in self.stance_signs):
+            raise ValueError("stance_signs must contain only -1 or +1")
+
+
+def _validate_single_residual_command(
+    command: WholeBodyResidualCommand,
+    *,
+    dtype: torch.dtype,
+    device: torch.device,
+) -> None:
+    if not isinstance(command, WholeBodyResidualCommand):
+        raise TypeError("command must be a WholeBodyResidualCommand")
+    tensors = (
+        ("command.physical", command.physical, (RESIDUAL_DIM,)),
+        ("command.wrench_b", command.wrench_b, (WRENCH_DIM,)),
+        ("command.delta_height", command.delta_height, ()),
+        ("command.delta_stance", command.delta_stance, ()),
+    )
+    for name, value, shape in tensors:
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(f"{name} must be a torch.Tensor")
+        if tuple(value.shape) != shape:
+            raise ValueError(f"{name} must have shape {shape}")
+        if value.dtype != dtype:
+            raise TypeError(f"{name} dtype must match WBC dtype")
+        if value.device != device:
+            raise ValueError(f"{name} device must match WBC device")
+        if not torch.isfinite(value).all().item():
+            raise ValueError(f"{name} must contain only finite values")
+
+
+def select_residual_command(
+    command: WholeBodyResidualCommand, env_index: int
+) -> WholeBodyResidualCommand:
+    """Clone one unbatched command from a batched composer result."""
+
+    if not isinstance(command, WholeBodyResidualCommand):
+        raise TypeError("command must be a WholeBodyResidualCommand")
+    if command.physical.ndim != 2 or command.physical.shape[-1] != RESIDUAL_DIM:
+        raise ValueError("batched command.physical must have shape (N,8)")
+    count = command.physical.shape[0]
+    if (
+        not isinstance(env_index, int)
+        or isinstance(env_index, bool)
+        or env_index < 0
+        or env_index >= count
+    ):
+        raise IndexError(f"env_index must be in [0,{count})")
+    return WholeBodyResidualCommand(
+        physical=command.physical[env_index].clone(),
+        wrench_b=command.wrench_b[env_index].clone(),
+        delta_height=command.delta_height[env_index].clone(),
+        delta_stance=command.delta_stance[env_index].clone(),
+    )
+
+
+def apply_residual_to_wbc(
+    state: StandingWbcInput,
+    command: WholeBodyResidualCommand,
+    *,
+    nominal_leg_target: torch.Tensor,
+    leg_soft_limits: torch.Tensor,
+    safety_scale: float,
+    cfg: ResidualWbcCfg | None = None,
+) -> tuple[StandingWbcInput, torch.Tensor]:
+    """Return an immutable WBC correction and the corresponding leg target."""
+
+    if not isinstance(state, StandingWbcInput):
+        raise TypeError("state must be a StandingWbcInput")
+    if not isinstance(state.mass_matrix, torch.Tensor) or not state.mass_matrix.is_floating_point():
+        raise TypeError("state.mass_matrix must be a floating torch.Tensor")
+    dtype = state.mass_matrix.dtype
+    device = state.mass_matrix.device
+    _validate_single_residual_command(command, dtype=dtype, device=device)
+    for name, value, shape in (
+        ("nominal_leg_target", nominal_leg_target, (12,)),
+        ("leg_soft_limits", leg_soft_limits, (12, 2)),
+    ):
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(f"{name} must be a torch.Tensor")
+        if tuple(value.shape) != shape:
+            raise ValueError(f"{name} must have shape {shape}")
+        if value.dtype != dtype:
+            raise TypeError(f"{name} dtype must match WBC dtype")
+        if value.device != device:
+            raise ValueError(f"{name} device must match WBC device")
+        if not torch.isfinite(value).all().item():
+            raise ValueError(f"{name} must contain only finite values")
+    if torch.any(leg_soft_limits[:, 0] > leg_soft_limits[:, 1]).item():
+        raise ValueError("leg_soft_limits lower bounds must not exceed upper bounds")
+    if (
+        isinstance(safety_scale, bool)
+        or not isinstance(safety_scale, (int, float))
+        or not math.isfinite(float(safety_scale))
+        or not 0.0 <= float(safety_scale) <= 1.0
+    ):
+        raise ValueError("safety_scale must be finite and in [0,1]")
+    cfg = cfg or ResidualWbcCfg()
+    scale = float(safety_scale)
+    stance_offset = torch.zeros(12, dtype=dtype, device=device)
+    indices = torch.tensor(cfg.abad_indices, dtype=torch.long, device=device)
+    signs = torch.tensor(cfg.stance_signs, dtype=dtype, device=device)
+    stance_offset[indices] = signs * command.delta_stance * scale
+    unclipped_leg_target = nominal_leg_target + stance_offset
+    leg_target = torch.clamp(
+        unclipped_leg_target,
+        min=leg_soft_limits[:, 0],
+        max=leg_soft_limits[:, 1],
+    )
+    effective_leg_offset = leg_target - nominal_leg_target
+    base_acceleration = state.base_acceleration.clone()
+    balance_acceleration = state.balance_acceleration.clone()
+    height_acceleration = (
+        float(cfg.base_height_position_gain) * command.delta_height * scale
+    )
+    base_acceleration[2] += height_acceleration
+    balance_acceleration[0] += height_acceleration
+    leg_acceleration = state.leg_acceleration + (
+        float(cfg.leg_position_gain) * effective_leg_offset
+    )
+    transformed = StandingWbcInput(
+        mass_matrix=state.mass_matrix,
+        bias_force=state.bias_force,
+        contact_jacobian=state.contact_jacobian,
+        contact_jacobian_dot_qd=state.contact_jacobian_dot_qd,
+        mount_wrench_jacobian=state.mount_wrench_jacobian,
+        external_wrench=state.external_wrench + command.wrench_b * scale,
+        balance_jacobian=state.balance_jacobian,
+        balance_acceleration=balance_acceleration,
+        base_jacobian=state.base_jacobian,
+        base_acceleration=base_acceleration,
+        leg_generalized_indices=state.leg_generalized_indices,
+        wheel_generalized_indices=state.wheel_generalized_indices,
+        arm_generalized_indices=state.arm_generalized_indices,
+        leg_acceleration=leg_acceleration,
+        wheel_acceleration=state.wheel_acceleration,
+        arm_acceleration=state.arm_acceleration,
+        qdd_lower=state.qdd_lower,
+        qdd_upper=state.qdd_upper,
+        effort_limit=state.effort_limit,
+        friction_coefficient=state.friction_coefficient,
+    )
+    return transformed, leg_target.clone()
+
+
 __all__ = [
     "MountWrenchFeedback",
     "MountWrenchFeedbackCfg",
+    "ResidualWbcCfg",
     "RESIDUAL_DIM",
     "RESIDUAL_NAMES",
     "WholeBodyResidualCfg",
     "WholeBodyResidualCommand",
     "WholeBodyResidualComposer",
     "WholeBodyResidualDiagnostics",
+    "apply_residual_to_wbc",
+    "select_residual_command",
 ]
