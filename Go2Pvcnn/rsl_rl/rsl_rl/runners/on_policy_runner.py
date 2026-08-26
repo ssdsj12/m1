@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import importlib
 import math
 import statistics
 import time
@@ -18,6 +19,34 @@ from rsl_rl.algorithms import PPO
 from rsl_rl.env import VecEnv
 from rsl_rl.modules import ActorCritic, ActorCriticCNN, ActorCriticRecurrent, EmpiricalNormalization
 from rsl_rl.utils import store_code_state
+
+
+def resolve_policy_class(name: str):
+    """Resolve a legacy built-in name or an explicit dotted policy class."""
+
+    if not isinstance(name, str) or not name:
+        raise ValueError("policy class name must be a non-empty string")
+    builtins = {
+        "ActorCritic": ActorCritic,
+        "ActorCriticCNN": ActorCriticCNN,
+        "ActorCriticRecurrent": ActorCriticRecurrent,
+    }
+    if name in builtins:
+        return builtins[name]
+    if "." not in name:
+        raise ValueError(f"unknown policy class {name!r}")
+    module_name, class_name = name.rsplit(".", 1)
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as error:
+        raise ImportError(f"cannot import policy class {name!r}") from error
+    try:
+        resolved = getattr(module, class_name)
+    except AttributeError as error:
+        raise AttributeError(f"cannot resolve policy class {name!r}") from error
+    if not isinstance(resolved, type):
+        raise TypeError(f"policy class {name!r} did not resolve to a type")
+    return resolved
 
 
 @dataclass(frozen=True)
@@ -123,7 +152,7 @@ class OnPolicyRunner:
     def __init__(self, env: VecEnv, train_cfg, log_dir=None, device="cpu"):
         self.cfg = train_cfg
         self.alg_cfg = train_cfg["algorithm"]
-        self.policy_cfg = train_cfg["policy"]
+        self.policy_cfg = dict(train_cfg["policy"])
         self.device = device
         self.env = env
         obs, extras = self.env.get_observations()
@@ -132,7 +161,7 @@ class OnPolicyRunner:
             num_critic_obs = extras["observations"]["critic"].shape[1]
         else:
             num_critic_obs = num_obs
-        actor_critic_class = eval(self.policy_cfg.pop("class_name"))  # ActorCritic
+        actor_critic_class = resolve_policy_class(self.policy_cfg.pop("class_name"))
         actor_critic: ActorCritic | ActorCriticRecurrent = actor_critic_class(
             num_obs, num_critic_obs, self.env.num_actions, **self.policy_cfg
         ).to(self.device)

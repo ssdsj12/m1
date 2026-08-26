@@ -59,6 +59,7 @@ from .arm_mpc import (
     rollout_linearized_arm,
 )
 from .teacher import ArmReference
+from .residual_actor_critic import ResidualActorCritic
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -112,4 +113,5 @@ __all__ = [
     "condense_arm_dynamics",
     "rollout_linearized_arm",
     "ArmReference",
+    "ResidualActorCritic",
 ]
