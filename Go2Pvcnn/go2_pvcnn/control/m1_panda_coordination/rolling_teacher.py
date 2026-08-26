@@ -19,6 +19,7 @@ from .safety import (
     SafetyCfg,
     SafetyDecision,
     SafetyState,
+    residual_scale_for_safety,
 )
 from .standing_wbc import StandingWbcInput, StandingWbcResult
 from .teacher import TeacherState
@@ -26,6 +27,10 @@ from .trajectory import (
     BandLimitedPoseTrajectory,
     BandLimitedTrajectoryCfg,
     TrajectorySample,
+)
+from .whole_body_residual import (
+    WholeBodyResidualCommand,
+    apply_residual_to_wbc,
 )
 
 if TYPE_CHECKING:
@@ -327,6 +332,31 @@ class M1PandaRollingWbcTeacher:
         )
         self._initialized = False
 
+    @property
+    def safety_state(self) -> SafetyState:
+        return self._safety.state
+
+    def _apply_optional_residual(
+        self,
+        wbc_input: StandingWbcInput,
+        residual_command: WholeBodyResidualCommand | None,
+        leg_soft_limits: torch.Tensor | None,
+        safety_state: SafetyState,
+    ) -> tuple[StandingWbcInput, torch.Tensor]:
+        if residual_command is None:
+            return wbc_input, self._leg_target.clone()
+        if leg_soft_limits is None:
+            raise ValueError("leg_soft_limits are required with residual_command")
+        return apply_residual_to_wbc(
+            wbc_input,
+            residual_command,
+            nominal_leg_target=self._leg_target,
+            leg_soft_limits=leg_soft_limits,
+            safety_scale=residual_scale_for_safety(
+                safety_state, self._safety.cfg.scaled_twist_factor
+            ),
+        )
+
     @staticmethod
     def _validate_state(state: RollingTeacherState) -> None:
         if not isinstance(state, RollingTeacherState):
@@ -531,6 +561,8 @@ class M1PandaRollingWbcTeacher:
         state: RollingTeacherState,
         *,
         mission_sample: "StudentMissionSample | None" = None,
+        residual_command: WholeBodyResidualCommand | None = None,
+        leg_soft_limits: torch.Tensor | None = None,
     ) -> RollingTeacherCommand:
         if not self._initialized:
             raise RuntimeError("teacher must be reset before step")
@@ -634,6 +666,12 @@ class M1PandaRollingWbcTeacher:
         wbc_input = self._build_wbc_input(
             state, base_velocity, wheel_velocity
         )
+        wbc_input, residual_leg_target = self._apply_optional_residual(
+            wbc_input,
+            residual_command,
+            leg_soft_limits,
+            prior_safety_state,
+        )
         wbc_result = self._wbc_solver_fn(wbc_input)
         verified = (
             self._wbc_is_verified(wbc_result)
@@ -682,6 +720,12 @@ class M1PandaRollingWbcTeacher:
                 wheel_velocity,
                 arm_target_override=self._arm_target,
             )
+            wbc_input, residual_leg_target = self._apply_optional_residual(
+                wbc_input,
+                residual_command,
+                leg_soft_limits,
+                decision.state,
+            )
             wbc_result = self._wbc_solver_fn(wbc_input)
             verified = (
                 self._wbc_is_verified(wbc_result)
@@ -725,7 +769,7 @@ class M1PandaRollingWbcTeacher:
                 teacher_state.controlled_q
                 + qd_des * self.cfg.physics_dt
             )
-            q_des[:12] = self._leg_target
+            q_des[:12] = residual_leg_target
             q_des[-7:] = self._arm_target
             tau_ff = wbc_result.effort.to(
                 device=teacher_state.controlled_q.device,

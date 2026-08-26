@@ -15,6 +15,9 @@ from go2_pvcnn.control.m1_panda_coordination.rolling_teacher import (
     PlanarBodyFrameTrajectory,
     RollingTeacherState,
 )
+from go2_pvcnn.control.m1_panda_coordination.whole_body_residual import (
+    WholeBodyResidualCommand,
+)
 from go2_pvcnn.control.m1_panda_coordination.safety import SafetyState
 from go2_pvcnn.control.m1_panda_coordination.student_contracts import (
     StudentNominalCommand,
@@ -515,3 +518,34 @@ def test_rolling_teacher_reset_clears_schedule_and_is_deterministic():
     assert first.shaped_base_velocity_mps == second.shaped_base_velocity_mps
     assert torch.equal(first.target_pose, second.target_pose)
     assert torch.equal(first.effort, second.effort)
+def _rolling_residual_command():
+    physical = torch.tensor(
+        [1.0, -1.0, 2.0, -2.0, 3.0, -3.0, 0.01, 0.02],
+        dtype=torch.float64,
+    )
+    return WholeBodyResidualCommand(
+        physical=physical,
+        wrench_b=physical[:6].clone(),
+        delta_height=physical[6].clone(),
+        delta_stance=physical[7].clone(),
+    )
+
+
+def test_rolling_teacher_accepts_same_residual_wbc_contract():
+    wbc = _RecordingWbcSolver()
+    teacher = _rolling_teacher(_RecordingMotionDistributor(), wbc)
+    state = _rolling_state(0)
+    teacher.reset(state, seed=5)
+
+    command = teacher.step(
+        state,
+        residual_command=_rolling_residual_command(),
+        leg_soft_limits=torch.tensor([[-1.0, 1.0]] * 12, dtype=torch.float64),
+    )
+
+    assert torch.equal(
+        wbc.inputs[0].external_wrench,
+        torch.tensor([1.0, -1.0, 2.0, -2.0, 3.0, -3.0], dtype=torch.float64),
+    )
+    assert command.q_des[0].item() == pytest.approx(0.02)
+    assert command.q_des[3].item() == pytest.approx(-0.02)

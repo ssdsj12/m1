@@ -22,6 +22,9 @@ from go2_pvcnn.control.m1_panda_coordination.trajectory import (
     BandLimitedPoseTrajectory,
     BandLimitedTrajectoryCfg,
 )
+from go2_pvcnn.control.m1_panda_coordination.whole_body_residual import (
+    WholeBodyResidualCommand,
+)
 
 
 def _selector(rows, dimension=31):
@@ -199,6 +202,90 @@ def _teacher(motion=None, wbc=None):
         motion_distribution_fn=motion,
         wbc_solver_fn=wbc,
     )
+
+
+def _residual_command(wrench=1.0, height=0.02, stance=0.04):
+    physical = torch.tensor(
+        [wrench] * 6 + [height, stance], dtype=torch.float64
+    )
+    return WholeBodyResidualCommand(
+        physical=physical,
+        wrench_b=physical[:6].clone(),
+        delta_height=physical[6].clone(),
+        delta_stance=physical[7].clone(),
+    )
+
+
+def _leg_limits():
+    return torch.tensor([[-1.0, 1.0]] * 12, dtype=torch.float64)
+
+
+def test_teacher_optional_residual_changes_only_approved_wbc_targets_and_leg_reference():
+    wbc = _RecordingWbcSolver()
+    teacher = _teacher(_RecordingMotionDistributor(), wbc)
+    state = _teacher_state()
+    teacher.reset(state, seed=42)
+
+    command = teacher.step(
+        state,
+        residual_command=_residual_command(),
+        leg_soft_limits=_leg_limits(),
+    )
+
+    transformed = wbc.inputs[0]
+    assert torch.equal(transformed.external_wrench, torch.ones(6, dtype=torch.float64))
+    assert transformed.base_acceleration[2].item() == pytest.approx(0.8)
+    assert transformed.balance_acceleration[0].item() == pytest.approx(0.8)
+    assert torch.equal(
+        transformed.leg_acceleration[[0, 3, 6, 9]],
+        torch.tensor([3.2, -3.2, 3.2, -3.2], dtype=torch.float64),
+    )
+    assert torch.equal(
+        command.q_des[[0, 3, 6, 9]],
+        torch.tensor([0.04, -0.04, 0.04, -0.04], dtype=torch.float64),
+    )
+
+
+def test_teacher_omitted_residual_preserves_existing_input_and_effort():
+    baseline_wbc = _RecordingWbcSolver()
+    residual_wbc = _RecordingWbcSolver()
+    baseline = _teacher(_RecordingMotionDistributor(), baseline_wbc)
+    residual = _teacher(_RecordingMotionDistributor(), residual_wbc)
+    state = _teacher_state()
+    baseline.reset(state, seed=7)
+    residual.reset(state, seed=7)
+
+    baseline_command = baseline.step(state)
+    residual_command = residual.step(
+        state,
+        residual_command=_residual_command(wrench=0.0, height=0.0, stance=0.0),
+        leg_soft_limits=_leg_limits(),
+    )
+
+    assert torch.equal(baseline_command.effort, residual_command.effort)
+    assert torch.equal(baseline_command.q_des, residual_command.q_des)
+    assert torch.equal(baseline_wbc.inputs[0].external_wrench, residual_wbc.inputs[0].external_wrench)
+    assert torch.equal(baseline_wbc.inputs[0].base_acceleration, residual_wbc.inputs[0].base_acceleration)
+    assert torch.equal(baseline_wbc.inputs[0].leg_acceleration, residual_wbc.inputs[0].leg_acceleration)
+
+
+def test_teacher_hold_rebuilds_wbc_with_exact_zero_residual():
+    wbc = _RecordingWbcSolver()
+    teacher = _teacher(_RecordingMotionDistributor(), wbc)
+    state = _teacher_state()
+    teacher.reset(state, seed=9)
+    unsafe = replace(state, roll=math.radians(11.0))
+
+    for step in range(4):
+        command = teacher.step(
+            replace(unsafe, physics_step=step, time_s=step * 0.005),
+            residual_command=_residual_command(),
+            leg_soft_limits=_leg_limits(),
+        )
+
+    assert command.safety_state is SafetyState.HOLD
+    assert torch.equal(wbc.inputs[-1].external_wrench, torch.zeros(6, dtype=torch.float64))
+    assert torch.equal(command.q_des[:12], torch.zeros(12, dtype=torch.float64))
 
 
 def test_teacher_updates_distribution_at_steps_0_4_8_and_wbc_every_step():

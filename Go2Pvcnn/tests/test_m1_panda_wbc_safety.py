@@ -8,6 +8,7 @@ from go2_pvcnn.control.m1_panda_coordination.safety import (
     BalanceSafetySupervisor,
     SafetyCfg,
     SafetyState,
+    residual_scale_for_safety,
 )
 
 
@@ -249,3 +250,15 @@ def test_reset_rejects_non_finite_arm_target():
     supervisor = _supervisor()
     with pytest.raises(ValueError, match="current_arm_target must contain only finite values"):
         supervisor.reset(torch.full((7,), float("nan"), dtype=torch.float64))
+def test_residual_scale_matches_balance_safety_state():
+    assert residual_scale_for_safety(SafetyState.TRACK, 0.5) == pytest.approx(1.0)
+    assert residual_scale_for_safety(SafetyState.SCALE, 0.5) == pytest.approx(0.5)
+    assert residual_scale_for_safety(SafetyState.HOLD, 0.5) == pytest.approx(0.0)
+    assert residual_scale_for_safety(SafetyState.RETRACT, 0.5) == pytest.approx(0.0)
+    assert residual_scale_for_safety(SafetyState.TERMINATE, 0.5) == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("factor", (-0.1, 1.1, float("nan")))
+def test_residual_scale_rejects_invalid_scale_factor(factor):
+    with pytest.raises(ValueError, match="scale_factor"):
+        residual_scale_for_safety(SafetyState.SCALE, factor)

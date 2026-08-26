@@ -22,6 +22,27 @@ class SafetyState(IntEnum):
     TERMINATE = 4
 
 
+def residual_scale_for_safety(
+    state: SafetyState, scale_factor: float
+) -> float:
+    """Project all residual channels through the current balance state."""
+
+    if not isinstance(state, SafetyState):
+        raise TypeError("state must be a SafetyState")
+    if (
+        isinstance(scale_factor, bool)
+        or not isinstance(scale_factor, (int, float))
+        or not math.isfinite(float(scale_factor))
+        or not 0.0 <= float(scale_factor) <= 1.0
+    ):
+        raise ValueError("scale_factor must be finite and in [0,1]")
+    if state is SafetyState.TRACK:
+        return 1.0
+    if state is SafetyState.SCALE:
+        return float(scale_factor)
+    return 0.0
+
+
 @dataclass(frozen=True)
 class SafetyCfg:
     warning_angle_rad: float = math.radians(7.0)
