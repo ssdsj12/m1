@@ -6,7 +6,8 @@ This entrypoint validates the Phase 1–4 reference controller. It does not load
 
 ```bash
 cd /home/xk/coding/M1/Go2Pvcnn
-CUDA_VISIBLE_DEVICES=0 ./go2pvcnn.sh -p scripts/m1_panda_residual_wbc_play.py \
+CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python \
+  scripts/m1_panda_residual_wbc_play.py \
   --task Isaac-M1-Panda-Residual-Wbc-v0 \
   --headless --device cuda:0 --warmup-steps 64 --steps 256 \
   --summary-json tests/artifacts/m1_panda_residual_wbc_zero.json
@@ -17,7 +18,8 @@ CUDA_VISIBLE_DEVICES=0 ./go2pvcnn.sh -p scripts/m1_panda_residual_wbc_play.py \
 `--residual-axis` follows `[Fx,Fy,Fz,Mx,My,Mz,delta_height,delta_stance]`.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 ./go2pvcnn.sh -p scripts/m1_panda_residual_wbc_play.py \
+CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python \
+  scripts/m1_panda_residual_wbc_play.py \
   --task Isaac-M1-Panda-Residual-Wbc-v0 \
   --headless --device cuda:0 --warmup-steps 64 --steps 128 \
   --residual-axis 0 --residual-value 0.1 \

@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T400 | active | T400.12 8D Residual WBC 第一版交互设计已获批准并写入规格；保留 23D/C0/C1a/Folded Load 基线，不含 Arm MPC 或 PPO 长训。 | 用户复核书面规格后，编写单代理 TDD 实施计划并执行 Phase 1–4。 |
+| T400 | active | T400.12 8D Residual WBC 第一版 Phase 1–4 已实现并通过 CPU 回归与 GPU0 零残差/16 组轴向探针；保留 23D/C0/C1a/Folded Load 基线。 | 等待后续独立授权：Arm MPC 或 8D PPO 训练不在本版范围。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
 | T302r | active | Geometry clearance is implemented and confirmed nonzero in training logs, but its magnitude is tiny (`~1e-7` mean), so it is not yet a strong learning signal. | Decide whether to rescale clearance reward and/or add part-level diagnostics after curriculum metric cleanup. |
@@ -161,6 +161,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
+| T400.12 | T400 | done | P0 | 8D Residual WBC Phase 1–4 完成；CPU `185 passed`，GPU0 零残差 256 步和 16 组 ±0.1 探针全部通过。 | [GPU0 evidence](log/2026-08-26-m1-panda-8d-residual-wbc-gpu0-smoke.md) |
 | T400.10b | T400 | active | P0 | Tasks 1–8 通过；train/eval/编排、严格完整 SHA 父链、固定三种子接受与失败 rollback 已接通；GPU 尚未完成。 | [Task 8 log](log/2026-08-25-m1-panda-folded-load-curriculum-orchestrator.md) |
 | T400.10a | T400 | active | P0 | Tasks 1–9 implementation/短门/清理完成；fresh 64×600 已在 GPU0 启动，PID `1128844`，首个 update 健康；尚无 acceptance claim。 | [launch evidence](log/2026-08-24-m1-panda-coordinated-stable-long-launch.md) |
 | T400.9 | T400 | active | P0 | Student Tasks 1–12 contract path complete: 100/10/23 contracts, isolated Teacher runtime, S1 collection/trainer, Student-only Play and exact 42/43/44 evaluation; regression `109 passed`, 64×4000 CPU evaluation passes. Physical Isaac side-label and GPU gates remain open. | [Student S1 evaluation smoke](log/2026-08-20-m1-panda-student-s1-evaluation-smoke.md) |

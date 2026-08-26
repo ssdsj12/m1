@@ -102,7 +102,7 @@ T400.10b L0-C0 后续在 update74 正常停止，原因是 update23 产生 eligi
 
 T400.10b 分方向 evaluation diagnostics 交互设计已获用户确认并写入书面规格。选定在 `evaluate_records` 唯一计算边界输出 forward/reverse/left/right 的 count、metric、RMSE、limit、contact/orientation rate 和 pass，顶层 `directional_pass` 由同一布尔值汇总。所有旧门槛、训练、reward、命令和 checkpoint 选择不变；现有 SHA-pinned `model_best.pt` 只在隔离诊断目录复评，不覆盖原 artifact。
 
-T400.12 8D Residual WBC 第一版书面规格已由用户复核确认，八任务单代理 TDD 实施计划已写入。采用与现有 103/23 Coordinated PPO、Folded Load 和 C0/C1a 并行的独立控制链；本阶段只覆盖 8D contract、6D virtual wrench 到既有 WBC/QP、height/stance 和安装点六维力反馈，不实现 Arm MPC 或 PPO 长训。用户已选择 Inline Execution，下一步从 Task 1 RED 开始。
+T400.12 8D Residual WBC 第一版 Phase 1–4 已完成。新增与现有 103/23 Coordinated PPO、Folded Load 和 C0/C1a 并行的独立控制链：8D contract、6D virtual wrench 到既有 WBC/QP、height/stance、连续 base participation、安装点六维力反馈、103D observation、runtime wrapper、Gym 注册与 play 入口。CPU 最终回归 `185 passed`；GPU0 零残差 256 步和八轴正负 `0.1` 共 16 组探针全部通过，QP 可行率 `1.0`，四轮接触、无机身触地/越界/reset。本版不包含 Arm MPC 或 PPO 长训。
 
 ## Open Children
 
@@ -120,7 +120,7 @@ T400.12 8D Residual WBC 第一版书面规格已由用户复核确认，八任�
   - [x] Task 9：完成 >3500 checkpoint SHA 审计清理、完整回归与稳定训练 runbook。
   - [ ] Long monitor：等待 fresh 64×600 guard 停止并审计 eligible best/final manifest。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
-- [ ] T400.12 按 PDF 推荐顺序完成 8D Residual WBC 第一版 Phase 1–4；书面设计已完成，实施计划和代码尚未开始。
+- [x] T400.12 按 PDF 推荐顺序完成 8D Residual WBC 第一版 Phase 1–4；CPU 和 GPU0 硬门通过，Arm MPC/PPO 留待独立阶段。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
 - [x] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
@@ -183,6 +183,8 @@ T400.12 8D Residual WBC 第一版书面规格已由用户复核确认，八任�
 
 ## Related Logs
 
+- [8D Residual WBC implementation](../log/2026-08-26-m1-panda-8d-residual-wbc-implementation.md)
+- [8D Residual WBC GPU0 smoke](../log/2026-08-26-m1-panda-8d-residual-wbc-gpu0-smoke.md)
 - [Folded-load curriculum orchestrator Task 8](../log/2026-08-25-m1-panda-folded-load-curriculum-orchestrator.md)
 - [Folded-load train/eval entrypoints Task 7](../log/2026-08-25-m1-panda-folded-load-train-eval-entrypoints.md)
 - [Folded-load training guard Task 6](../log/2026-08-25-m1-panda-folded-load-training-guard.md)
