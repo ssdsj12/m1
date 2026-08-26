@@ -230,6 +230,48 @@ class PhysxTeacherAdapter:
             )
         )
 
+    def read_mount_wrench_b(self) -> torch.Tensor:
+        """Read one canonical base-frame mount wrench as a CPU float64 clone."""
+
+        from go2_pvcnn.mdp.m1_panda_wrench import shift_rotate_wrench_to_base
+
+        data = self.robot.data
+        incoming = self.robot.root_physx_view.get_link_incoming_joint_force()[
+            self.env_index, self.mount_body_id
+        ]
+        mount_quat_w = data.body_quat_w[
+            self.env_index, self.mount_body_id
+        ]
+        force_w = self.math_utils.quat_apply(
+            mount_quat_w.unsqueeze(0), incoming[:3].unsqueeze(0)
+        )
+        torque_w = self.math_utils.quat_apply(
+            mount_quat_w.unsqueeze(0), incoming[3:].unsqueeze(0)
+        )
+        wrench = shift_rotate_wrench_to_base(
+            force_w,
+            torque_w,
+            data.body_pos_w[
+                self.env_index, self.mount_body_id
+            ].unsqueeze(0),
+            data.body_pos_w[
+                self.env_index, self.base_body_id
+            ].unsqueeze(0),
+            data.body_quat_w[
+                self.env_index, self.base_body_id
+            ].unsqueeze(0),
+        )
+        return _cpu64(wrench[0])
+
+    def leg_soft_limits(self) -> torch.Tensor:
+        """Return canonical 12-leg soft limits for residual stance clipping."""
+
+        return _cpu64(
+            self.robot.data.soft_joint_pos_limits[self.env_index].index_select(
+                0, self.joint_map.legs.to(self.robot.device)
+            )
+        )
+
     def _contact_metrics(self) -> tuple[int, float, int]:
         forces = self.contact_sensor.data.net_forces_w[self.env_index]
         wheel_forces = forces.index_select(0, self.wheel_sensor_ids)

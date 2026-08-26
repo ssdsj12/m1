@@ -100,6 +100,19 @@ def test_c0_adapter_keeps_accepted_radius_default_but_allows_c1a_injection():
         assert field in source
 
 
+def test_shared_runtime_adapter_exposes_canonical_mount_wrench_and_leg_limits():
+    source = (
+        ROOT
+        / "go2_pvcnn/control/m1_panda_coordination/runtime_adapter.py"
+    ).read_text()
+
+    assert "def read_mount_wrench_b(" in source
+    assert "shift_rotate_wrench_to_base(" in source
+    assert "get_link_incoming_joint_force()" in source
+    assert "def leg_soft_limits(" in source
+    assert "self.joint_map.legs" in source
+
+
 def test_runtime_builds_teacher_state_applies_effort_and_steps_once():
     source = _source()
     tree = ast.parse(source)
