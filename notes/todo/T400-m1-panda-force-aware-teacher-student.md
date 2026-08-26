@@ -102,7 +102,7 @@ T400.10b L0-C0 后续在 update74 正常停止，原因是 update23 产生 eligi
 
 T400.10b 分方向 evaluation diagnostics 交互设计已获用户确认并写入书面规格。选定在 `evaluate_records` 唯一计算边界输出 forward/reverse/left/right 的 count、metric、RMSE、limit、contact/orientation rate 和 pass，顶层 `directional_pass` 由同一布尔值汇总。所有旧门槛、训练、reward、命令和 checkpoint 选择不变；现有 SHA-pinned `model_best.pt` 只在隔离诊断目录复评，不覆盖原 artifact。
 
-T400.12 8D Residual WBC 第一版交互设计已获用户确认并写入书面规格。采用与现有 103/23 Coordinated PPO、Folded Load 和 C0/C1a 并行的独立控制链；本阶段只覆盖 8D contract、6D virtual wrench 到既有 WBC/QP、height/stance 和安装点六维力反馈，不实现 Arm MPC 或 PPO 长训。当前等待书面规格复核，尚未修改运行代码。
+T400.12 8D Residual WBC 第一版书面规格已由用户复核确认，八任务单代理 TDD 实施计划已写入。采用与现有 103/23 Coordinated PPO、Folded Load 和 C0/C1a 并行的独立控制链；本阶段只覆盖 8D contract、6D virtual wrench 到既有 WBC/QP、height/stance 和安装点六维力反馈，不实现 Arm MPC 或 PPO 长训。用户已选择 Inline Execution，下一步从 Task 1 RED 开始。
 
 ## Open Children
 
