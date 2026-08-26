@@ -28,6 +28,59 @@ def _cpu64(value: torch.Tensor) -> torch.Tensor:
     return torch.as_tensor(value).detach().to(device="cpu", dtype=torch.float64).clone()
 
 
+def build_arm_mpc_input_from_teacher_state(
+    state,
+    target_pose_b: torch.Tensor,
+    target_twist_b: torch.Tensor,
+):
+    """Build one ArmMpcInput from an already-atomic TeacherState snapshot."""
+
+    from go2_pvcnn.control.m1_panda_coordination.arm_mpc import ArmMpcInput
+
+    arm_indices = torch.as_tensor(
+        state.wbc_input.arm_generalized_indices, dtype=torch.long, device="cpu"
+    ).clone()
+    if arm_indices.shape != (7,):
+        raise ValueError(
+            f"arm_generalized_indices must have shape (7,); got {tuple(arm_indices.shape)}"
+        )
+    mass_matrix = _cpu64(state.wbc_input.mass_matrix)
+    bias_force = _cpu64(state.wbc_input.bias_force)
+    if mass_matrix.shape != (31, 31):
+        raise ValueError(
+            f"mass_matrix must have shape (31, 31); got {tuple(mass_matrix.shape)}"
+        )
+    if bias_force.shape != (31,):
+        raise ValueError(
+            f"bias_force must have shape (31,); got {tuple(bias_force.shape)}"
+        )
+    arm_mass_matrix = mass_matrix.index_select(0, arm_indices).index_select(
+        1, arm_indices
+    )
+    base_arm_coupling = mass_matrix[:6].index_select(1, arm_indices)
+    arm_bias = bias_force.index_select(0, arm_indices)
+    arm_jacobian = _cpu64(state.coordinated_jacobian)[:, -7:]
+    arm_q = _cpu64(state.coord_q)[-7:]
+    arm_qd = _cpu64(state.coord_qd)[-7:]
+    return ArmMpcInput(
+        q=arm_q,
+        qd=arm_qd,
+        ee_pose_b=_cpu64(state.ee_pose),
+        ee_twist_b=arm_jacobian @ arm_qd,
+        target_pose_b=_cpu64(target_pose_b),
+        target_twist_b=_cpu64(target_twist_b),
+        jacobian_b=arm_jacobian,
+        arm_mass_matrix=arm_mass_matrix,
+        arm_bias=arm_bias,
+        base_arm_coupling=base_arm_coupling,
+        q_min=_cpu64(state.coord_q_min)[-7:],
+        q_max=_cpu64(state.coord_q_max)[-7:],
+        qd_max=_cpu64(state.coord_v_max)[-7:],
+        qdd_max=_cpu64(state.coord_a_max)[-7:],
+        effort_max=_cpu64(state.wbc_input.effort_limit)[-7:],
+    )
+
+
 def build_teacher_gains() -> tuple[torch.Tensor, torch.Tensor]:
     """Return impedance gains in the reference QP dtype and canonical order."""
 
@@ -270,6 +323,18 @@ class PhysxTeacherAdapter:
             self.robot.data.soft_joint_pos_limits[self.env_index].index_select(
                 0, self.joint_map.legs.to(self.robot.device)
             )
+        )
+
+    def build_arm_mpc_input(
+        self,
+        state,
+        target_pose_b: torch.Tensor,
+        target_twist_b: torch.Tensor,
+    ):
+        """Convert the same TeacherState used by WBC into an ArmMpcInput."""
+
+        return build_arm_mpc_input_from_teacher_state(
+            state, target_pose_b, target_twist_b
         )
 
     def _contact_metrics(self) -> tuple[int, float, int]:
@@ -534,6 +599,7 @@ class PhysxTeacherAdapter:
 
 __all__ = [
     "PhysxTeacherAdapter",
+    "build_arm_mpc_input_from_teacher_state",
     "build_teacher_gains",
     "contact_point_linear_jacobian",
     "read_generalized_bias_force",
