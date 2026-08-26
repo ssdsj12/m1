@@ -366,6 +366,9 @@ class M1PandaRollingWbcTeacher:
                 dtype=torch.bool,
                 device=qd.device,
             ),
+            base_participation=qd.new_tensor(
+                float(torch.any(base_velocity != 0.0).item())
+            ),
             sigma_min=state.teacher_state.sigma_min.clone(),
             phi=qd.new_tensor(0.0),
             psi=qd.new_tensor(0.0),

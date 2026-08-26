@@ -107,6 +107,8 @@ def test_motion_distribution_default_configuration_is_frozen():
     assert cfg.pose_gain == pytest.approx(10.0)
     assert cfg.damping == pytest.approx(1.0e-4)
     assert cfg.singularity_threshold == pytest.approx(0.1)
+    assert cfg.sigma_safe == pytest.approx(0.20)
+    assert cfg.sigma_critical == pytest.approx(0.08)
     assert cfg.null_gain == pytest.approx(5.0)
     assert cfg.null_damping == pytest.approx(0.5)
     assert cfg.max_saturation_passes == 10
@@ -262,6 +264,23 @@ def test_singularity_threshold_activates_base_even_when_arm_solution_exists():
     assert result.sigma_min.item() == pytest.approx(0.05)
 
 
+@pytest.mark.parametrize(
+    ("sigma", "expected"),
+    ((0.20, 0.0), (0.14, 0.5), (0.08, 1.0), (0.02, 1.0)),
+)
+def test_base_participation_follows_singularity_margin(sigma, expected):
+    inputs = _coordination_inputs()
+    inputs["desired_twist"][0] = 0.2
+    inputs["sigma_min"] = torch.tensor(sigma, dtype=torch.float64)
+
+    result = distribute_motion(**inputs)
+
+    assert result.base_participation.item() == pytest.approx(expected)
+    assert result.base_active.item() is (expected > 0.0)
+    if expected == 0.0:
+        assert torch.equal(result.qd_coord[:3], torch.zeros(3, dtype=torch.float64))
+
+
 def test_base_activates_when_acceleration_bounds_make_zero_base_velocity_unreachable():
     inputs = _coordination_inputs()
     inputs["qd"][0] = 1.0
@@ -357,6 +376,7 @@ def test_outputs_are_finite_within_bounds_and_preserve_batch_dimensions():
 
     assert result.qd_coord.shape == (2, 10)
     assert result.base_active.shape == (2,)
+    assert result.base_participation.shape == (2,)
     assert result.phi.shape == (2,)
     assert result.psi.shape == (2,)
     assert result.saturated.shape == (2, 10)

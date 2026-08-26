@@ -18,15 +18,22 @@ class MotionDistributionCfg:
     pose_gain: float = 10.0
     damping: float = 1.0e-4
     singularity_threshold: float = 0.1
+    sigma_safe: float = 0.20
+    sigma_critical: float = 0.08
     null_gain: float = 5.0
     null_damping: float = 0.5
     max_saturation_passes: int = 10
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.sigma_critical < self.sigma_safe:
+            raise ValueError("sigma thresholds must satisfy 0 < critical < safe")
 
 
 @dataclass(frozen=True)
 class MotionDistributionResult:
     qd_coord: torch.Tensor
     base_active: torch.Tensor
+    base_participation: torch.Tensor
     sigma_min: torch.Tensor
     phi: torch.Tensor
     psi: torch.Tensor
@@ -119,7 +126,14 @@ def _distribute_single(
     gradient: torch.Tensor,
     sigma_min: torch.Tensor,
     cfg: MotionDistributionCfg,
-) -> tuple[torch.Tensor, bool, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[
+    torch.Tensor,
+    bool,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
     arm_allowed = torch.zeros(COORD_DOF, dtype=torch.bool, device=jacobian.device)
     arm_allowed[3:] = True
     all_allowed = torch.ones_like(arm_allowed)
@@ -128,27 +142,41 @@ def _distribute_single(
     zero_base_unreachable = bool(
         ((lower[:3] > 0.0) | (upper[:3] < 0.0)).any().item()
     )
-    base_active = bool(
-        arm_rank < jacobian.shape[-2]
-        or sigma_min.item() < cfg.singularity_threshold
-        or zero_base_unreachable
+    participation = torch.clamp(
+        (sigma_min.new_tensor(cfg.sigma_safe) - sigma_min)
+        / (cfg.sigma_safe - cfg.sigma_critical),
+        min=0.0,
+        max=1.0,
     )
+    if arm_rank < jacobian.shape[-2] or zero_base_unreachable:
+        participation = sigma_min.new_tensor(1.0)
+    base_active = bool(participation.item() > 0.0)
+    active_lower = lower
+    active_upper = upper
+    if base_active and participation.item() < 1.0:
+        active_lower = lower.clone()
+        active_upper = upper.clone()
+        active_lower[:3] *= participation
+        active_upper[:3] *= participation
     solve = _solve_bounded_task(
         jacobian,
         target,
-        lower,
-        upper,
+        active_lower,
+        active_upper,
         all_allowed if base_active else arm_allowed,
         damping=cfg.damping,
         max_passes=cfg.max_saturation_passes,
     )
-    if not solve.feasible and not base_active:
+    if not solve.feasible and participation.item() < 1.0:
         base_active = True
+        participation = sigma_min.new_tensor(1.0)
+        active_lower = lower
+        active_upper = upper
         solve = _solve_bounded_task(
             jacobian,
             target,
-            lower,
-            upper,
+            active_lower,
+            active_upper,
             all_allowed,
             damping=cfg.damping,
             max_passes=cfg.max_saturation_passes,
@@ -163,8 +191,8 @@ def _distribute_single(
         best = _solve_bounded_task(
             jacobian,
             target * 0.0,
-            lower,
-            upper,
+            active_lower,
+            active_upper,
             all_allowed,
             damping=cfg.damping,
             max_passes=cfg.max_saturation_passes,
@@ -174,8 +202,8 @@ def _distribute_single(
             candidate = _solve_bounded_task(
                 jacobian,
                 target * middle,
-                lower,
-                upper,
+                active_lower,
+                active_upper,
                 all_allowed,
                 damping=cfg.damping,
                 max_passes=cfg.max_saturation_passes,
@@ -203,16 +231,20 @@ def _distribute_single(
         )
         direction = torch.zeros_like(velocity)
         direction[allowed] = direction_active
-        psi = _maximum_null_scale(velocity, direction, lower, upper)
+        psi = _maximum_null_scale(
+            velocity, direction, active_lower, active_upper
+        )
         velocity = velocity + psi * direction
-        velocity = torch.clamp(velocity, min=lower, max=upper)
-        saturated = saturated | torch.isclose(
-            velocity, lower, atol=1.0e-9, rtol=0.0
+        velocity = torch.clamp(
+            velocity, min=active_lower, max=active_upper
         )
         saturated = saturated | torch.isclose(
-            velocity, upper, atol=1.0e-9, rtol=0.0
+            velocity, active_lower, atol=1.0e-9, rtol=0.0
         )
-    return velocity, base_active, phi, psi, saturated
+        saturated = saturated | torch.isclose(
+            velocity, active_upper, atol=1.0e-9, rtol=0.0
+        )
+    return velocity, base_active, participation, phi, psi, saturated
 
 
 def _validate_inputs(
@@ -349,6 +381,7 @@ def distribute_motion(
 
     velocities = []
     base_active = []
+    base_participation = []
     phi = []
     psi = []
     saturated = []
@@ -362,7 +395,14 @@ def distribute_motion(
             flat_sigma[index],
             cfg,
         )
-        velocity_i, base_i, phi_i, psi_i, saturated_i = values
+        (
+            velocity_i,
+            base_i,
+            participation_i,
+            phi_i,
+            psi_i,
+            saturated_i,
+        ) = values
         if has_prescribed_base:
             velocity_i = velocity_i.clone()
             velocity_i[:3] += flat_prescribed[index]
@@ -371,8 +411,11 @@ def distribute_motion(
             base_i = base_i or bool(
                 (flat_prescribed[index] != 0.0).any().item()
             )
+            if base_i:
+                participation_i = participation_i.new_tensor(1.0)
         velocities.append(velocity_i)
         base_active.append(base_i)
+        base_participation.append(participation_i)
         phi.append(phi_i)
         psi.append(psi_i)
         saturated.append(saturated_i)
@@ -382,6 +425,7 @@ def distribute_motion(
         base_active=torch.tensor(
             base_active, dtype=torch.bool, device=coordinated_jacobian.device
         ).reshape(batch_shape),
+        base_participation=torch.stack(base_participation).reshape(batch_shape),
         sigma_min=sigma_min.clone(),
         phi=torch.stack(phi).reshape(batch_shape),
         psi=torch.stack(psi).reshape(batch_shape),

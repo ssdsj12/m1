@@ -134,6 +134,7 @@ class M1PandaWbcTeacher:
         return MotionDistributionResult(
             qd_coord=torch.zeros_like(state.coord_q),
             base_active=torch.tensor(False, device=state.coord_q.device),
+            base_participation=state.coord_q.new_zeros(()),
             sigma_min=state.sigma_min.clone(),
             phi=state.coord_q.new_tensor(0.0),
             psi=state.coord_q.new_tensor(0.0),

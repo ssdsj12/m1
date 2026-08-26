@@ -247,6 +247,9 @@ class _RecordingMotionDistributor:
         return MotionDistributionResult(
             qd_coord=qd,
             base_active=torch.tensor(bool(torch.any(qd[:3] != 0.0))),
+            base_participation=torch.tensor(
+                float(torch.any(qd[:3] != 0.0).item()), dtype=torch.float64
+            ),
             sigma_min=kwargs["sigma_min"].clone(),
             phi=torch.tensor(1.0, dtype=torch.float64),
             psi=torch.tensor(1.0, dtype=torch.float64),
