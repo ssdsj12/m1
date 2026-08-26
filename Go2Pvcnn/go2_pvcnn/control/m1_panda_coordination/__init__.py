@@ -43,6 +43,20 @@ from .coordinated_mission import (
 )
 from .base_assist import BaseAssistCfg, BaseAssistDecision, compute_base_assist
 from .coordinated_teacher import CoordinatedTeacherAdapter, CoordinatedTeacherDecision
+from .arm_mpc import (
+    ARM_DOF,
+    ARM_MPC_DT,
+    ARM_MPC_HORIZON_STEPS,
+    ARM_TASK_DOF,
+    ArmMpcCfg,
+    ArmMpcDiagnostics,
+    ArmMpcInput,
+    ArmMpcSolution,
+    CondensedArmDynamics,
+    LinearizedArmRollout,
+    condense_arm_dynamics,
+    rollout_linearized_arm,
+)
 
 __all__ = [
     "CONTROLLED_DOF",
@@ -82,4 +96,16 @@ __all__ = [
     "compute_base_assist",
     "CoordinatedTeacherAdapter",
     "CoordinatedTeacherDecision",
+    "ARM_DOF",
+    "ARM_MPC_DT",
+    "ARM_MPC_HORIZON_STEPS",
+    "ARM_TASK_DOF",
+    "ArmMpcCfg",
+    "ArmMpcDiagnostics",
+    "ArmMpcInput",
+    "ArmMpcSolution",
+    "CondensedArmDynamics",
+    "LinearizedArmRollout",
+    "condense_arm_dynamics",
+    "rollout_linearized_arm",
 ]
