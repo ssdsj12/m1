@@ -107,6 +107,10 @@ class _PhysicalEnv:
 class _PhysicalAdapter:
     def __init__(self):
         self.state = _physical_state()
+        self.rebase_count = 0
+
+    def rebase_reference(self):
+        self.rebase_count += 1
 
     def build_state(self, physics_step):
         self.state.physics_step = physics_step
@@ -114,7 +118,27 @@ class _PhysicalAdapter:
         return self.state, 0
 
     def build_arm_mpc_input(self, state, target_pose, target_twist):
-        return (state, target_pose, target_twist)
+        self.last_target_twist = target_twist.clone()
+        return type(
+            "Input",
+            (),
+            {
+                "state": state,
+                "target_pose_b": target_pose,
+                "target_twist_b": target_twist,
+                "qd": torch.zeros(7, dtype=torch.float64),
+                "qd_max": torch.full((7,), 2.5, dtype=torch.float64),
+                "base_arm_coupling": torch.eye(6, 7, dtype=torch.float64),
+            },
+        )()
+
+    def arm_mpc_kinematics_b(self, state):
+        del state
+        pose = torch.tensor(
+            [0.25, -0.1, 0.5, 0.0, 0.0, 0.0], dtype=torch.float64
+        )
+        jacobian = torch.zeros((6, 7), dtype=torch.float64)
+        return pose, jacobian
 
     def read_mount_wrench_b(self):
         return torch.zeros(6, dtype=torch.float64)
@@ -129,15 +153,18 @@ class _PhysicalPlanner:
 
     def plan(self, sample):
         self.calls += 1
-        target = sample[1]
+        target = sample.target_pose_b
         diagnostics = type("Diagnostics", (), {"feasible": True, "fallback_used": False})()
         return type(
             "Solution",
             (),
             {
-                "q_ref": torch.zeros(7, dtype=torch.float64),
-                "qd_ref": torch.zeros(7, dtype=torch.float64),
-                "predicted_dynamic_mount_wrench_b": torch.zeros(6, dtype=torch.float64),
+                "q_ref": torch.full((7,), 0.0002, dtype=torch.float64),
+                "qd_ref": torch.full((7,), 0.02, dtype=torch.float64),
+                "qdd": torch.ones((20, 7), dtype=torch.float64),
+                "predicted_dynamic_mount_wrench_b": torch.full(
+                    (6,), 9.0, dtype=torch.float64
+                ),
                 "predicted_pose_b": target,
                 "diagnostics": diagnostics,
             },
@@ -145,10 +172,18 @@ class _PhysicalPlanner:
 
 
 class _PhysicalTeacher:
+    def __init__(self):
+        self.arm_references = []
+        self.cfg = type(
+            "Cfg", (), {"arm_position_gain": 20.0, "arm_velocity_gain": 5.0}
+        )()
+
     def reset(self, state, *, seed):
         self.seed = seed
 
     def step(self, state, **kwargs):
+        self.last_arm_reference = kwargs["arm_reference"]
+        self.arm_references.append(self.last_arm_reference)
         qp = type("Qp", (), {"success": True})()
         safety = type("Safety", (), {"name": "TRACK"})()
         return type(
@@ -164,11 +199,19 @@ class _PhysicalTeacher:
 
 
 def _physical_state():
-    wbc = type("Wbc", (), {"effort_limit": torch.ones(23, dtype=torch.float64)})()
+    wbc = type(
+        "Wbc",
+        (),
+        {
+            "effort_limit": torch.ones(23, dtype=torch.float64),
+            "bias_force": torch.zeros(31, dtype=torch.float64),
+        },
+    )()
     state = type("State", (), {})()
     state.physics_step = 0
     state.time_s = 0.0
     state.ee_pose = torch.zeros(6, dtype=torch.float64)
+    state.coordinated_jacobian = torch.zeros((6, 10), dtype=torch.float64)
     state.coord_q = torch.zeros(10, dtype=torch.float64)
     state.coord_qd = torch.zeros(10, dtype=torch.float64)
     state.coord_q_min = -torch.ones(10, dtype=torch.float64)
@@ -209,18 +252,55 @@ def test_physical_runtime_replans_every_four_steps_and_builds_exact_public_contr
     )
     runtime.reset()
 
+    assert adapters[0].rebase_count == 1
+    torch.testing.assert_close(
+        runtime._centers[0],
+        torch.tensor([0.25, -0.1, 0.5, 0.0, 0.0, 0.0], dtype=torch.float64),
+    )
+    assert runtime.controller._feedback.cfg.bias_warmup_samples == 64
+
     for step in range(5):
         effort, reward, metrics = runtime.compute(torch.zeros(1, 8), step)
         runtime.refresh(step + 1)
 
     assert planners[0].calls == 2
+    references = runtime.teachers[0].arm_references[:4]
+    for reference in references:
+        assert torch.equal(
+            reference.q_ref, torch.full((7,), 0.0002, dtype=torch.float64)
+        )
+        assert torch.equal(
+            reference.qd_ref, torch.full((7,), 0.1992, dtype=torch.float64)
+        )
+    assert torch.any(adapters[0].last_target_twist != 0.0)
     assert effort.shape == (1, 23)
     assert reward.shape == (1,)
     assert runtime.observations().shape == (1, 103)
     assert metrics["mpc_feasible_rate"] == 1.0
     snapshot = runtime.diagnostics_snapshot()
     assert snapshot["measured_mount_wrench_b"].shape == (1, 6)
+    assert snapshot["dynamic_measured_mount_wrench_b"].shape == (1, 6)
     assert snapshot["predicted_mount_wrench_b"].shape == (1, 6)
+    torch.testing.assert_close(
+        snapshot["predicted_mount_wrench_b"],
+        -torch.ones((1, 6), dtype=torch.float64),
+    )
+    assert snapshot["planned_predicted_mount_wrench_b"].tolist() == [[9.0] * 6]
     assert snapshot["target_pose"].shape == (1, 6)
     assert snapshot["effort"].shape == (1, 23)
+    assert snapshot["arm_q"].shape == (1, 7)
+    assert snapshot["arm_q_ref"].shape == (1, 7)
+    assert snapshot["arm_qd_ref"].shape == (1, 7)
+    assert snapshot["arm_qdd_first"].shape == (1, 7)
+    assert snapshot["actual_arm_qdd"].shape == (1, 7)
+    assert snapshot["actual_dynamic_mount_wrench_b"].shape == (1, 6)
+    assert snapshot["predicted_ee_pose_first"].shape == (1, 6)
+    assert snapshot["predicted_ee_pose_terminal"].shape == (1, 6)
+    assert snapshot["replan_start_ee_pose"].shape == (1, 6)
+    assert snapshot["current_ee_pose"].shape == (1, 6)
+    assert snapshot["arm_jacobian"].shape == (1, 6, 7)
+    assert snapshot["root_xy"].shape == (1, 2)
+    assert snapshot["initial_root_xy"].shape == (1, 2)
+    assert snapshot["base_bias_wrench"].shape == (1, 6)
+    assert snapshot["correction_wrench_b"].shape == (1, 6)
     assert snapshot["mpc_fallback"].tolist() == [False]

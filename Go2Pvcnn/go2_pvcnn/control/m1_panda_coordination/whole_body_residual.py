@@ -270,6 +270,7 @@ class MountWrenchFeedback:
         self._filtered_wrench = torch.zeros(
             num_envs, WRENCH_DIM, dtype=dtype, device=self.device
         )
+        self._corrected_wrench = torch.zeros_like(self._filtered_wrench)
         self._initialized = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self._bias_sum = torch.zeros_like(self._filtered_wrench)
         self._bias_sample_count = torch.zeros(
@@ -290,6 +291,10 @@ class MountWrenchFeedback:
     @property
     def filtered_wrench(self) -> torch.Tensor:
         return self._filtered_wrench.clone()
+
+    @property
+    def corrected_wrench(self) -> torch.Tensor:
+        return self._corrected_wrench.clone()
 
     @property
     def initialized(self) -> torch.Tensor:
@@ -346,6 +351,7 @@ class MountWrenchFeedback:
         )
         command = torch.clamp(command, min=-self._limits, max=self._limits)
         self._filtered_wrench = filtered.detach().clone()
+        self._corrected_wrench = corrected.detach().clone()
         self._bias_sum = bias_sum.detach().clone()
         self._bias_sample_count = bias_count.detach().clone()
         self._initialized.fill_(True)
@@ -358,6 +364,7 @@ class MountWrenchFeedback:
             env_ids, num_envs=self.num_envs, device=self.device
         )
         self._filtered_wrench[ids] = 0.0
+        self._corrected_wrench[ids] = 0.0
         self._initialized[ids] = False
         self._bias_sum[ids] = 0.0
         self._bias_sample_count[ids] = 0

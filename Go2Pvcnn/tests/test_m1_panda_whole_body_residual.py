@@ -166,11 +166,13 @@ def test_mount_feedback_bias_warmup_and_selective_reset():
     feedback.update(measurement, torch.zeros_like(measurement))
     output = feedback.update(measurement, torch.zeros_like(measurement))
     assert torch.allclose(output, torch.zeros_like(output))
+    assert torch.allclose(feedback.corrected_wrench, torch.zeros_like(output))
 
     feedback.reset(torch.tensor([1], dtype=torch.long))
 
     assert feedback.initialized.tolist() == [True, False]
     assert feedback.bias_sample_count.tolist() == [2, 0]
+    assert torch.equal(feedback.corrected_wrench[1], torch.zeros(6, dtype=torch.float64))
 
 
 def test_mount_feedback_rejects_nonfinite_without_mutating_state():

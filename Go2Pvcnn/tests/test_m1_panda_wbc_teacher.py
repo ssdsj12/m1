@@ -223,7 +223,8 @@ def _leg_limits():
 
 def test_teacher_arm_reference_overrides_panda_position_and_velocity_only():
     wbc = _RecordingWbcSolver()
-    teacher = _teacher(_RecordingMotionDistributor(), wbc)
+    motion = _RecordingMotionDistributor()
+    teacher = _teacher(motion, wbc)
     state = _teacher_state()
     teacher.reset(state, seed=42)
     reference = ArmReference(
@@ -239,6 +240,8 @@ def test_teacher_arm_reference_overrides_panda_position_and_velocity_only():
     )
     assert torch.equal(command.q_des[-7:], reference.q_ref)
     assert torch.equal(command.qd_des[-7:], reference.qd_ref)
+    assert motion.steps == []
+    assert torch.equal(wbc.inputs[0].base_acceleration[[0, 1, 5]], torch.zeros(3))
 
 
 def test_teacher_rejects_nonfinite_arm_reference_before_wbc():

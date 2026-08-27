@@ -84,3 +84,33 @@ def test_small_ee_curriculum_is_seeded_bounded_and_has_zero_base_command():
     assert error[:, :3].max() <= 0.03
     assert error[:, 3:].max() <= 0.08
     assert torch.equal(left.base_command, torch.zeros(3))
+
+
+def test_small_ee_trajectory_holds_center_during_wrench_bias_warmup():
+    center = torch.tensor(
+        [0.4, 0.0, 0.55, 0.0, 0.0, 0.0], dtype=torch.float64
+    )
+    trajectory = SmallEeTrajectory(seed=42, scale=0.25)
+
+    for time_s in (0.0, 0.1, 0.32):
+        assert torch.equal(trajectory.sample(center, time_s), center)
+        assert torch.equal(
+            trajectory.sample_twist(center, time_s), torch.zeros_like(center)
+        )
+    assert torch.linalg.vector_norm(trajectory.sample(center, 0.6) - center) > 0.0
+
+
+def test_small_ee_trajectory_twist_matches_pose_finite_difference():
+    center = torch.tensor([0.4, 0.0, 0.55, 0.0, 0.0, 0.0], dtype=torch.float64)
+    trajectory = SmallEeTrajectory(seed=42, scale=0.25)
+    time_s = 0.7
+    epsilon = 1.0e-5
+
+    numerical = (
+        trajectory.sample(center, time_s + epsilon)
+        - trajectory.sample(center, time_s - epsilon)
+    ) / (2.0 * epsilon)
+
+    torch.testing.assert_close(
+        trajectory.sample_twist(center, time_s), numerical, atol=1.0e-10, rtol=1.0e-8
+    )

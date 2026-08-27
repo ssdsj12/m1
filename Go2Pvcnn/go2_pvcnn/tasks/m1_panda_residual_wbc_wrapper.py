@@ -24,6 +24,7 @@ class ResidualWbcStep:
     applied_residual: WholeBodyResidualCommand
     correction_wrench_b: torch.Tensor
     filtered_mount_wrench_b: torch.Tensor
+    corrected_mount_wrench_b: torch.Tensor
     residual_diagnostics: WholeBodyResidualDiagnostics
     predicted_mount_wrench_b: torch.Tensor
 
@@ -228,6 +229,7 @@ class M1PandaResidualWbcController:
             ),
             correction_wrench_b=correction.clone(),
             filtered_mount_wrench_b=self._feedback.filtered_wrench,
+            corrected_mount_wrench_b=self._feedback.corrected_wrench,
             residual_diagnostics=diagnostics,
             predicted_mount_wrench_b=predicted_mount_wrench_b.clone(),
         )

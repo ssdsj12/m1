@@ -45,8 +45,8 @@ class ArmMpcCfg:
 
     dt: float = ARM_MPC_DT
     horizon_steps: int = ARM_MPC_HORIZON_STEPS
-    pose_weight: float = 200.0
-    twist_weight: float = 5.0
+    pose_weight: float = 2000.0
+    twist_weight: float = 50.0
     acceleration_weight: float = 0.05
     acceleration_slew_weight: float = 0.02
     rest_posture_weight: float = 0.1
@@ -519,7 +519,7 @@ class LinearizedArmMpc:
             predicted_qd=rollout.qd,
             predicted_pose_b=predicted_pose,
             predicted_twist_b=rollout.ee_twist_b,
-            predicted_dynamic_mount_wrench_b=sample.base_arm_coupling @ qdd[0],
+            predicted_dynamic_mount_wrench_b=-(sample.base_arm_coupling @ qdd[0]),
             diagnostics=self._diagnostics(
                 sample, rollout, qdd, iterations=result.iterations
             ),

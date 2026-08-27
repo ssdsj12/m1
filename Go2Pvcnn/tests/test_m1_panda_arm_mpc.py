@@ -46,6 +46,8 @@ def test_default_cfg_freezes_50_hz_twenty_node_horizon():
     assert cfg.dt == pytest.approx(0.02)
     assert cfg.horizon_steps == 20
     assert cfg.horizon_seconds == pytest.approx(0.4)
+    assert cfg.pose_weight == 2000.0
+    assert cfg.twist_weight == 50.0
 
 
 def test_input_accepts_only_exact_cpu_float64_finite_contract():
@@ -202,10 +204,10 @@ def test_predicted_dynamic_mount_wrench_uses_first_acceleration_and_coupling_sig
 
     assert torch.allclose(
         solution.predicted_dynamic_mount_wrench_b,
-        sample.base_arm_coupling @ solution.qdd[0],
+        -(sample.base_arm_coupling @ solution.qdd[0]),
         atol=1.0e-10,
     )
-    assert solution.predicted_dynamic_mount_wrench_b[0] > 0.0
+    assert solution.predicted_dynamic_mount_wrench_b[0] < 0.0
 
 
 def test_static_target_has_zero_dynamic_wrench_and_hold_reference():

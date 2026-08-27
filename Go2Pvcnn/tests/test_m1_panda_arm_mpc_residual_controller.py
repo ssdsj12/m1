@@ -47,6 +47,9 @@ def test_controller_combines_negative_mpc_feedforward_feedback_and_rl_before_tea
     )
     assert teacher.kwargs["arm_reference"] == "mpc-reference"
     assert torch.equal(result.predicted_mount_wrench_b, predicted)
+    assert torch.equal(
+        result.corrected_mount_wrench_b, torch.zeros((1, 6), dtype=torch.float64)
+    )
 
 
 def test_omitted_mpc_feedforward_is_exactly_legacy_zero_prediction():

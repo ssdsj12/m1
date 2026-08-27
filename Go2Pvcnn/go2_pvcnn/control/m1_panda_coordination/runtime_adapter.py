@@ -32,6 +32,9 @@ def build_arm_mpc_input_from_teacher_state(
     state,
     target_pose_b: torch.Tensor,
     target_twist_b: torch.Tensor,
+    *,
+    ee_pose_b: torch.Tensor | None = None,
+    arm_jacobian_b: torch.Tensor | None = None,
 ):
     """Build one ArmMpcInput from an already-atomic TeacherState snapshot."""
 
@@ -59,13 +62,17 @@ def build_arm_mpc_input_from_teacher_state(
     )
     base_arm_coupling = mass_matrix[:6].index_select(1, arm_indices)
     arm_bias = bias_force.index_select(0, arm_indices)
-    arm_jacobian = _cpu64(state.coordinated_jacobian)[:, -7:]
+    arm_jacobian = _cpu64(
+        state.coordinated_jacobian[:, -7:]
+        if arm_jacobian_b is None
+        else arm_jacobian_b
+    )
     arm_q = _cpu64(state.coord_q)[-7:]
     arm_qd = _cpu64(state.coord_qd)[-7:]
     return ArmMpcInput(
         q=arm_q,
         qd=arm_qd,
-        ee_pose_b=_cpu64(state.ee_pose),
+        ee_pose_b=_cpu64(state.ee_pose if ee_pose_b is None else ee_pose_b),
         ee_twist_b=arm_jacobian @ arm_qd,
         target_pose_b=_cpu64(target_pose_b),
         target_twist_b=_cpu64(target_twist_b),
@@ -149,6 +156,62 @@ def relative_axis_angle(math_utils, current_quat: torch.Tensor, reference_quat: 
     return math_utils.axis_angle_from_quat(relative_quat)
 
 
+def arm_kinematics_in_base_frame(
+    math_utils,
+    *,
+    root_position_w: torch.Tensor,
+    root_quaternion_w: torch.Tensor,
+    hand_position_w: torch.Tensor,
+    hand_quaternion_w: torch.Tensor,
+    reference_root_quaternion_w: torch.Tensor,
+    reference_hand_quaternion_w: torch.Tensor,
+    arm_jacobian_w: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Express Panda pose and arm-only spatial Jacobian at the base origin."""
+
+    root_position = _cpu64(root_position_w)
+    root_quaternion = _cpu64(root_quaternion_w)
+    hand_position = _cpu64(hand_position_w)
+    hand_quaternion = _cpu64(hand_quaternion_w)
+    reference_root_quaternion = _cpu64(reference_root_quaternion_w)
+    reference_hand_quaternion = _cpu64(reference_hand_quaternion_w)
+    jacobian_w = _cpu64(arm_jacobian_w)
+    if jacobian_w.shape != (6, 7):
+        raise ValueError(
+            f"arm_jacobian_w must have shape (6, 7); got {tuple(jacobian_w.shape)}"
+        )
+
+    position_b = math_utils.quat_apply_inverse(
+        root_quaternion.unsqueeze(0),
+        (hand_position - root_position).unsqueeze(0),
+    )[0]
+    hand_quaternion_b = math_utils.quat_mul(
+        math_utils.quat_inv(root_quaternion.unsqueeze(0)),
+        hand_quaternion.unsqueeze(0),
+    )
+    reference_hand_quaternion_b = math_utils.quat_mul(
+        math_utils.quat_inv(reference_root_quaternion.unsqueeze(0)),
+        reference_hand_quaternion.unsqueeze(0),
+    )
+    orientation_b = relative_axis_angle(
+        math_utils, hand_quaternion_b, reference_hand_quaternion_b
+    )[0]
+    root_quaternions = root_quaternion.unsqueeze(0).expand(7, -1)
+    linear_b = math_utils.quat_apply_inverse(
+        root_quaternions, jacobian_w[:3].transpose(0, 1)
+    ).transpose(0, 1)
+    angular_b = math_utils.quat_apply_inverse(
+        root_quaternions, jacobian_w[3:].transpose(0, 1)
+    ).transpose(0, 1)
+    pose_b = _cpu64(torch.cat((position_b, orientation_b)))
+    jacobian_b = _cpu64(torch.cat((linear_b, angular_b), dim=0))
+    if not torch.isfinite(pose_b).all().item() or not torch.isfinite(
+        jacobian_b
+    ).all().item():
+        raise ValueError("base-frame arm kinematics must contain only finite values")
+    return pose_b, jacobian_b
+
+
 class PhysxTeacherAdapter:
     """Translate one live Isaac articulation into explicit C0 Teacher tensors."""
 
@@ -218,23 +281,7 @@ class PhysxTeacherAdapter:
         if len(base_sensor_ids) != 1:
             raise RuntimeError("BASE_LINK contact sensor did not resolve uniquely")
         self.base_sensor_id = int(base_sensor_ids[0])
-        self._previous_contact_jacobian = None
-        self._initial_root_pos = _cpu64(robot.data.root_pos_w[self.env_index])
-        self._initial_root_quat = robot.data.root_quat_w[
-            self.env_index
-        ].detach().clone()
-        self._initial_hand_quat = robot.data.body_quat_w[
-            self.env_index, self.hand_body_id
-        ].detach().clone()
-        self._initial_arm_q = _cpu64(
-            robot.data.joint_pos[self.env_index].index_select(
-                0, self.joint_map.panda_arm.to(robot.device)
-            )
-        )
-        initial_euler = self.math_utils.euler_xyz_from_quat(
-            self._initial_root_quat.unsqueeze(0)
-        )
-        self._initial_rpy = _cpu64(torch.stack(initial_euler, dim=-1)[0])
+        self.rebase_reference()
         self.latest_root_height = float(
             robot.data.root_pos_w[self.env_index, 2].item()
         )
@@ -246,6 +293,26 @@ class PhysxTeacherAdapter:
             .cpu()
             .tolist()
         ]
+
+    def rebase_reference(self) -> None:
+        """Capture reset-relative state used by pose, balance, and null-space tasks."""
+
+        data = self.robot.data
+        self._initial_root_pos = _cpu64(data.root_pos_w[self.env_index])
+        self._initial_root_quat = data.root_quat_w[self.env_index].detach().clone()
+        self._initial_hand_quat = data.body_quat_w[
+            self.env_index, self.hand_body_id
+        ].detach().clone()
+        self._initial_arm_q = _cpu64(
+            data.joint_pos[self.env_index].index_select(
+                0, self.joint_map.panda_arm.to(self.robot.device)
+            )
+        )
+        initial_euler = self.math_utils.euler_xyz_from_quat(
+            self._initial_root_quat.unsqueeze(0)
+        )
+        self._initial_rpy = _cpu64(torch.stack(initial_euler, dim=-1)[0])
+        self._previous_contact_jacobian = None
 
     @staticmethod
     def _body_jacobian(
@@ -333,8 +400,28 @@ class PhysxTeacherAdapter:
     ):
         """Convert the same TeacherState used by WBC into an ArmMpcInput."""
 
+        ee_pose_b, arm_jacobian_b = self.arm_mpc_kinematics_b(state)
         return build_arm_mpc_input_from_teacher_state(
-            state, target_pose_b, target_twist_b
+            state,
+            target_pose_b,
+            target_twist_b,
+            ee_pose_b=ee_pose_b,
+            arm_jacobian_b=arm_jacobian_b,
+        )
+
+    def arm_mpc_kinematics_b(self, state) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the MPC-only arm kinematics in the canonical base frame."""
+
+        data = self.robot.data
+        return arm_kinematics_in_base_frame(
+            self.math_utils,
+            root_position_w=data.root_pos_w[self.env_index],
+            root_quaternion_w=data.root_quat_w[self.env_index],
+            hand_position_w=data.body_pos_w[self.env_index, self.hand_body_id],
+            hand_quaternion_w=data.body_quat_w[self.env_index, self.hand_body_id],
+            reference_root_quaternion_w=self._initial_root_quat,
+            reference_hand_quaternion_w=self._initial_hand_quat,
+            arm_jacobian_w=state.coordinated_jacobian[:, -7:],
         )
 
     def _contact_metrics(self) -> tuple[int, float, int]:
@@ -599,6 +686,7 @@ class PhysxTeacherAdapter:
 
 __all__ = [
     "PhysxTeacherAdapter",
+    "arm_kinematics_in_base_frame",
     "build_arm_mpc_input_from_teacher_state",
     "build_teacher_gains",
     "contact_point_linear_jacobian",

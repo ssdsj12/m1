@@ -16,6 +16,9 @@ from go2_pvcnn.control.m1_panda_coordination.runtime_adapter import (
     build_teacher_gains,
 )
 from go2_pvcnn.control.m1_panda_coordination.safety import SafetyState
+from go2_pvcnn.control.m1_panda_coordination.whole_body_residual import (
+    MountWrenchFeedbackCfg,
+)
 from go2_pvcnn.control.m1_panda_coordination.teacher import (
     ArmReference,
     M1PandaWbcTeacher,
@@ -164,13 +167,37 @@ class M1PandaArmMpcResidualRuntime:
         self.controller = None
         self._centers = []
         self._solutions = [None] * self.num_envs
+        self._mpc_inputs = [None] * self.num_envs
         self._targets = torch.zeros((self.num_envs, 6), dtype=torch.float64)
         self._previous_normalized = torch.zeros((self.num_envs, 8), dtype=torch.float64)
         self._last_metrics: dict[str, float] = {}
         self._last_measured = torch.zeros((self.num_envs, 6), dtype=torch.float64)
+        self._last_dynamic_measured = torch.zeros(
+            (self.num_envs, 6), dtype=torch.float64
+        )
         self._last_predicted = torch.zeros((self.num_envs, 6), dtype=torch.float64)
+        self._last_planned_predicted = torch.zeros_like(self._last_predicted)
+        self._last_correction = torch.zeros((self.num_envs, 6), dtype=torch.float64)
         self._last_effort = torch.zeros((self.num_envs, 23), dtype=torch.float64)
         self._last_qp_feasible = torch.zeros(self.num_envs, dtype=torch.bool)
+        self._replan_start_ee_pose = torch.zeros(
+            (self.num_envs, 6), dtype=torch.float64
+        )
+        self._replan_arm_q = torch.zeros((self.num_envs, 7), dtype=torch.float64)
+        self._current_ee_pose_b = torch.zeros(
+            (self.num_envs, 6), dtype=torch.float64
+        )
+        self._current_arm_jacobian_b = torch.zeros(
+            (self.num_envs, 6, 7), dtype=torch.float64
+        )
+        self._previous_arm_qd = torch.zeros(
+            (self.num_envs, 7), dtype=torch.float64
+        )
+        self._actual_arm_qdd = torch.zeros_like(self._previous_arm_qd)
+        self._arm_qd_valid = torch.zeros(self.num_envs, dtype=torch.bool)
+        self._initial_root_xy = torch.zeros(
+            (self.num_envs, 2), dtype=torch.float64
+        )
 
     @staticmethod
     def _default_teacher(state, env_id):
@@ -186,12 +213,32 @@ class M1PandaArmMpcResidualRuntime:
         built = [adapter.build_state(physics_step) for adapter in self.adapters]
         self.states = [value[0] for value in built]
         self.base_contacts = [int(value[1]) for value in built]
+        kinematics = [
+            adapter.arm_mpc_kinematics_b(state)
+            for adapter, state in zip(self.adapters, self.states)
+        ]
+        self._current_ee_pose_b = torch.stack(
+            [value[0] for value in kinematics]
+        )
+        self._current_arm_jacobian_b = torch.stack(
+            [value[1] for value in kinematics]
+        )
+        current_arm_qd = torch.stack([state.coord_qd[-7:] for state in self.states])
+        self._actual_arm_qdd = torch.where(
+            self._arm_qd_valid.unsqueeze(-1),
+            (current_arm_qd - self._previous_arm_qd) / 0.005,
+            torch.zeros_like(current_arm_qd),
+        )
+        self._previous_arm_qd = current_arm_qd.clone()
+        self._arm_qd_valid.fill_(True)
 
     def reset(self, env_ids=None) -> None:
         if env_ids is None:
             ids = list(range(self.num_envs))
         else:
             ids = [int(value) for value in torch.as_tensor(env_ids).reshape(-1)]
+        for env_id in ids:
+            self.adapters[env_id].rebase_reference()
         self.refresh(0)
         if self.controller is None:
             self.teachers = [
@@ -199,20 +246,32 @@ class M1PandaArmMpcResidualRuntime:
                 for env_id, state in enumerate(self.states)
             ]
             self.controller = M1PandaResidualWbcController(
-                self.teachers, device="cpu", dtype=torch.float64, base_seed=self.seed
+                self.teachers,
+                device="cpu",
+                dtype=torch.float64,
+                base_seed=self.seed,
+                feedback_cfg=MountWrenchFeedbackCfg(bias_warmup_samples=64),
             )
             ids = list(range(self.num_envs))
         for env_id in ids:
+            self._initial_root_xy[env_id] = self.states[env_id].coord_q[:2]
             self.planners[env_id] = self._planner_factory()
             self.trajectories[env_id] = SmallEeTrajectory(
                 seed=self.seed + env_id, scale=self.trajectory_scale
             )
             if len(self._centers) != self.num_envs:
-                self._centers = [state.ee_pose.clone() for state in self.states]
+                self._centers = [
+                    self._current_ee_pose_b[index].clone()
+                    for index in range(self.num_envs)
+                ]
             else:
-                self._centers[env_id] = self.states[env_id].ee_pose.clone()
+                self._centers[env_id] = self._current_ee_pose_b[env_id].clone()
             self._solutions[env_id] = None
+            self._mpc_inputs[env_id] = None
             self._previous_normalized[env_id].zero_()
+            self._previous_arm_qd[env_id] = self.states[env_id].coord_qd[-7:]
+            self._actual_arm_qdd[env_id].zero_()
+            self._arm_qd_valid[env_id] = True
         assert self.controller is not None
         self.controller.reset(ids, states=self.states)
         self._update_targets(0.0)
@@ -225,6 +284,8 @@ class M1PandaArmMpcResidualRuntime:
 
     def _replan(self, physics_step: int) -> None:
         for env_id, (adapter, state) in enumerate(zip(self.adapters, self.states)):
+            self._replan_start_ee_pose[env_id] = self._current_ee_pose_b[env_id]
+            self._replan_arm_q[env_id] = state.coord_q[-7:]
             horizon_times = [
                 state.time_s + (index + 1) * 0.02 for index in range(20)
             ]
@@ -236,10 +297,18 @@ class M1PandaArmMpcResidualRuntime:
                     for time_s in horizon_times
                 ]
             )
-            target_twist = torch.zeros((20, 6), dtype=torch.float64)
+            target_twist = torch.stack(
+                [
+                    self.trajectories[env_id].sample_twist(
+                        self._centers[env_id], time_s
+                    )
+                    for time_s in horizon_times
+                ]
+            )
             mpc_input = adapter.build_arm_mpc_input(
                 state, target_pose, target_twist
             )
+            self._mpc_inputs[env_id] = mpc_input
             planner = self.planners[env_id]
             if planner is None:
                 raise RuntimeError("planner must be initialized by reset")
@@ -258,13 +327,55 @@ class M1PandaArmMpcResidualRuntime:
             self._replan(physics_step)
         solutions = self._solutions
         assert all(value is not None for value in solutions)
-        predicted = torch.stack(
+        planned_predicted = torch.stack(
             [value.predicted_dynamic_mount_wrench_b for value in solutions]
         )
-        references = tuple(
-            ArmReference(q_ref=value.q_ref, qd_ref=value.qd_ref)
-            for value in solutions
-        )
+        references = []
+        for env_id, (value, state, teacher) in enumerate(
+            zip(solutions, self.states, self.teachers)
+        ):
+            if value.diagnostics.fallback_used:
+                reference = ArmReference(
+                    q_ref=value.q_ref,
+                    qd_ref=torch.zeros_like(value.qd_ref),
+                )
+            else:
+                mpc_input = self._mpc_inputs[env_id]
+                assert mpc_input is not None
+                position_acceleration = (
+                    teacher.cfg.arm_position_gain
+                    * (value.q_ref - state.controlled_q[-7:])
+                )
+                velocity_reference = (
+                    value.qdd[0] - position_acceleration
+                ) / teacher.cfg.arm_velocity_gain
+                reference = ArmReference(
+                    q_ref=value.q_ref,
+                    qd_ref=torch.clamp(
+                        velocity_reference,
+                        min=-mpc_input.qd_max,
+                        max=mpc_input.qd_max,
+                    ),
+                )
+            references.append(reference)
+        references = tuple(references)
+        predicted_values = []
+        for env_id, (solution, reference, state, mpc_input, teacher) in enumerate(
+            zip(solutions, references, self.states, self._mpc_inputs, self.teachers)
+        ):
+            if solution.diagnostics.fallback_used or mpc_input is None:
+                predicted_values.append(torch.zeros(6, dtype=torch.float64))
+                continue
+            arm_acceleration_reference = (
+                teacher.cfg.arm_position_gain
+                * (reference.q_ref - state.controlled_q[-7:])
+                + teacher.cfg.arm_velocity_gain
+                * (reference.qd_ref - state.controlled_qd[-7:])
+            )
+            predicted_values.append(
+                -(mpc_input.base_arm_coupling @ arm_acceleration_reference)
+            )
+        predicted = torch.stack(predicted_values)
         measured = torch.stack(
             [adapter.read_mount_wrench_b() for adapter in self.adapters]
         )
@@ -284,7 +395,10 @@ class M1PandaArmMpcResidualRuntime:
         commands = step.teacher_commands
         effort = torch.stack([command.effort for command in commands])
         self._last_measured = measured.clone()
+        self._last_dynamic_measured = step.corrected_mount_wrench_b.clone()
         self._last_predicted = predicted.clone()
+        self._last_planned_predicted = planned_predicted.clone()
+        self._last_correction = step.correction_wrench_b.clone()
         self._last_effort = effort.clone()
         self._last_qp_feasible = torch.tensor(
             [bool(command.qp_result.success) for command in commands], dtype=torch.bool
@@ -296,7 +410,7 @@ class M1PandaArmMpcResidualRuntime:
                 torch.minimum(q - state.coord_q_min[-7:], state.coord_q_max[-7:] - q)
             )
         joint_margin = torch.stack(joint_margins)
-        ee_error = self._targets - torch.stack([state.ee_pose for state in self.states])
+        ee_error = self._targets - self._current_ee_pose_b
         signals = ResidualRewardSignals(
             roll=torch.tensor([state.roll for state in self.states], dtype=torch.float64),
             pitch=torch.tensor([state.pitch for state in self.states], dtype=torch.float64),
@@ -350,11 +464,43 @@ class M1PandaArmMpcResidualRuntime:
         if any(value is None for value in self._solutions):
             raise RuntimeError("diagnostics require at least one completed MPC plan")
         solutions = self._solutions
+        mpc_inputs = self._mpc_inputs
+        if any(value is None for value in mpc_inputs):
+            raise RuntimeError("diagnostics require at least one completed MPC input")
+        actual_dynamic_wrench = torch.stack(
+            [
+                -(value.base_arm_coupling @ self._actual_arm_qdd[index])
+                for index, value in enumerate(mpc_inputs)
+            ]
+        )
         return {
             "measured_mount_wrench_b": self._last_measured.clone(),
+            "dynamic_measured_mount_wrench_b": self._last_dynamic_measured.clone(),
             "predicted_mount_wrench_b": self._last_predicted.clone(),
+            "planned_predicted_mount_wrench_b": self._last_planned_predicted.clone(),
             "target_pose": self._targets.clone(),
             "effort": self._last_effort.clone(),
+            "arm_q": torch.stack([state.coord_q[-7:] for state in self.states]),
+            "arm_q_ref": torch.stack([value.q_ref for value in solutions]),
+            "arm_qd_ref": torch.stack([value.qd_ref for value in solutions]),
+            "arm_qdd_first": torch.stack([value.qdd[0] for value in solutions]),
+            "actual_arm_qdd": self._actual_arm_qdd.clone(),
+            "actual_dynamic_mount_wrench_b": actual_dynamic_wrench,
+            "predicted_ee_pose_first": torch.stack(
+                [value.predicted_pose_b[0] for value in solutions]
+            ),
+            "predicted_ee_pose_terminal": torch.stack(
+                [value.predicted_pose_b[-1] for value in solutions]
+            ),
+            "replan_start_ee_pose": self._replan_start_ee_pose.clone(),
+            "current_ee_pose": self._current_ee_pose_b.clone(),
+            "root_xy": torch.stack([state.coord_q[:2] for state in self.states]),
+            "initial_root_xy": self._initial_root_xy.clone(),
+            "base_bias_wrench": torch.stack(
+                [state.wbc_input.bias_force[:6] for state in self.states]
+            ),
+            "arm_jacobian": self._current_arm_jacobian_b.clone(),
+            "correction_wrench_b": self._last_correction.clone(),
             "mpc_fallback": torch.tensor(
                 [value.diagnostics.fallback_used for value in solutions],
                 dtype=torch.bool,
@@ -376,7 +522,7 @@ class M1PandaArmMpcResidualRuntime:
             margin = torch.minimum(
                 q - state.coord_q_min[-7:], state.coord_q_max[-7:] - q
             )
-            ee_error = self._targets[env_id] - state.ee_pose
+            ee_error = self._targets[env_id] - self._current_ee_pose_b[env_id]
             m1 = torch.cat(
                 (
                     state.controlled_q,

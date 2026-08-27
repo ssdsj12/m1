@@ -123,6 +123,33 @@ def test_adapter_rejects_out_of_range_environment_index():
         PhysxTeacherAdapter(_fake_env(2), env_index=2)
 
 
+def test_adapter_rebases_all_reset_relative_references_atomically():
+    env = _fake_env(2)
+    adapter = PhysxTeacherAdapter(env, env_index=1)
+    adapter._previous_contact_jacobian = torch.ones((12, 31), dtype=torch.float64)
+    env.scene["robot"].data.root_pos_w[1] = torch.tensor([7.0, 8.0, 9.0])
+    env.scene["robot"].data.root_quat_w[1] = torch.tensor([0.0, 1.0, 0.0, 0.0])
+    env.scene["robot"].data.body_quat_w[1, adapter.hand_body_id] = torch.tensor(
+        [0.0, 0.0, 1.0, 0.0]
+    )
+    env.scene["robot"].data.joint_pos[1, adapter.joint_map.panda_arm] += 5.0
+
+    adapter.rebase_reference()
+
+    torch.testing.assert_close(
+        adapter._initial_root_pos,
+        torch.tensor([7.0, 8.0, 9.0], dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        adapter._initial_root_quat, torch.tensor([0.0, 1.0, 0.0, 0.0])
+    )
+    torch.testing.assert_close(
+        adapter._initial_hand_quat, torch.tensor([0.0, 0.0, 1.0, 0.0])
+    )
+    assert torch.all(adapter._initial_arm_q >= 105.0)
+    assert adapter._previous_contact_jacobian is None
+
+
 class _FakeTeacher:
     def __init__(self, index: int):
         self.index = index

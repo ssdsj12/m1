@@ -364,6 +364,13 @@ class M1PandaWbcTeacher:
             distribution = self._zero_distribution(state)
             self._last_distribution = distribution
             self._coord_velocity.zero_()
+        elif arm_reference is not None:
+            # An external arm planner owns the Panda target.  Keep the M1 base
+            # stationary instead of simultaneously following this Teacher's
+            # independent internal EE trajectory.
+            distribution = self._zero_distribution(state)
+            self._last_distribution = distribution
+            self._coord_velocity.zero_()
         elif (
             self._last_distribution is None
             or state.physics_step == self.cfg.warmup_steps

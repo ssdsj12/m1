@@ -112,6 +112,9 @@ def compute_residual_reward(signals: ResidualRewardSignals) -> ResidualReward:
 class SmallEeTrajectory:
     """Deterministic stationary-base six-axis target with approved small bounds."""
 
+    _BIAS_WARMUP_S = 0.32
+    _RAMP_S = 0.20
+
     def __init__(self, *, seed: int, scale: float) -> None:
         if not isinstance(seed, int) or isinstance(seed, bool):
             raise TypeError("seed must be an integer")
@@ -130,11 +133,48 @@ class SmallEeTrajectory:
             raise ValueError("center must contain only finite values")
         if isinstance(time_s, bool) or not isinstance(time_s, (int, float)) or not math.isfinite(float(time_s)) or float(time_s) < 0.0:
             raise ValueError("time_s must be finite and non-negative")
+        if float(time_s) <= self._BIAS_WARMUP_S:
+            return center.clone()
+        local_time = float(time_s) - self._BIAS_WARMUP_S
+        ramp = (
+            0.5 - 0.5 * math.cos(math.pi * local_time / self._RAMP_S)
+            if local_time < self._RAMP_S
+            else 1.0
+        )
         amplitude = center.new_tensor((0.03, 0.03, 0.03, 0.08, 0.08, 0.08))
         phase = self._phase.to(device=center.device, dtype=center.dtype)
         frequency = self._frequency.to(device=center.device, dtype=center.dtype)
-        return center + self._scale * amplitude * torch.sin(
-            2.0 * torch.pi * frequency * float(time_s) + phase
+        angle = 2.0 * torch.pi * frequency * local_time
+        return center + 0.5 * self._scale * amplitude * ramp * (
+            torch.sin(angle + phase) - torch.sin(phase)
+        )
+
+    def sample_twist(self, center: torch.Tensor, time_s: float) -> torch.Tensor:
+        """Return the analytic derivative of :meth:`sample`."""
+
+        self.sample(center, time_s)
+        if float(time_s) <= self._BIAS_WARMUP_S:
+            return torch.zeros_like(center)
+        local_time = float(time_s) - self._BIAS_WARMUP_S
+        if local_time < self._RAMP_S:
+            ramp = 0.5 - 0.5 * math.cos(math.pi * local_time / self._RAMP_S)
+            ramp_rate = (
+                0.5
+                * math.pi
+                / self._RAMP_S
+                * math.sin(math.pi * local_time / self._RAMP_S)
+            )
+        else:
+            ramp = 1.0
+            ramp_rate = 0.0
+        amplitude = center.new_tensor((0.03, 0.03, 0.03, 0.08, 0.08, 0.08))
+        phase = self._phase.to(device=center.device, dtype=center.dtype)
+        frequency = self._frequency.to(device=center.device, dtype=center.dtype)
+        angular_frequency = 2.0 * torch.pi * frequency
+        angle = angular_frequency * local_time
+        wave = torch.sin(angle + phase) - torch.sin(phase)
+        return 0.5 * self._scale * amplitude * (
+            ramp_rate * wave + ramp * angular_frequency * torch.cos(angle + phase)
         )
 
 
