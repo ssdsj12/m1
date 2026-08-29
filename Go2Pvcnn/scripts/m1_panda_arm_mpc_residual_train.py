@@ -81,6 +81,13 @@ def resolve_max_iterations(stage: str, requested: int | None) -> int:
     return value
 
 
+def is_safe_completion(stop_reason: str | None) -> bool:
+    """Treat the runner's empty reason as normal requested completion."""
+    if stop_reason is not None and not isinstance(stop_reason, str):
+        raise TypeError("stop_reason must be a string or None")
+    return stop_reason is None or stop_reason == ""
+
+
 def _resolve_manifest_path(raw_path: object, *, parent: Path, label: str) -> Path:
     if not isinstance(raw_path, str) or not raw_path:
         raise ValueError(f"{label} must be a non-empty path")
@@ -426,7 +433,7 @@ def main() -> int:
             init_at_random_ep_len=False,
             iteration_callback=lambda summary: controller.on_iteration(runner, summary),
         )
-        safe_complete = result.stop_reason is None
+        safe_complete = is_safe_completion(result.stop_reason)
         candidate_records = [
             {
                 "completed_updates": updates,

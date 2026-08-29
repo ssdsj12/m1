@@ -63,6 +63,14 @@ def test_train_cli_defaults_to_bounded_short_gate():
         module.resolve_max_iterations("short", 99)
 
 
+def test_runner_empty_stop_reason_is_safe_requested_completion():
+    module = _load_script()
+
+    assert module.is_safe_completion("") is True
+    assert module.is_safe_completion(None) is True
+    assert module.is_safe_completion("hard_failure") is False
+
+
 def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
     module = _load_script()
     asset = tmp_path / "robot.usd"
