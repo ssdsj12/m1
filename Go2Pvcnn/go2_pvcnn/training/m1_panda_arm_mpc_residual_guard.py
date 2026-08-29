@@ -122,6 +122,25 @@ class ResidualTrainingGuard:
         )
 
 
+class ResidualTrainingSafetyGuard:
+    """Fail-closed online safety checks without performance ranking state."""
+
+    def observe(self, metrics: ResidualEvalMetrics) -> str | None:
+        if not isinstance(metrics, ResidualEvalMetrics):
+            raise TypeError("metrics must be ResidualEvalMetrics")
+        if metrics.hard_failure_count > 0:
+            return "hard_failure"
+        if metrics.mpc_feasible_rate < 0.99:
+            return "mpc_infeasible"
+        if metrics.qp_feasible_rate < 1.0:
+            return "qp_infeasible"
+        if metrics.four_contact_rate < 1.0:
+            return "lost_wheel_contact"
+        if max(metrics.saturation_fraction) >= 0.01:
+            return "residual_saturation"
+        return None
+
+
 def write_residual_manifest(
     target: str | os.PathLike[str], *, guard: ResidualTrainingGuard, stop_reason: str
 ) -> None:
@@ -156,5 +175,6 @@ def write_residual_manifest(
 
 __all__ = [
     "ResidualEvalMetrics", "ResidualGuardDecision", "ResidualTrainingGuard",
+    "ResidualTrainingSafetyGuard",
     "metrics_better", "write_residual_manifest",
 ]

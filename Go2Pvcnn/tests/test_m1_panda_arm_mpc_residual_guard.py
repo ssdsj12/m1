@@ -1,8 +1,11 @@
 import json
 
+import pytest
+
 from go2_pvcnn.training.m1_panda_arm_mpc_residual_guard import (
     ResidualEvalMetrics,
     ResidualTrainingGuard,
+    ResidualTrainingSafetyGuard,
     metrics_better,
     write_residual_manifest,
 )
@@ -70,3 +73,25 @@ def test_manifest_records_eligible_best(tmp_path):
     assert payload["accepted"] is True
     assert payload["best_iteration"] == 7
     assert payload["best_checkpoint"] == "model_7.pt"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"hard_failure_count": 1}, "hard_failure"),
+        ({"mpc_feasible_rate": 0.98}, "mpc_infeasible"),
+        ({"qp_feasible_rate": 0.999}, "qp_infeasible"),
+        ({"four_contact_rate": 0.999}, "lost_wheel_contact"),
+        ({"saturation_fraction": (0.01,) + (0.0,) * 7}, "residual_saturation"),
+    ],
+)
+def test_training_safety_guard_stops_only_on_physical_gates(overrides, reason):
+    guard = ResidualTrainingSafetyGuard()
+
+    assert guard.observe(_metrics(**overrides)) == reason
+
+
+def test_training_safety_guard_does_not_rank_trajectory_error():
+    guard = ResidualTrainingSafetyGuard()
+
+    assert guard.observe(_metrics(ee_position_error=0.02)) is None
