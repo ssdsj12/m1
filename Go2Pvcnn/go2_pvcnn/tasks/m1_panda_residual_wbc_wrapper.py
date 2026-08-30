@@ -67,6 +67,16 @@ class M1PandaResidualWbcController:
         return self._composer.previous_physical
 
     @property
+    def wrench_scale(self) -> torch.Tensor:
+        """Return the composer-owned physical scale for six-axis residuals."""
+
+        return torch.tensor(
+            self._composer.cfg.physical_limits[:6],
+            dtype=self.dtype,
+            device=self.device,
+        )
+
+    @property
     def filtered_mount_wrench_b(self) -> torch.Tensor:
         return self._feedback.filtered_wrench
 

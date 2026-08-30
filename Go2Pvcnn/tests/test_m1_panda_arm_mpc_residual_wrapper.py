@@ -1,7 +1,9 @@
 import gymnasium as gym
 import pytest
 import torch
+from types import SimpleNamespace
 
+import go2_pvcnn.tasks.m1_panda_arm_mpc_residual_wrapper as residual_wrapper
 from go2_pvcnn.tasks.m1_panda_arm_mpc_residual_wrapper import (
     M1PandaArmMpcResidualEnvWrapper,
     M1PandaArmMpcResidualRuntime,
@@ -13,7 +15,7 @@ class _ActionManager:
 
 
 class _FakeEnv:
-    def __init__(self):
+    def __init__(self, events=None):
         self.num_envs = 2
         self.device = "cpu"
         self.max_episode_length = 100
@@ -23,11 +25,13 @@ class _FakeEnv:
         self.unwrapped = self
         self.cfg = object()
         self.episode_length_buf = torch.zeros(2, dtype=torch.long)
+        self.events = [] if events is None else events
 
     def reset(self):
         return {"policy": torch.zeros(2, 1)}, {}
 
     def step(self, effort):
+        self.events.append("env.step")
         self.last_effort = effort.clone()
         terminated = torch.tensor([False, True])
         truncated = torch.zeros(2, dtype=torch.bool)
@@ -35,22 +39,39 @@ class _FakeEnv:
 
 
 class _FakeRuntime:
-    def __init__(self):
+    def __init__(self, events=None):
         self.num_envs = 2
         self.steps = []
         self.reset_ids = []
+        self.events = [] if events is None else events
+        self._reward = torch.tensor([1.0, 2.0])
+        self._metrics = {}
 
     def reset(self, env_ids=None):
         self.reset_ids.append(None if env_ids is None else env_ids.clone())
+        if env_ids is not None:
+            ids = torch.as_tensor(env_ids).reshape(-1).tolist()
+            self.events.append(f"reset:{ids}")
 
     def observations(self):
         return torch.zeros(2, 103)
 
-    def compute(self, actions, physics_step):
+    def compute_action(self, actions, physics_step):
+        self.events.append(f"compute_action:{physics_step}")
         self.steps.append((physics_step, actions.clone(), physics_step % 4 == 0))
         effort = torch.full((2, 23), float(physics_step + 1))
-        reward = torch.tensor([1.0, 2.0])
-        return effort, reward, {"mpc_replanned": float(physics_step % 4 == 0)}
+        self._metrics = {"mpc_replanned": float(physics_step % 4 == 0)}
+        return effort
+
+    def refresh(self, physics_step):
+        self.events.append(f"refresh:{physics_step}")
+
+    def compute_transition_reward(self):
+        self.events.append("compute_transition_reward")
+        return self._reward.clone(), dict(self._metrics)
+
+    def get_training_diagnostics(self):
+        return {"samples": 10.0}
 
 
 def test_wrapper_exposes_only_8_actions_and_exact_103_observations():
@@ -85,6 +106,27 @@ def test_wrapper_runs_four_step_mpc_cadence_and_writes_private_23d_effort():
     assert torch.equal(runtime.reset_ids[-1], torch.tensor([1]))
 
 
+def test_wrapper_finalizes_reward_after_physics_and_before_done_reset():
+    events = []
+    env = _FakeEnv(events=events)
+    runtime = _FakeRuntime(events=events)
+    wrapper = M1PandaArmMpcResidualEnvWrapper(env, runtime=runtime)
+    wrapper.reset()
+    events.clear()
+
+    _, reward, dones, _ = wrapper.step(torch.zeros(2, 8))
+
+    assert events == [
+        "compute_action:0",
+        "env.step",
+        "refresh:1",
+        "compute_transition_reward",
+        "reset:[1]",
+    ]
+    assert reward.tolist() == [1.0, 2.0]
+    assert dones.tolist() == [False, True]
+
+
 def test_wrapper_rejects_wrong_or_nonfinite_public_action_atomically():
     env = _FakeEnv()
     runtime = _FakeRuntime()
@@ -99,15 +141,44 @@ def test_wrapper_rejects_wrong_or_nonfinite_public_action_atomically():
     assert runtime.steps == []
 
 
+def test_zero_stage_forces_exact_zero_residual_before_runtime():
+    env = _FakeEnv()
+    runtime = _FakeRuntime()
+    wrapper = M1PandaArmMpcResidualEnvWrapper(
+        env, runtime=runtime, force_zero_residual=True
+    )
+    wrapper.reset()
+
+    wrapper.step(torch.ones((2, 8)))
+
+    assert torch.equal(runtime.steps[-1][1], torch.zeros((2, 8)))
+
+
+def test_wrapper_exposes_runtime_training_diagnostics():
+    wrapper = M1PandaArmMpcResidualEnvWrapper(_FakeEnv(), runtime=_FakeRuntime())
+
+    assert wrapper.get_training_diagnostics() == {"samples": 10.0}
+
+
 class _PhysicalEnv:
     num_envs = 1
     device = "cpu"
+
+    def __init__(self, *, dt=0.0025, decimation=2):
+        self.cfg = SimpleNamespace(
+            sim=SimpleNamespace(dt=dt),
+            decimation=decimation,
+        )
 
 
 class _PhysicalAdapter:
     def __init__(self):
         self.state = _physical_state()
         self.rebase_count = 0
+        self.pose = torch.tensor(
+            [0.25, -0.1, 0.5, 0.0, 0.0, 0.0], dtype=torch.float64
+        )
+        self.mount_wrench = torch.zeros(6, dtype=torch.float64)
 
     def rebase_reference(self):
         self.rebase_count += 1
@@ -134,14 +205,11 @@ class _PhysicalAdapter:
 
     def arm_mpc_kinematics_b(self, state):
         del state
-        pose = torch.tensor(
-            [0.25, -0.1, 0.5, 0.0, 0.0, 0.0], dtype=torch.float64
-        )
         jacobian = torch.zeros((6, 7), dtype=torch.float64)
-        return pose, jacobian
+        return self.pose.clone(), jacobian
 
     def read_mount_wrench_b(self):
-        return torch.zeros(6, dtype=torch.float64)
+        return self.mount_wrench.clone()
 
     def leg_soft_limits(self):
         return torch.tensor([[-1.0, 1.0]] * 12, dtype=torch.float64)
@@ -228,7 +296,7 @@ def _physical_state():
     return state
 
 
-def test_physical_runtime_replans_every_four_steps_and_builds_exact_public_contract():
+def _make_physical_runtime(*, dt=0.0025, decimation=2):
     adapters = []
     planners = []
 
@@ -243,13 +311,123 @@ def test_physical_runtime_replans_every_four_steps_and_builds_exact_public_contr
         return planner
 
     runtime = M1PandaArmMpcResidualRuntime(
-        _PhysicalEnv(),
+        _PhysicalEnv(dt=dt, decimation=decimation),
         seed=42,
         trajectory_scale=0.1,
         adapter_factory=adapter_factory,
         teacher_factory=lambda state, env_id: _PhysicalTeacher(),
         planner_factory=planner_factory,
     )
+    return runtime, adapters, planners
+
+
+def test_runtime_resolves_exact_200_hz_control_dt():
+    runtime, _, _ = _make_physical_runtime()
+
+    assert runtime.control_dt == pytest.approx(0.005)
+
+
+@pytest.mark.parametrize(
+    ("dt", "decimation"),
+    ((0.0, 2), (float("nan"), 2), (0.0025, 0)),
+)
+def test_runtime_rejects_invalid_control_interval(dt, decimation):
+    with pytest.raises(ValueError, match="control interval"):
+        _make_physical_runtime(dt=dt, decimation=decimation)
+
+
+def test_runtime_scales_only_ppo_reward_by_control_dt(monkeypatch):
+    reward_density = torch.tensor([7.0], dtype=torch.float64)
+    monkeypatch.setattr(
+        residual_wrapper,
+        "compute_residual_reward",
+        lambda signals: SimpleNamespace(total=reward_density.clone()),
+    )
+    runtime, adapters, _ = _make_physical_runtime()
+    runtime.reset()
+    runtime.compute_action(torch.zeros(1, 8), physics_step=0)
+    adapters[0].mount_wrench[0] = 30.0
+    expected_wrench_error = torch.linalg.vector_norm(
+        adapters[0].mount_wrench[None]
+        - runtime._pending_transition.predicted_wrench_b,
+        dim=1,
+    ).item()
+    runtime.refresh(1)
+
+    reward, _ = runtime.compute_transition_reward()
+    diagnostics = runtime.get_training_diagnostics()
+
+    torch.testing.assert_close(reward, reward_density * 0.005)
+    assert diagnostics["wrench_error"] == pytest.approx(expected_wrench_error)
+
+
+def test_runtime_requires_matching_post_step_refresh_before_transition_reward():
+    runtime, _, _ = _make_physical_runtime()
+    runtime.reset()
+
+    effort = runtime.compute_action(torch.zeros(1, 8), physics_step=0)
+
+    assert effort.shape == (1, 23)
+    with pytest.raises(RuntimeError, match="post-step refresh"):
+        runtime.compute_transition_reward()
+    with pytest.raises(RuntimeError, match="pending transition"):
+        runtime.compute_action(torch.zeros(1, 8), physics_step=0)
+
+
+def test_runtime_advances_residual_history_only_after_reward_finalization():
+    runtime, _, _ = _make_physical_runtime()
+    runtime.reset()
+    action = torch.full((1, 8), 0.25)
+
+    runtime.compute_action(action, physics_step=0)
+
+    assert torch.equal(
+        runtime._previous_normalized,
+        torch.zeros((1, 8), dtype=torch.float64),
+    )
+    runtime.refresh(1)
+    reward, metrics = runtime.compute_transition_reward()
+    torch.testing.assert_close(
+        runtime._previous_normalized, action.to(dtype=torch.float64)
+    )
+    assert reward.shape == (1,)
+    assert metrics["mpc_feasible_rate"] == 1.0
+
+
+def test_runtime_reward_uses_post_transition_tilt_ee_pose_and_wrench():
+    nominal, nominal_adapters, _ = _make_physical_runtime()
+    nominal.reset()
+    nominal.compute_action(torch.zeros(1, 8), physics_step=0)
+    nominal.refresh(1)
+    nominal_reward, _ = nominal.compute_transition_reward()
+
+    changed, changed_adapters, _ = _make_physical_runtime()
+    changed.reset()
+    changed.compute_action(torch.zeros(1, 8), physics_step=0)
+    changed_adapters[0].state.roll = 0.15
+    changed_adapters[0].pose[0] += 0.03
+    changed_adapters[0].mount_wrench[0] = 30.0
+    changed.refresh(1)
+    changed_reward, _ = changed.compute_transition_reward()
+
+    assert changed_reward.item() < nominal_reward.item()
+    torch.testing.assert_close(
+        changed._last_measured,
+        torch.tensor([[30.0, 0.0, 0.0, 0.0, 0.0, 0.0]], dtype=torch.float64),
+    )
+
+
+def test_runtime_rejects_reset_until_pending_transition_is_finalized():
+    runtime, _, _ = _make_physical_runtime()
+    runtime.reset()
+    runtime.compute_action(torch.zeros(1, 8), physics_step=0)
+
+    with pytest.raises(RuntimeError, match="pending transition"):
+        runtime.reset()
+
+
+def test_physical_runtime_replans_every_four_steps_and_builds_exact_public_contract():
+    runtime, adapters, planners = _make_physical_runtime()
     runtime.reset()
 
     assert adapters[0].rebase_count == 1
@@ -258,10 +436,20 @@ def test_physical_runtime_replans_every_four_steps_and_builds_exact_public_contr
         torch.tensor([0.25, -0.1, 0.5, 0.0, 0.0, 0.0], dtype=torch.float64),
     )
     assert runtime.controller._feedback.cfg.bias_warmup_samples == 64
+    torch.testing.assert_close(
+        runtime.controller.wrench_scale,
+        torch.tensor(
+            [30.0, 30.0, 50.0, 15.0, 15.0, 8.0], dtype=torch.float64
+        ),
+    )
+    assert runtime._rne_feedback.cfg.bias_warmup_samples == 1
+    assert runtime._rne_feedback.cfg.filter_alpha == 0.5
+    assert runtime._rne_sensor_delay_steps == 3
 
     for step in range(5):
-        effort, reward, metrics = runtime.compute(torch.zeros(1, 8), step)
+        effort = runtime.compute_action(torch.zeros(1, 8), step)
         runtime.refresh(step + 1)
+        reward, metrics = runtime.compute_transition_reward()
 
     assert planners[0].calls == 2
     references = runtime.teachers[0].arm_references[:4]
@@ -283,9 +471,13 @@ def test_physical_runtime_replans_every_four_steps_and_builds_exact_public_contr
     assert snapshot["predicted_mount_wrench_b"].shape == (1, 6)
     torch.testing.assert_close(
         snapshot["predicted_mount_wrench_b"],
-        -torch.ones((1, 6), dtype=torch.float64),
+        torch.full((1, 6), 0.009, dtype=torch.float64),
     )
     assert snapshot["planned_predicted_mount_wrench_b"].tolist() == [[9.0] * 6]
+    torch.testing.assert_close(
+        snapshot["controller_predicted_mount_wrench_b"],
+        -torch.ones((1, 6), dtype=torch.float64),
+    )
     assert snapshot["target_pose"].shape == (1, 6)
     assert snapshot["effort"].shape == (1, 23)
     assert snapshot["arm_q"].shape == (1, 7)
@@ -304,3 +496,23 @@ def test_physical_runtime_replans_every_four_steps_and_builds_exact_public_contr
     assert snapshot["base_bias_wrench"].shape == (1, 6)
     assert snapshot["correction_wrench_b"].shape == (1, 6)
     assert snapshot["mpc_fallback"].tolist() == [False]
+    training = runtime.get_training_diagnostics()
+    required = {
+        "hard_failure_count",
+        "mpc_feasible_rate",
+        "qp_feasible_rate",
+        "four_contact_rate",
+        "roll_pitch_rms",
+        "base_height_rms",
+        "ee_position_error",
+        "ee_orientation_error",
+        "wrench_error",
+        "normalized_wrench_error",
+        "slip",
+        "intervention_ratio",
+        *(f"saturation_fraction_{index}" for index in range(8)),
+    }
+    assert required <= set(training)
+    assert training["mpc_feasible_rate"] == 1.0
+    assert training["qp_feasible_rate"] == 1.0
+    assert training["four_contact_rate"] == 1.0

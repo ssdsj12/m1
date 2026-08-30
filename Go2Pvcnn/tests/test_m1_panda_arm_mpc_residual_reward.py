@@ -4,6 +4,7 @@ from go2_pvcnn.tasks.mdp.m1_panda_arm_mpc_residual import (
     ResidualRewardSignals,
     SmallEeTrajectory,
     compute_residual_reward,
+    normalized_wrench_error,
     stability_gate,
 )
 
@@ -19,7 +20,7 @@ def _signals(**overrides):
         hard_failure=torch.zeros(2),
         ee_position_error=torch.full((2,), 0.01),
         ee_orientation_error=torch.full((2,), 0.04),
-        wrench_error=torch.full((2,), 0.1),
+        normalized_wrench_error=torch.full((2,), 0.1),
         wheel_slip=torch.zeros(2),
         residual=torch.zeros((2, 8)),
         previous_residual=torch.zeros((2, 8)),
@@ -27,6 +28,23 @@ def _signals(**overrides):
     )
     values.update(overrides)
     return ResidualRewardSignals(**values)
+
+
+def test_wrench_error_uses_physical_channel_scales():
+    error = torch.tensor([[30.0, 0.0, 0.0, 0.0, 0.0, 8.0]])
+    scale = torch.tensor([30.0, 30.0, 50.0, 15.0, 15.0, 8.0])
+
+    actual = normalized_wrench_error(error, scale)
+
+    torch.testing.assert_close(actual, torch.tensor([2.0**0.5]))
+
+
+def test_wrench_tracking_penalty_is_bounded():
+    signals = _signals(normalized_wrench_error=torch.full((2,), 1.0e9))
+
+    reward = compute_residual_reward(signals)
+
+    torch.testing.assert_close(reward.tracking_penalty, torch.full((2,), -0.2))
 
 
 def test_stability_gate_is_bounded_and_closes_on_contact_loss():

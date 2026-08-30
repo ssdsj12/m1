@@ -63,6 +63,14 @@ def test_iteration_summary_and_learn_result_are_frozen() -> None:
         result.stop_reason = "changed"
 
 
+def test_iteration_summary_exposes_finite_value_loss_for_pilot_gate() -> None:
+    fields = {field.name for field in dataclasses.fields(IterationSummary)}
+    source = Path(on_policy_runner.__file__).read_text(encoding="utf-8")
+
+    assert "value_loss" in fields
+    assert 'value_loss=_finite_float(mean_value_loss, label="value loss")' in source
+
+
 def test_callback_is_optional_and_default_save_loop_is_preserved() -> None:
     signature = inspect.signature(on_policy_runner.OnPolicyRunner.learn)
     source = Path(on_policy_runner.__file__).read_text(encoding="utf-8")

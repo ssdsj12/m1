@@ -22,6 +22,12 @@ for path in (ROOT, ROOT / "rsl_rl"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from go2_pvcnn.training.m1_panda_arm_mpc_residual_lineage import (
+    ResidualSourcePaths,
+    sha256_file,
+    source_lineage,
+)
+
 
 TASK_ID = "Isaac-M1-Panda-ArmMpc-Residual-v0"
 
@@ -92,7 +98,7 @@ def _rollout(wrapper, *, steps: int, policy=None):
         actions = (
             torch.zeros((wrapper.num_envs, 8), device=wrapper.device)
             if policy is None
-            else policy.act_inference(observations)
+            else policy(observations)
         )
         observations, _, _, _ = wrapper.step(actions)
     return _metrics(wrapper.get_training_diagnostics())
@@ -117,10 +123,15 @@ def main() -> int:
         if args.output_json is None
         else args.output_json.expanduser().resolve()
     )
-    from m1_panda_arm_mpc_residual_train import sha256_file
+    source_paths = ResidualSourcePaths(
+        ROOT / "assets/m1_panda/m1_panda.usd",
+        ROOT / "agent/m1_panda_arm_mpc_residual_train_cfg.py",
+        ROOT / "go2_pvcnn/tasks/mdp/m1_panda_arm_mpc_residual.py",
+        ROOT / "go2_pvcnn/tasks/m1_panda_arm_mpc_residual_wrapper.py",
+    )
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "starting",
         "mode": args.mode,
         "task": TASK_ID,
@@ -130,6 +141,7 @@ def main() -> int:
         "seed": args.seed,
         "steps": args.steps,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        **source_lineage(source_paths),
     }
     atomic_write_json(output, manifest)
 
@@ -164,7 +176,7 @@ def main() -> int:
                 device=args.device,
             )
             runner.load(str(checkpoint), load_optimizer=False, keep_std=True)
-            policy = runner.alg.actor_critic
+            policy = runner.get_inference_policy(device=args.device)
         baseline = _rollout(wrapper, steps=args.steps, policy=None)
         candidate = _rollout(wrapper, steps=args.steps, policy=policy)
         manifest.update(

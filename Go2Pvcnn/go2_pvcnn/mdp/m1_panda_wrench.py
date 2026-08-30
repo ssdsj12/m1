@@ -33,11 +33,13 @@ def m1_panda_mount_wrench_b(
     mount_body_name: str = "panda_link0",
     base_body_name: str = "BASE_LINK",
 ) -> torch.Tensor:
-    """Return the parent-on-child mount wrench about the base origin in the base frame.
+    """Return the Panda-on-M1 reaction wrench about the base origin.
 
-    PhysX reports the raw incoming wrench in the incoming joint frame about the joint
-    origin. The combined asset contract makes that child-side frame coincide with the
-    ``panda_link0`` actor frame, so the mount pose converts the raw vectors to world.
+    PhysX reports the parent-on-child incoming wrench in the child joint frame about
+    the joint origin.  The controller contract uses the equal-and-opposite
+    child-on-parent reaction, so both raw force and torque are negated before the
+    frame/origin conversion.  The combined asset contract makes the child joint frame
+    coincide with the ``panda_link0`` actor frame.
     """
     robot = env.scene[asset_cfg.name]
     mount_ids, mount_names = robot.find_bodies(mount_body_name, preserve_order=True)
@@ -54,8 +56,8 @@ def m1_panda_mount_wrench_b(
     base_id = base_ids[0]
     incoming = robot.root_physx_view.get_link_incoming_joint_force()[:, mount_id, :]
     mount_quat_w = robot.data.body_quat_w[:, mount_id]
-    force_w = math_utils.quat_rotate(mount_quat_w, incoming[:, :3])
-    torque_w = math_utils.quat_rotate(mount_quat_w, incoming[:, 3:6])
+    force_w = math_utils.quat_rotate(mount_quat_w, -incoming[:, :3])
+    torque_w = math_utils.quat_rotate(mount_quat_w, -incoming[:, 3:6])
     return shift_rotate_wrench_to_base(
         force_w,
         torque_w,

@@ -254,7 +254,7 @@ def test_body_jacobian_offsets_body_id_when_physx_omits_root_link():
     assert torch.equal(selected, jacobians[0, 1])
 
 
-def test_bias_reader_upgrades_legacy_joint_only_physx_forces_to_floating_base():
+def test_bias_reader_prefers_full_physx_51_compensation_without_deprecated_calls():
     module = _load_script()
 
     class RootView:
@@ -283,8 +283,6 @@ def test_bias_reader_upgrades_legacy_joint_only_physx_forces_to_floating_base():
     assert result.dtype == torch.float64
     assert torch.equal(result, torch.full((31,), 7.0, dtype=torch.float64))
     assert root_view.calls == [
-        "legacy_coriolis",
-        "legacy_gravity",
         "full_coriolis",
         "full_gravity",
     ]

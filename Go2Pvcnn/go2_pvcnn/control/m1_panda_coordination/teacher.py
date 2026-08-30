@@ -70,6 +70,7 @@ class ArmReference:
 
     q_ref: torch.Tensor
     qd_ref: torch.Tensor
+    qdd_ref: torch.Tensor | None = None
 
     def __post_init__(self) -> None:
         for name, value in (("q_ref", self.q_ref), ("qd_ref", self.qd_ref)):
@@ -82,6 +83,16 @@ class ArmReference:
             )
             if value.shape != (7,):
                 raise ValueError(f"{name} must have shape (7,)")
+        if self.qdd_ref is not None:
+            require_tensor(
+                "qdd_ref",
+                self.qdd_ref,
+                trailing_shape=(7,),
+                dtype=torch.float64,
+                device="cpu",
+            )
+            if self.qdd_ref.shape != (7,):
+                raise ValueError("qdd_ref must have shape (7,)")
 
 
 @dataclass(frozen=True)
@@ -278,6 +289,7 @@ class M1PandaWbcTeacher:
         *,
         arm_target_override: torch.Tensor | None = None,
         arm_velocity_override: torch.Tensor | None = None,
+        arm_acceleration_override: torch.Tensor | None = None,
         stop_wheels: bool = False,
     ) -> StandingWbcInput:
         distribution_dt = self.cfg.physics_dt * self.cfg.distribution_interval
@@ -302,7 +314,9 @@ class M1PandaWbcTeacher:
                 else arm_velocity_override
             )
             arm_acceleration = (
-                self.cfg.arm_position_gain
+                arm_acceleration_override.clone()
+                if arm_acceleration_override is not None
+                else self.cfg.arm_position_gain
                 * (arm_target_override - state.controlled_q[-7:])
                 + self.cfg.arm_velocity_gain
                 * (desired_velocity - state.controlled_qd[-7:])
@@ -397,6 +411,11 @@ class M1PandaWbcTeacher:
             ),
             arm_velocity_override=(
                 arm_reference.qd_ref
+                if arm_reference is not None and not high_level_hold
+                else None
+            ),
+            arm_acceleration_override=(
+                arm_reference.qdd_ref
                 if arm_reference is not None and not high_level_hold
                 else None
             ),

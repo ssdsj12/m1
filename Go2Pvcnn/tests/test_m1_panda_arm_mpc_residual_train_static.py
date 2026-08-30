@@ -7,6 +7,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+import torch
 
 from agent import get_m1_panda_arm_mpc_residual_train_cfg
 
@@ -30,6 +31,7 @@ def test_residual_ppo_config_freezes_200_hz_stability_contract():
 
     assert cfg["num_steps_per_env"] == 256
     assert cfg["max_iterations"] == 3000
+    assert cfg["empirical_normalization"] is True
     assert cfg["algorithm"]["schedule"] == "adaptive"
     assert cfg["algorithm"]["desired_kl"] == pytest.approx(0.01)
     assert cfg["algorithm"]["num_learning_epochs"] == 2
@@ -41,7 +43,7 @@ def test_residual_ppo_config_freezes_200_hz_stability_contract():
     assert cfg["algorithm"]["clip_min_std"] == pytest.approx(0.005)
     assert cfg["algorithm"]["clip_max_std"] == pytest.approx(0.02)
     assert cfg["policy"]["class_name"].endswith(".ResidualActorCritic")
-    assert cfg["policy"]["init_noise_std"] == pytest.approx(0.005)
+    assert cfg["policy"]["init_noise_std"] == pytest.approx(0.01)
 
 
 def test_train_cli_defaults_to_bounded_short_gate():
@@ -52,15 +54,90 @@ def test_train_cli_defaults_to_bounded_short_gate():
     assert args.device == "cuda:0"
     assert args.num_envs == 8
     assert args.max_iterations is None
+    assert args.pilot_manifest is None
     assert args.seed == 42
     assert args.headless is True
     assert module.resolve_max_iterations("zero", None) == 10
+    assert module.resolve_max_iterations("pilot", None) == 10
     assert module.resolve_max_iterations("short", None) == 100
     assert module.resolve_max_iterations("long", None) == 3000
     with pytest.raises(ValueError, match="short.*100"):
         module.resolve_max_iterations("short", 101)
     with pytest.raises(ValueError, match="short.*100"):
         module.resolve_max_iterations("short", 99)
+    with pytest.raises(ValueError, match="pilot.*10"):
+        module.resolve_max_iterations("pilot", 9)
+
+
+def test_pilot_controller_records_ten_updates_without_candidates(tmp_path):
+    module = _load_script()
+    controller = module.PilotTrainingController()
+    metrics = {
+        "hard_failure_count": 0.0,
+        "mpc_feasible_rate": 1.0,
+        "qp_feasible_rate": 1.0,
+        "four_contact_rate": 1.0,
+        **{f"saturation_fraction_{index}": 0.0 for index in range(8)},
+    }
+    for iteration in range(10):
+        summary = SimpleNamespace(
+            iteration=iteration,
+            learning_rate=1.0e-5,
+            value_loss=10.0,
+            kl_mean=0.005,
+            kl_max=0.01,
+            kl_aborted=False,
+            completed_mini_batches=8,
+            grad_norm=0.5,
+            active_action_std_min=0.01,
+            active_action_std_max=0.01,
+            completed_rewards=(),
+            environment_metrics=tuple(metrics.items()),
+        )
+        assert controller.on_iteration(None, summary) is None
+
+    assert controller.decision().accepted is True
+    assert len(controller.records) == 10
+    assert list(tmp_path.glob("candidate_u*.pt")) == []
+
+
+def test_short_requires_accepted_hash_matching_pilot_manifest(tmp_path):
+    module = _load_script()
+    asset = tmp_path / "robot.usd"
+    config = tmp_path / "train_cfg.py"
+    reward = tmp_path / "reward.py"
+    runtime = tmp_path / "runtime.py"
+    for path in (asset, config, reward, runtime):
+        path.write_text(path.name, encoding="utf-8")
+    paths = module.ResidualSourcePaths(asset, config, reward, runtime)
+    pilot = tmp_path / "pilot_manifest.json"
+    payload = {
+        "schema_version": 2,
+        "stage": "pilot",
+        "status": "safe_complete",
+        "accepted": False,
+        "promotion_required": False,
+        "pilot_accepted": True,
+        "completed_iterations": 10,
+        "optimizer_summaries": [{"update": update} for update in range(1, 11)],
+        "pilot_decision": {"accepted": True},
+        **module.source_lineage(paths),
+    }
+    pilot.write_text(json.dumps(payload), encoding="utf-8")
+
+    lineage = module.validate_pilot_manifest(pilot, paths)
+    assert lineage.manifest == pilot.resolve()
+
+    payload["pilot_schema_sha256"] = "0" * 64
+    pilot.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="pilot schema SHA"):
+        module.validate_pilot_manifest(pilot, paths)
+
+    payload.update(module.source_lineage(paths))
+    payload["pilot_accepted"] = False
+    pilot.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="pilot_accepted=true"):
+        module.validate_pilot_manifest(pilot, paths)
 
 
 def test_runner_empty_stop_reason_is_safe_requested_completion():
@@ -76,45 +153,101 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
     asset = tmp_path / "robot.usd"
     config = tmp_path / "train_cfg.py"
     reward = tmp_path / "reward.py"
+    runtime = tmp_path / "runtime.py"
     checkpoint = tmp_path / "model_best.pt"
     asset.write_bytes(b"asset")
     config.write_bytes(b"config")
     reward.write_bytes(b"reward")
-    checkpoint.write_bytes(b"checkpoint")
+    runtime.write_bytes(b"runtime")
+    torch.save(
+        {
+            "model_state_dict": {},
+            "optimizer_state_dict": {},
+            "obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
+            "critic_obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
+            "iter": 25,
+        },
+        checkpoint,
+    )
     short_manifest = tmp_path / "run_manifest.json"
     promotion_manifest = tmp_path / "promotion_manifest.json"
+    source = module.source_lineage(
+        module.ResidualSourcePaths(asset, config, reward, runtime)
+    )
 
     with pytest.raises(ValueError, match="requires.*manifest"):
         module.validate_promotion_manifest(
-            None, asset_path=asset, config_path=config, reward_path=reward
+            None,
+            asset_path=asset,
+            config_path=config,
+            reward_path=reward,
+            runtime_path=runtime,
         )
 
+    pilot_manifest = tmp_path / "pilot_manifest.json"
+    pilot_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "stage": "pilot",
+                "status": "safe_complete",
+                "accepted": False,
+                "promotion_required": False,
+                "pilot_accepted": True,
+                "completed_iterations": 10,
+                "optimizer_summaries": [
+                    {"update": update} for update in range(1, 11)
+                ],
+                "pilot_decision": {"accepted": True},
+                **source,
+            }
+        ),
+        encoding="utf-8",
+    )
+    candidates = []
+    for updates in (0, 25, 50, 75, 100):
+        candidate_path = checkpoint if updates == 25 else tmp_path / f"candidate_u{updates:03d}.pt"
+        if candidate_path != checkpoint:
+            torch.save(
+                {
+                    "model_state_dict": {},
+                    "optimizer_state_dict": {},
+                    "obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
+                    "critic_obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
+                    "iter": updates,
+                },
+                candidate_path,
+            )
+        candidates.append(
+            {
+                "completed_updates": updates,
+                "checkpoint": str(candidate_path),
+                "checkpoint_sha256": module.sha256_file(candidate_path),
+            }
+        )
     short_payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "stage": "short",
         "accepted": False,
         "status": "safe_complete",
         "promotion_required": True,
-        "asset_sha256": module.sha256_file(asset),
-        "config_sha256": module.sha256_file(config),
-        "reward_sha256": module.sha256_file(reward),
-        "candidate_checkpoints": [
-            {
-                "completed_updates": 25,
-                "checkpoint": str(checkpoint),
-                "checkpoint_sha256": module.sha256_file(checkpoint),
-            }
-        ],
+        "requested_iterations": 100,
+        "completed_iterations": 100,
+        "pilot_manifest": str(pilot_manifest),
+        "pilot_manifest_sha256": module.sha256_file(pilot_manifest),
+        **source,
+        "candidate_checkpoints": candidates,
     }
     short_manifest.write_text(json.dumps(short_payload), encoding="utf-8")
     promotion_payload = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "status": "accepted",
         "accepted": False,
         "short_manifest": str(short_manifest),
         "short_manifest_sha256": module.sha256_file(short_manifest),
-        "asset_sha256": module.sha256_file(asset),
-        "config_sha256": module.sha256_file(config),
-        "reward_sha256": module.sha256_file(reward),
+        "pilot_manifest": str(pilot_manifest),
+        "pilot_manifest_sha256": module.sha256_file(pilot_manifest),
+        **source,
         "best_checkpoint": str(checkpoint),
         "best_checkpoint_sha256": module.sha256_file(checkpoint),
     }
@@ -125,6 +258,7 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
             asset_path=asset,
             config_path=config,
             reward_path=reward,
+            runtime_path=runtime,
         )
 
     promotion_payload["accepted"] = True
@@ -134,6 +268,7 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
         asset_path=asset,
         config_path=config,
         reward_path=reward,
+        runtime_path=runtime,
     )
     assert lineage.checkpoint == checkpoint.resolve()
     assert lineage.short_manifest == short_manifest.resolve()
@@ -146,6 +281,19 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
             asset_path=asset,
             config_path=config,
             reward_path=reward,
+            runtime_path=runtime,
+        )
+
+    promotion_payload["reward_sha256"] = module.sha256_file(reward)
+    promotion_payload["runtime_sha256"] = "0" * 64
+    promotion_manifest.write_text(json.dumps(promotion_payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="runtime SHA"):
+        module.validate_promotion_manifest(
+            promotion_manifest,
+            asset_path=asset,
+            config_path=config,
+            reward_path=reward,
+            runtime_path=runtime,
         )
 
 
@@ -163,6 +311,8 @@ def test_train_source_uses_fresh_8d_policy_and_offline_promotion():
     assert "os.replace" in source
     assert "legacy_23d_checkpoint_loaded" in source
     assert "validate_promotion_manifest(" in source
+    assert "source_lineage(" in source
+    assert "validate_source_lineage(" in source
     assert "load_optimizer=False" in source
     assert "legacy" in source.lower()
 

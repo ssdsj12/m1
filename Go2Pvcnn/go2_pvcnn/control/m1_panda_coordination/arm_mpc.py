@@ -278,6 +278,24 @@ def condense_arm_dynamics(
     )
 
 
+def predict_mount_reaction_wrench(
+    base_arm_coupling: torch.Tensor,
+    qdd_first: torch.Tensor,
+    base_bias_delta: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Predict the Panda-on-M1 reaction including a measured base-bias increment."""
+
+    _require_exact_cpu64("base_arm_coupling", base_arm_coupling, (6, ARM_DOF))
+    _require_exact_cpu64("qdd_first", qdd_first, (ARM_DOF,))
+    if base_bias_delta is None:
+        base_bias_delta = torch.zeros(6, dtype=torch.float64)
+    _require_exact_cpu64("base_bias_delta", base_bias_delta, (6,))
+    result = -(base_arm_coupling @ qdd_first + base_bias_delta)
+    if not torch.isfinite(result).all().item():
+        raise ValueError("predicted mount reaction must be finite")
+    return result
+
+
 def _block_diagonal(matrix: torch.Tensor, count: int) -> torch.Tensor:
     result = torch.zeros(
         (count * matrix.shape[0], count * matrix.shape[1]), dtype=torch.float64

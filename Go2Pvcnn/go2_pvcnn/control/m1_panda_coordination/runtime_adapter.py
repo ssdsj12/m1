@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import torch
 
+from .contracts import PandaLinkDynamicsState
 from .rolling_contact import RollingContactCfg, build_wheel_contact_jacobian
+from .joint_torque_wrench import wrench_from_joint_torque
+from .recursive_dynamics import (
+    recursive_newton_euler_reaction,
+    recursive_newton_euler_terms,
+)
 
 
 PHYSICS_DT = 0.005
@@ -113,18 +119,24 @@ def read_generalized_bias_force(
 ) -> torch.Tensor:
     """Read C(q, qd)+g(q), upgrading legacy joint-only floating-base APIs."""
 
-    coriolis_force = _cpu64(
-        root_view.get_coriolis_and_centrifugal_forces()[env_index]
+    full_coriolis = getattr(
+        root_view, "get_coriolis_and_centrifugal_compensation_forces", None
     )
-    gravity_force = _cpu64(root_view.get_generalized_gravity_forces()[env_index])
+    full_gravity = getattr(root_view, "get_gravity_compensation_forces", None)
+    if callable(full_coriolis) and callable(full_gravity):
+        coriolis_force = _cpu64(full_coriolis()[env_index])
+        gravity_force = _cpu64(full_gravity()[env_index])
+    else:
+        coriolis_force = torch.empty(0, dtype=torch.float64)
+        gravity_force = torch.empty(0, dtype=torch.float64)
     if coriolis_force.shape != (generalized_dof,) or gravity_force.shape != (
         generalized_dof,
     ):
         coriolis_force = _cpu64(
-            root_view.get_coriolis_and_centrifugal_compensation_forces()[env_index]
+            root_view.get_coriolis_and_centrifugal_forces()[env_index]
         )
         gravity_force = _cpu64(
-            root_view.get_gravity_compensation_forces()[env_index]
+            root_view.get_generalized_gravity_forces()[env_index]
         )
     if coriolis_force.shape != (generalized_dof,) or gravity_force.shape != (
         generalized_dof,
@@ -266,6 +278,38 @@ class PhysxTeacherAdapter:
         self.hand_body_id = _exact_id(robot.body_names, "panda_hand", "body")
         self.mount_body_id = _exact_id(robot.body_names, "panda_link0", "body")
         self.base_body_id = _exact_id(robot.body_names, "BASE_LINK", "body")
+        panda_body_ids = [
+            index
+            for index, name in enumerate(robot.body_names)
+            if name.startswith("panda_link")
+            or name in ("panda_hand", "panda_leftfinger", "panda_rightfinger")
+        ]
+        if self.mount_body_id not in panda_body_ids:
+            raise RuntimeError("Panda link subtree must include panda_link0")
+        self.panda_body_names = tuple(robot.body_names[index] for index in panda_body_ids)
+        self.panda_body_ids = torch.tensor(
+            panda_body_ids, dtype=torch.long, device=robot.device
+        )
+        self.latest_panda_link_dynamics: PandaLinkDynamicsState | None = None
+        self.latest_rne_reaction_wrench_b = torch.zeros(6, dtype=torch.float64)
+        # Unfiltered RNE output is retained for Phase-5 audit; the wrapper may
+        # apply bias/filtering before using it for control.
+        self.latest_rne_reaction_wrench_b_raw = torch.zeros(6, dtype=torch.float64)
+        self.latest_joint_torque_wrench_b = torch.zeros(6, dtype=torch.float64)
+        self.latest_projected_joint_force = torch.zeros(7, dtype=torch.float64)
+        self.latest_actuation_force = torch.zeros(7, dtype=torch.float64)
+        self.latest_rne_terms_w = {
+            name: torch.zeros(3, dtype=torch.float64)
+            for name in (
+                "required_force_w",
+                "angular_momentum_moment_w",
+                "lever_arm_moment_w",
+                "required_moment_w",
+            )
+        }
+        self.latest_incoming_joint_wrench_child = torch.zeros(
+            6, dtype=torch.float64
+        )
         self.wheel_body_ids = torch.tensor(
             [_exact_id(robot.body_names, name, "body") for name in WHEEL_BODY_NAMES],
             dtype=torch.long,
@@ -351,7 +395,7 @@ class PhysxTeacherAdapter:
         )
 
     def read_mount_wrench_b(self) -> torch.Tensor:
-        """Read one canonical base-frame mount wrench as a CPU float64 clone."""
+        """Read the Panda-on-M1 reaction wrench in the canonical base frame."""
 
         from go2_pvcnn.mdp.m1_panda_wrench import shift_rotate_wrench_to_base
 
@@ -359,14 +403,18 @@ class PhysxTeacherAdapter:
         incoming = self.robot.root_physx_view.get_link_incoming_joint_force()[
             self.env_index, self.mount_body_id
         ]
+        self.latest_incoming_joint_wrench_child = _cpu64(incoming)
         mount_quat_w = data.body_quat_w[
             self.env_index, self.mount_body_id
         ]
+        # PhysX supplies parent-on-child force/torque in the child joint frame;
+        # the coordination contract is the equal-and-opposite Panda-on-M1
+        # reaction wrench.
         force_w = self.math_utils.quat_apply(
-            mount_quat_w.unsqueeze(0), incoming[:3].unsqueeze(0)
+            mount_quat_w.unsqueeze(0), -incoming[:3].unsqueeze(0)
         )
         torque_w = self.math_utils.quat_apply(
-            mount_quat_w.unsqueeze(0), incoming[3:].unsqueeze(0)
+            mount_quat_w.unsqueeze(0), -incoming[3:].unsqueeze(0)
         )
         wrench = shift_rotate_wrench_to_base(
             force_w,
@@ -464,6 +512,61 @@ class PhysxTeacherAdapter:
 
         robot = self.robot
         data = robot.data
+        root_view = robot.root_physx_view
+        panda_ids_cpu = self.panda_body_ids.cpu()
+        masses = _cpu64(root_view.get_masses()[self.env_index]).index_select(
+            0, panda_ids_cpu
+        )
+        inertias_flat = _cpu64(root_view.get_inertias()[self.env_index]).reshape(
+            -1, 3, 3
+        )
+        inertias = inertias_flat.index_select(0, panda_ids_cpu)
+        self.latest_panda_link_dynamics = PandaLinkDynamicsState(
+            link_names=self.panda_body_names,
+            mass=masses,
+            link_pos_w=_cpu64(data.body_link_pos_w[self.env_index]).index_select(
+                0, panda_ids_cpu
+            ),
+            link_quat_w=_cpu64(data.body_link_quat_w[self.env_index]).index_select(
+                0, panda_ids_cpu
+            ),
+            com_pos_w=_cpu64(data.body_com_pos_w[self.env_index]).index_select(
+                0, panda_ids_cpu
+            ),
+            com_quat_w=_cpu64(data.body_com_quat_w[self.env_index]).index_select(
+                0, panda_ids_cpu
+            ),
+            inertia_com_local=inertias,
+            linear_vel_w=_cpu64(data.body_com_lin_vel_w[self.env_index]).index_select(0, panda_ids_cpu),
+            angular_vel_w=_cpu64(data.body_com_ang_vel_w[self.env_index]).index_select(0, panda_ids_cpu),
+            linear_acc_w=_cpu64(data.body_com_lin_acc_w[self.env_index]).index_select(0, panda_ids_cpu),
+            angular_acc_w=_cpu64(data.body_com_ang_acc_w[self.env_index]).index_select(0, panda_ids_cpu),
+        )
+        link_dynamics = self.latest_panda_link_dynamics
+        self.latest_rne_terms_w = recursive_newton_euler_terms(
+            link_dynamics.mass,
+            link_dynamics.com_pos_w,
+            link_dynamics.link_quat_w,
+            link_dynamics.inertia_com_local,
+            link_dynamics.linear_acc_w,
+            link_dynamics.angular_vel_w,
+            link_dynamics.angular_acc_w,
+            torch.tensor([0.0, 0.0, -9.81], dtype=torch.float64),
+            base_pos_w=_cpu64(data.body_pos_w[self.env_index, self.base_body_id]),
+        )
+        self.latest_rne_reaction_wrench_b = recursive_newton_euler_reaction(
+            link_dynamics.mass,
+            link_dynamics.com_pos_w,
+            link_dynamics.link_quat_w,
+            link_dynamics.inertia_com_local,
+            link_dynamics.linear_acc_w,
+            link_dynamics.angular_vel_w,
+            link_dynamics.angular_acc_w,
+            torch.tensor([0.0, 0.0, -9.81], dtype=torch.float64),
+            base_pos_w=_cpu64(data.body_pos_w[self.env_index, self.base_body_id]),
+            base_quat_w=_cpu64(data.body_quat_w[self.env_index, self.base_body_id]),
+        )
+        self.latest_rne_reaction_wrench_b_raw = self.latest_rne_reaction_wrench_b.clone()
         self.latest_root_height = float(data.root_pos_w[self.env_index, 2].item())
         self.latest_wheel_heights = [
             float(value)
@@ -473,7 +576,6 @@ class PhysxTeacherAdapter:
             .cpu()
             .tolist()
         ]
-        root_view = robot.root_physx_view
         mass_matrix = _cpu64(
             root_view.get_generalized_mass_matrices()[self.env_index]
         )
@@ -518,6 +620,23 @@ class PhysxTeacherAdapter:
             jacobians, self.mount_body_id, len(robot.body_names), self.env_index
         )
         panda_jacobian = hand_jacobian.index_select(1, self.arm_generalized_indices)
+        joint_effort = _cpu64(data.applied_torque[self.env_index]).index_select(
+            0, self.joint_map.panda_arm
+        )
+        self.latest_actuation_force = _cpu64(
+            root_view.get_dof_actuation_forces()[self.env_index]
+        ).index_select(0, self.joint_map.panda_arm)
+        self.latest_projected_joint_force = _cpu64(
+            root_view.get_dof_projected_joint_forces()[self.env_index]
+        ).index_select(0, self.joint_map.panda_arm)
+        wrench_w = wrench_from_joint_torque(panda_jacobian, joint_effort)
+        base_quat = _cpu64(data.body_quat_w[self.env_index, self.base_body_id])
+        self.latest_joint_torque_wrench_b = torch.cat(
+            (
+                self.math_utils.quat_apply_inverse(base_quat.unsqueeze(0), wrench_w[:3].unsqueeze(0))[0],
+                self.math_utils.quat_apply_inverse(base_quat.unsqueeze(0), wrench_w[3:].unsqueeze(0))[0],
+            )
+        )
         coordinated_columns = torch.cat(
             (torch.tensor([0, 1, 5], dtype=torch.long), self.arm_generalized_indices)
         )

@@ -66,6 +66,7 @@ class IterationSummary:
     grad_norm: float = 0.0
     active_action_std_min: float = 0.0
     active_action_std_max: float = 0.0
+    value_loss: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -188,6 +189,7 @@ class OnPolicyRunner:
         # Log
         self.log_dir = log_dir
         self.writer = None
+        self.logger_type = str(self.cfg.get("logger", "tensorboard")).lower()
         self.tot_timesteps = 0
         self.tot_time = 0
         self.current_learning_iteration = 0
@@ -409,6 +411,7 @@ class OnPolicyRunner:
                         active_action_std_max=_finite_float(
                             active_std_max, label="active action std max"
                         ),
+                        value_loss=_finite_float(mean_value_loss, label="value loss"),
                     )
                 )
                 if callback_reason is not None:
@@ -573,7 +576,7 @@ class OnPolicyRunner:
         torch.save(saved_dict, path)
 
         # Upload model to external logging service
-        if self.logger_type in ["neptune", "wandb"]:
+        if self.logger_type in ["neptune", "wandb"] and self.writer is not None:
             self.writer.save_model(path, self.current_learning_iteration)
 
     def load(self, path, load_optimizer=True, keep_std=False):

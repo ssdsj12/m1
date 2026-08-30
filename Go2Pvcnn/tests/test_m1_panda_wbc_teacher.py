@@ -230,13 +230,14 @@ def test_teacher_arm_reference_overrides_panda_position_and_velocity_only():
     reference = ArmReference(
         q_ref=torch.full((7,), 0.2, dtype=torch.float64),
         qd_ref=torch.full((7,), 0.1, dtype=torch.float64),
+        qdd_ref=torch.full((7,), 0.7, dtype=torch.float64),
     )
 
     command = teacher.step(state, arm_reference=reference)
 
     assert torch.allclose(
         wbc.inputs[0].arm_acceleration,
-        torch.full((7,), 4.5, dtype=torch.float64),
+        torch.full((7,), 0.7, dtype=torch.float64),
     )
     assert torch.equal(command.q_des[-7:], reference.q_ref)
     assert torch.equal(command.qd_des[-7:], reference.qd_ref)

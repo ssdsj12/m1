@@ -19,7 +19,7 @@ class ResidualRewardSignals:
     hard_failure: torch.Tensor
     ee_position_error: torch.Tensor
     ee_orientation_error: torch.Tensor
-    wrench_error: torch.Tensor
+    normalized_wrench_error: torch.Tensor
     wheel_slip: torch.Tensor
     residual: torch.Tensor
     previous_residual: torch.Tensor
@@ -46,7 +46,7 @@ def _validated(signals: ResidualRewardSignals) -> tuple[int, torch.device, torch
     for name in (
         "pitch", "base_height_error", "support_margin", "wheel_contact_count",
         "joint_margin", "hard_failure", "ee_position_error", "ee_orientation_error",
-        "wrench_error", "wheel_slip", "intervention",
+        "normalized_wrench_error", "wheel_slip", "intervention",
     ):
         value = getattr(signals, name)
         if not isinstance(value, torch.Tensor) or value.shape != (count,):
@@ -85,6 +85,36 @@ def stability_gate(signals: ResidualRewardSignals) -> torch.Tensor:
     )
 
 
+def normalized_wrench_error(
+    error_b: torch.Tensor, scale: torch.Tensor
+) -> torch.Tensor:
+    """Return a dimensionless six-axis wrench-error norm."""
+
+    if (
+        not isinstance(error_b, torch.Tensor)
+        or error_b.ndim != 2
+        or error_b.shape[1] != 6
+        or not error_b.is_floating_point()
+    ):
+        raise ValueError("error_b must be a floating tensor with shape (N,6)")
+    if (
+        not isinstance(scale, torch.Tensor)
+        or scale.shape != (6,)
+        or not scale.is_floating_point()
+    ):
+        raise ValueError("scale must be a floating tensor with shape (6,)")
+    if scale.dtype != error_b.dtype or scale.device != error_b.device:
+        raise ValueError("scale dtype/device must match error_b")
+    if (
+        not torch.isfinite(error_b).all().item()
+        or not torch.isfinite(scale).all().item()
+    ):
+        raise ValueError("wrench tensors must be finite")
+    if torch.any(scale <= 0.0).item():
+        raise ValueError("scale must be positive")
+    return torch.linalg.vector_norm(error_b / scale, dim=1)
+
+
 def compute_residual_reward(signals: ResidualRewardSignals) -> ResidualReward:
     _validated(signals)
     gate = stability_gate(signals)
@@ -94,7 +124,10 @@ def compute_residual_reward(signals: ResidualRewardSignals) -> ResidualReward:
         -torch.square(signals.ee_orientation_error / 0.12)
     )
     task = 2.0 * gate * task_score
-    tracking_penalty = -0.2 * signals.wrench_error - 0.5 * signals.wheel_slip
+    tracking_penalty = (
+        -0.2 * torch.tanh(signals.normalized_wrench_error)
+        - 0.5 * signals.wheel_slip
+    )
     magnitude = signals.residual.square().mean(dim=-1)
     rate = (signals.residual - signals.previous_residual).square().mean(dim=-1)
     regularization = -0.02 * magnitude - 0.01 * rate - 0.2 * signals.intervention
@@ -180,5 +213,5 @@ class SmallEeTrajectory:
 
 __all__ = [
     "ResidualReward", "ResidualRewardSignals", "SmallEeTrajectory",
-    "compute_residual_reward", "stability_gate",
+    "compute_residual_reward", "normalized_wrench_error", "stability_gate",
 ]

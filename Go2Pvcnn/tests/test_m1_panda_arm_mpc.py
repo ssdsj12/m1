@@ -11,10 +11,23 @@ from go2_pvcnn.control.m1_panda_coordination.arm_mpc import (
     LinearizedArmMpc,
     condense_arm_dynamics,
     rollout_linearized_arm,
+    predict_mount_reaction_wrench,
 )
 
 
 DTYPE = torch.float64
+
+
+def test_mount_reaction_prediction_includes_base_bias_delta():
+    coupling = torch.eye(6, 7, dtype=DTYPE)
+    qdd = torch.ones(7, dtype=DTYPE)
+    bias_delta = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=DTYPE)
+
+    result = predict_mount_reaction_wrench(coupling, qdd, bias_delta)
+
+    torch.testing.assert_close(
+        result, -torch.tensor([2.0, 3.0, 4.0, 5.0, 6.0, 7.0], dtype=DTYPE)
+    )
 
 
 def _input(**overrides) -> ArmMpcInput:

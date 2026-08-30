@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 import pytest
+import torch
 
 from go2_pvcnn.training.m1_panda_arm_mpc_residual_guard import ResidualEvalMetrics
 
@@ -46,12 +47,50 @@ def _safe_run(tmp_path, module):
     asset = tmp_path / "robot.usd"
     config = tmp_path / "train_cfg.py"
     reward = tmp_path / "reward.py"
-    for path, payload in ((asset, b"asset"), (config, b"config"), (reward, b"reward")):
+    runtime = tmp_path / "runtime.py"
+    for path, payload in (
+        (asset, b"asset"),
+        (config, b"config"),
+        (reward, b"reward"),
+        (runtime, b"runtime"),
+    ):
         path.write_bytes(payload)
+    lineage = module.source_lineage(
+        module.ResidualSourcePaths(asset, config, reward, runtime)
+    )
+    pilot = tmp_path / "pilot_manifest.json"
+    pilot.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "stage": "pilot",
+                "status": "safe_complete",
+                "accepted": False,
+                "promotion_required": False,
+                "pilot_accepted": True,
+                "completed_iterations": 10,
+                "optimizer_summaries": [
+                    {"update": update} for update in range(1, 11)
+                ],
+                "pilot_decision": {"accepted": True},
+                **lineage,
+            }
+        ),
+        encoding="utf-8",
+    )
     candidates = []
     for updates in (0, 25, 50, 75, 100):
         checkpoint = tmp_path / f"candidate_u{updates:03d}.pt"
-        checkpoint.write_bytes(f"candidate-{updates}".encode())
+        torch.save(
+            {
+                "model_state_dict": {"candidate": torch.tensor(updates)},
+                "optimizer_state_dict": {},
+                "obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
+                "critic_obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
+                "iter": updates,
+            },
+            checkpoint,
+        )
         candidates.append(
             {
                 "completed_updates": updates,
@@ -63,17 +102,16 @@ def _safe_run(tmp_path, module):
     manifest.write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "stage": "short",
                 "status": "safe_complete",
                 "accepted": False,
                 "promotion_required": True,
-                "asset_path": str(asset),
-                "asset_sha256": module.sha256_file(asset),
-                "config_path": str(config),
-                "config_sha256": module.sha256_file(config),
-                "reward_path": str(reward),
-                "reward_sha256": module.sha256_file(reward),
+                "requested_iterations": 100,
+                "completed_iterations": 100,
+                "pilot_manifest": str(pilot),
+                "pilot_manifest_sha256": module.sha256_file(pilot),
+                **lineage,
                 "candidate_checkpoints": candidates,
             }
         ),
@@ -83,14 +121,32 @@ def _safe_run(tmp_path, module):
 
 
 class RecordingWorkerRunner:
-    def __init__(self, module, *, checkpoint_sha=None, improve=False):
+    def __init__(
+        self,
+        module,
+        *,
+        checkpoint_sha=None,
+        improve=False,
+        lineage_override=None,
+    ):
         self.module = module
         self.checkpoint_sha = checkpoint_sha
         self.improve = improve
+        self.lineage_override = lineage_override
         self.zero_pair_calls = 0
         self.candidate_calls = 0
 
-    def __call__(self, *, mode, seed, output, checkpoint, device, headless):
+    def __call__(
+        self,
+        *,
+        mode,
+        seed,
+        output,
+        checkpoint,
+        device,
+        headless,
+        source_lineage,
+    ):
         baseline = _metrics()
         if mode == "zero-pair":
             self.zero_pair_calls += 1
@@ -121,6 +177,11 @@ class RecordingWorkerRunner:
                     "checkpoint_sha256": checkpoint_sha,
                     "baseline": asdict(baseline),
                     "candidate": asdict(candidate),
+                    **(
+                        source_lineage
+                        if self.lineage_override is None
+                        else {**source_lineage, **self.lineage_override}
+                    ),
                 }
             ),
             encoding="utf-8",
@@ -145,6 +206,63 @@ def test_driver_fails_closed_on_worker_checkpoint_sha_mismatch(tmp_path):
         module.run_promotion(_safe_run(tmp_path, module), worker_runner=runner)
 
 
+def test_driver_fails_closed_on_worker_runtime_lineage_mismatch(tmp_path):
+    module = _load_script()
+    runner = RecordingWorkerRunner(
+        module, lineage_override={"runtime_sha256": "0" * 64}
+    )
+
+    with pytest.raises(RuntimeError, match="runtime SHA"):
+        module.run_promotion(_safe_run(tmp_path, module), worker_runner=runner)
+
+
+def test_promotion_rejects_incomplete_short_or_rejected_pilot(tmp_path):
+    module = _load_script()
+    manifest_path = _safe_run(tmp_path, module)
+    document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    document["completed_iterations"] = 99
+    manifest_path.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(ValueError, match="100"):
+        module.run_promotion(manifest_path, worker_runner=RecordingWorkerRunner(module))
+
+    document["completed_iterations"] = 100
+    pilot = Path(document["pilot_manifest"])
+    pilot_document = json.loads(pilot.read_text(encoding="utf-8"))
+    pilot_document["pilot_accepted"] = False
+    pilot.write_text(json.dumps(pilot_document), encoding="utf-8")
+    document["pilot_manifest_sha256"] = module.sha256_file(pilot)
+    manifest_path.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(ValueError, match="pilot"):
+        module.run_promotion(manifest_path, worker_runner=RecordingWorkerRunner(module))
+
+
+def test_promotion_rejects_candidate_without_normalizer_state(tmp_path):
+    module = _load_script()
+    manifest_path = _safe_run(tmp_path, module)
+    document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    candidate = document["candidate_checkpoints"][0]
+    checkpoint = Path(candidate["checkpoint"])
+    payload = torch.load(checkpoint, weights_only=False)
+    payload.pop("obs_norm_state_dict")
+    torch.save(payload, checkpoint)
+    candidate["checkpoint_sha256"] = module.sha256_file(checkpoint)
+    manifest_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="normalizer"):
+        module.run_promotion(manifest_path, worker_runner=RecordingWorkerRunner(module))
+
+
+def test_promotion_rejects_reused_worker_output(tmp_path):
+    module = _load_script()
+    manifest_path = _safe_run(tmp_path, module)
+    reused = tmp_path / "noise_calibration/seed_42_pair_0.json"
+    reused.parent.mkdir(parents=True)
+    reused.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="worker output"):
+        module.run_promotion(manifest_path, worker_runner=RecordingWorkerRunner(module))
+
+
 def test_equivalent_candidates_never_publish_best(tmp_path):
     module = _load_script()
     manifest_path = _safe_run(tmp_path, module)
@@ -167,6 +285,8 @@ def test_improved_candidate_publishes_sha_identical_best(tmp_path):
     )
 
     assert result["accepted"]
+    assert len(result["runtime_sha256"]) == 64
+    assert len(result["reward_runtime_bundle_sha256"]) == 64
     assert result["best_completed_updates"] == 0
     assert module.sha256_file(tmp_path / "model_best.pt") == result[
         "best_checkpoint_sha256"

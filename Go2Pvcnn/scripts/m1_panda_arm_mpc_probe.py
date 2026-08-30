@@ -246,7 +246,7 @@ def _cosine(first: torch.Tensor, second: torch.Tensor) -> float:
 
 
 def _motion_wrench_increment(active, baseline) -> tuple[torch.Tensor, torch.Tensor]:
-    """Remove the synchronized zero-motion response from one active sample."""
+    """Return matched active-minus-hold increments for sensor and estimator."""
 
     measured = (
         active["dynamic_measured_mount_wrench_b"][0]
@@ -282,6 +282,32 @@ def _raw_motion_wrench_increment(active, baseline):
     if raw.shape != (6,) or not torch.isfinite(raw).all().item():
         raise ValueError("raw motion wrench increment must be finite and 6D")
     return raw
+
+
+BASELINE_SNAPSHOT_FIELDS = (
+    "dynamic_measured_mount_wrench_b",
+    "predicted_mount_wrench_b",
+    "actual_dynamic_mount_wrench_b",
+    "base_bias_wrench",
+    "measured_mount_wrench_b",
+)
+
+
+def _baseline_snapshot_after_step(runtime, *, terminal, final_step, previous):
+    """Read diagnostics unless the final environment step already auto-reset.
+
+    Manager-based environments reset immediately after a terminal step.  At the
+    normal episode timeout the wrapper therefore has no completed MPC plan to
+    expose.  Repeating the immediately preceding hold snapshot is preferable to
+    reading unrelated post-reset state and changes only one endpoint sample.
+    """
+
+    if terminal and final_step:
+        if previous is None:
+            raise RuntimeError("final timeout occurred before a baseline snapshot")
+        return {name: previous[name].clone() for name in BASELINE_SNAPSHOT_FIELDS}
+    snapshot = runtime.diagnostics_snapshot()
+    return {name: snapshot[name].clone() for name in BASELINE_SNAPSHOT_FIELDS}
 
 
 def _lagged_direction_cosines(
@@ -350,6 +376,14 @@ def _atomic_json(path: Path, payload: object) -> None:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
         raise
+
+
+def _extend_episode_horizon(cfg, *, steps: int) -> None:
+    """Prevent the formal sample window from coinciding with an auto-reset."""
+
+    control_dt = float(cfg.sim.dt) * int(cfg.decimation)
+    minimum_horizon = (steps + 1) * control_dt
+    cfg.episode_length_s = max(float(cfg.episode_length_s), minimum_horizon)
 
 
 def _update(summary, runtime, terminated, truncated, baseline_snapshot):
@@ -489,6 +523,25 @@ def _update(summary, runtime, terminated, truncated, baseline_snapshot):
         "target_pose": snapshot["target_pose"][0].clone(),
         "current_ee_pose": snapshot["current_ee_pose"][0].clone(),
         "actual_arm_qdd": actual_arm_qdd.clone(),
+        "actual_dynamic_mount_wrench_b": actual_predicted.clone(),
+        "base_bias_wrench": snapshot["base_bias_wrench"][0].clone(),
+        "planned_predicted_mount_wrench_b": snapshot[
+            "planned_predicted_mount_wrench_b"
+        ][0].clone(),
+        "root_com_offset_b": runtime.adapters[0].robot.data.body_com_pos_b[
+            runtime.adapters[0].env_index, runtime.adapters[0].base_body_id
+        ].detach().to(device="cpu", dtype=torch.float64).clone(),
+        "incoming_joint_wrench_child": snapshot[
+            "incoming_joint_wrench_child"
+        ][0].clone(),
+        "rne_reaction_raw_b": snapshot["rne_reaction_raw_b"][0].clone(),
+        "joint_torque_wrench_b": snapshot["joint_torque_wrench_b"][0].clone(),
+        "projected_joint_force": snapshot["projected_joint_force"][0].clone(),
+        "actuation_force": snapshot["actuation_force"][0].clone(),
+        **{
+            f"rne_{name}": snapshot["rne_terms_w"][name][0].clone()
+            for name in snapshot["rne_terms_w"]
+        },
     }
     return measured.clone(), predicted.clone(), debug
 
@@ -503,25 +556,28 @@ def _collect_zero_motion_baseline(
     wrapper.reset()
     action = torch.zeros((1, 8), device=wrapper.device)
     snapshots = []
-    for _ in range(args.steps):
+    for baseline_step in range(args.steps):
         if not simulation_app.is_running():
             raise RuntimeError("application closed during zero-motion baseline")
         _, _, dones, _ = wrapper.step(action)
-        if bool(dones.any().item()):
-            raise RuntimeError("unexpected reset during zero-motion baseline")
-        snapshot = wrapper.runtime.diagnostics_snapshot()
+        if bool(dones.any().item()) and baseline_step + 1 < args.steps:
+            raise RuntimeError(
+                "unexpected reset during zero-motion baseline "
+                f"at step {baseline_step + 1}"
+            )
         snapshots.append(
-            {
-                name: snapshot[name].clone()
-                for name in (
-                    "dynamic_measured_mount_wrench_b",
-                    "predicted_mount_wrench_b",
-                    "actual_dynamic_mount_wrench_b",
-                    "base_bias_wrench",
-                    "measured_mount_wrench_b",
-                )
-            }
+            _baseline_snapshot_after_step(
+                wrapper.runtime,
+                terminal=bool(dones.any().item()),
+                final_step=baseline_step + 1 == args.steps,
+                previous=snapshots[-1] if snapshots else None,
+            )
         )
+        if (baseline_step + 1) % args.stats_interval == 0:
+            print(
+                f"[Phase5 baseline] seed={seed} step={baseline_step + 1}",
+                flush=True,
+            )
     return snapshots
 
 
@@ -548,6 +604,7 @@ def main() -> int:
                 torch.manual_seed(seed)
                 cfg = parse_env_cfg(args.task, device=args.device, num_envs=1)
                 cfg.seed = seed
+                _extend_episode_horizon(cfg, steps=args.steps)
                 env = gym.make(args.task, cfg=cfg).unwrapped
                 baseline = _collect_zero_motion_baseline(
                     args=args,
@@ -570,17 +627,30 @@ def main() -> int:
                         summary.exit_reason = "application_closed"
                         break
                     _, _, dones, extras = wrapper.step(action)
+                    terminal_for_metrics = (
+                        extras["terminated"], extras["truncated"]
+                    )
+                    if step + 1 == args.steps:
+                        terminal_for_metrics = (
+                            torch.zeros_like(extras["terminated"]),
+                            torch.zeros_like(extras["truncated"]),
+                        )
                     measured, predicted, debug = _update(
                         summary,
                         wrapper.runtime,
-                        extras["terminated"],
-                        extras["truncated"],
+                        *terminal_for_metrics,
                         baseline[step],
                     )
+                    debug["baseline_predicted_mount_wrench_b"] = baseline[step][
+                        "predicted_mount_wrench_b"
+                    ][0].clone()
+                    debug["baseline_dynamic_measured_mount_wrench_b"] = baseline[
+                        step
+                    ]["dynamic_measured_mount_wrench_b"][0].clone()
                     measured_history.append(measured)
                     predicted_history.append(predicted)
                     state_history.append(debug)
-                    if bool(dones.any().item()):
+                    if bool(dones.any().item()) and step + 1 < args.steps:
                         summary.exit_reason = "unexpected_reset"
                         break
                     if (step + 1) % args.stats_interval == 0:

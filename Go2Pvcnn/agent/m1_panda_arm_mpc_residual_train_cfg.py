@@ -12,7 +12,7 @@ def get_m1_panda_arm_mpc_residual_train_cfg() -> dict:
         "num_steps_per_env": 256,
         "save_interval": 25,
         "max_iterations": MAX_RESIDUAL_TRAINING_ITERATIONS,
-        "empirical_normalization": False,
+        "empirical_normalization": True,
         "algorithm": {
             "class_name": "PPO",
             "num_learning_epochs": 2,
@@ -38,7 +38,7 @@ def get_m1_panda_arm_mpc_residual_train_cfg() -> dict:
                 "go2_pvcnn.control.m1_panda_coordination."
                 "residual_actor_critic.ResidualActorCritic"
             ),
-            "init_noise_std": 0.005,
+            "init_noise_std": 0.01,
             "noise_std_type": "scalar",
         },
     }

@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +15,8 @@ import sys
 import tempfile
 from typing import Callable
 
+import torch
+
 
 THIS_FILE = Path(__file__).resolve()
 ROOT = THIS_FILE.parent.parent
@@ -24,6 +25,12 @@ for path in (ROOT, ROOT / "rsl_rl"):
         sys.path.insert(0, str(path))
 
 from go2_pvcnn.training.m1_panda_arm_mpc_residual_guard import ResidualEvalMetrics
+from go2_pvcnn.training.m1_panda_arm_mpc_residual_lineage import (
+    ResidualSourcePaths,
+    sha256_file,
+    source_lineage,
+    validate_source_lineage,
+)
 from go2_pvcnn.training.m1_panda_arm_mpc_residual_promotion import (
     PromotedCandidate,
     calibrate_tolerances,
@@ -43,14 +50,6 @@ class CandidateRecord:
     completed_updates: int
     checkpoint: Path
     checkpoint_sha256: str
-
-
-def sha256_file(path: str | os.PathLike[str]) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
@@ -103,21 +102,80 @@ def _resolve_file(raw: object, *, parent: Path, label: str) -> Path:
     return path
 
 
-def _load_short_manifest(path: Path) -> tuple[dict[str, object], list[CandidateRecord]]:
+def _validate_normalized_checkpoint(path: Path) -> None:
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    if not isinstance(payload, dict):
+        raise ValueError("candidate checkpoint must contain a state dictionary")
+    for key in ("obs_norm_state_dict", "critic_obs_norm_state_dict"):
+        value = payload.get(key)
+        if not isinstance(value, dict) or not value:
+            raise ValueError(f"candidate checkpoint is missing normalizer state {key}")
+
+
+def _validate_pilot_parent(
+    short_document: dict[str, object],
+    *,
+    short_parent: Path,
+    source_paths: ResidualSourcePaths,
+) -> tuple[Path, str]:
+    pilot = _resolve_file(
+        short_document.get("pilot_manifest"),
+        parent=short_parent,
+        label="pilot_manifest",
+    )
+    digest = sha256_file(pilot)
+    if short_document.get("pilot_manifest_sha256") != digest:
+        raise ValueError("short-run pilot manifest SHA mismatch")
+    document = json.loads(pilot.read_text(encoding="utf-8"))
+    summaries = document.get("optimizer_summaries")
+    if (
+        document.get("schema_version") != 2
+        or document.get("stage") != "pilot"
+        or document.get("status") != "safe_complete"
+        or document.get("accepted") is not False
+        or document.get("promotion_required") is not False
+        or document.get("pilot_accepted") is not True
+        or document.get("completed_iterations") != 10
+        or not isinstance(summaries, list)
+        or [value.get("update") for value in summaries if isinstance(value, dict)]
+        != list(range(1, 11))
+    ):
+        raise ValueError("short-run parent pilot is not accepted")
+    decision = document.get("pilot_decision")
+    if not isinstance(decision, dict) or decision.get("accepted") is not True:
+        raise ValueError("short-run parent pilot decision is not accepted")
+    validate_source_lineage(document, source_paths)
+    return pilot, digest
+
+
+def _load_short_manifest(
+    path: Path,
+) -> tuple[dict[str, object], list[CandidateRecord], ResidualSourcePaths]:
     document = json.loads(path.read_text(encoding="utf-8"))
     if (
-        document.get("stage") != "short"
+        document.get("schema_version") != 2
+        or document.get("stage") != "short"
         or document.get("status") != "safe_complete"
         or document.get("accepted") is not False
         or document.get("promotion_required") is not True
+        or document.get("requested_iterations") != 100
+        or document.get("completed_iterations") != 100
     ):
-        raise ValueError("promotion requires a safe-complete short manifest")
-    for label in ("asset", "config", "reward"):
-        file_path = _resolve_file(
-            document.get(f"{label}_path"), parent=path.parent, label=f"{label}_path"
+        raise ValueError("promotion requires a safe-complete 100/100 short manifest")
+    source_paths = ResidualSourcePaths(
+        *(
+            _resolve_file(
+                document.get(f"{label}_path"),
+                parent=path.parent,
+                label=f"{label}_path",
+            )
+            for label in ("asset", "config", "reward", "runtime")
         )
-        if document.get(f"{label}_sha256") != sha256_file(file_path):
-            raise ValueError(f"short-run {label} SHA mismatch")
+    )
+    validate_source_lineage(document, source_paths)
+    _validate_pilot_parent(
+        document, short_parent=path.parent, source_paths=source_paths
+    )
     raw_candidates = document.get("candidate_checkpoints")
     if not isinstance(raw_candidates, list):
         raise ValueError("short manifest must list candidate_checkpoints")
@@ -134,10 +192,15 @@ def _load_short_manifest(path: Path) -> tuple[dict[str, object], list[CandidateR
         digest = sha256_file(checkpoint)
         if raw.get("checkpoint_sha256") != digest:
             raise ValueError("short candidate checkpoint SHA mismatch")
+        _validate_normalized_checkpoint(checkpoint)
         records.append(CandidateRecord(updates, checkpoint, digest))
     if {record.completed_updates for record in records} != set(CANDIDATE_UPDATES):
         raise ValueError("short manifest must contain exactly five completed-update candidates")
-    return document, sorted(records, key=lambda value: value.completed_updates)
+    return (
+        document,
+        sorted(records, key=lambda value: value.completed_updates),
+        source_paths,
+    )
 
 
 def _metrics(document: dict[str, object]) -> ResidualEvalMetrics:
@@ -163,6 +226,7 @@ def _validate_worker(
     mode: str,
     seed: int,
     checkpoint: Path | None,
+    expected_lineage: dict[str, str],
 ) -> tuple[ResidualEvalMetrics, ResidualEvalMetrics]:
     document = json.loads(output.read_text(encoding="utf-8"))
     if (
@@ -175,6 +239,16 @@ def _validate_worker(
     expected_sha = None if checkpoint is None else sha256_file(checkpoint)
     if document.get("checkpoint_sha256") != expected_sha:
         raise RuntimeError("worker checkpoint SHA mismatch")
+    for key, label in (
+        ("asset_sha256", "asset SHA"),
+        ("config_sha256", "config SHA"),
+        ("reward_sha256", "reward SHA"),
+        ("runtime_sha256", "runtime SHA"),
+        ("reward_runtime_bundle_sha256", "reward-runtime bundle SHA"),
+        ("pilot_schema_sha256", "pilot schema SHA"),
+    ):
+        if document.get(key) != expected_lineage[key]:
+            raise RuntimeError(f"worker {label} mismatch")
     baseline = document.get("baseline")
     candidate = document.get("candidate")
     if not isinstance(baseline, dict) or not isinstance(candidate, dict):
@@ -190,7 +264,9 @@ def _subprocess_worker(
     checkpoint: Path | None,
     device: str,
     headless: bool,
+    source_lineage: dict[str, str],
 ) -> None:
+    del source_lineage
     command = [
         sys.executable,
         str(ROOT / "scripts/m1_panda_arm_mpc_residual_eval.py"),
@@ -226,7 +302,8 @@ def run_promotion(
     manifest_path = Path(short_manifest).expanduser().resolve()
     if not manifest_path.is_file():
         raise FileNotFoundError(manifest_path)
-    short_document, records = _load_short_manifest(manifest_path)
+    short_document, records, source_paths = _load_short_manifest(manifest_path)
+    lineage = source_lineage(source_paths)
     run_dir = manifest_path.parent
     worker_runner = worker_runner or _subprocess_worker
     zero_pairs: list[tuple[ResidualEvalMetrics, ResidualEvalMetrics]] = []
@@ -234,6 +311,8 @@ def run_promotion(
     for seed in SEEDS:
         for pair_index in PAIR_INDICES:
             output = run_dir / "noise_calibration" / f"seed_{seed}_pair_{pair_index}.json"
+            if output.exists():
+                raise FileExistsError(f"refusing to reuse worker output: {output}")
             worker_runner(
                 mode="zero-pair",
                 seed=seed,
@@ -241,14 +320,21 @@ def run_promotion(
                 checkpoint=None,
                 device=device,
                 headless=headless,
+                source_lineage=lineage,
             )
             zero_pairs.append(
-                _validate_worker(output, mode="zero-pair", seed=seed, checkpoint=None)
+                _validate_worker(
+                    output,
+                    mode="zero-pair",
+                    seed=seed,
+                    checkpoint=None,
+                    expected_lineage=lineage,
+                )
             )
             calibration_files.append(str(output))
     tolerances = calibrate_tolerances(zero_pairs)
     calibration_manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "complete",
         "seeds": list(SEEDS),
         "pairs_per_seed": len(PAIR_INDICES),
@@ -256,6 +342,7 @@ def run_promotion(
         "worker_manifests": calibration_files,
         "tolerances": tolerances,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        **lineage,
     }
     atomic_write_json(run_dir / "noise_calibration.json", calibration_manifest)
 
@@ -271,6 +358,8 @@ def run_promotion(
                 / f"candidate_u{record.completed_updates:03d}"
                 / f"seed_{seed}.json"
             )
+            if output.exists():
+                raise FileExistsError(f"refusing to reuse worker output: {output}")
             worker_runner(
                 mode="candidate",
                 seed=seed,
@@ -278,12 +367,14 @@ def run_promotion(
                 checkpoint=record.checkpoint,
                 device=device,
                 headless=headless,
+                source_lineage=lineage,
             )
             seed_results[seed] = _validate_worker(
                 output,
                 mode="candidate",
                 seed=seed,
                 checkpoint=record.checkpoint,
+                expected_lineage=lineage,
             )
             worker_files.append(str(output))
         decision = evaluate_candidate(seed_results, tolerances)
@@ -310,14 +401,14 @@ def run_promotion(
         if sha256_file(best_path) != selected.sha256:
             raise RuntimeError("published best checkpoint SHA mismatch")
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "accepted" if selected is not None else "rejected",
         "accepted": selected is not None,
         "short_manifest": str(manifest_path),
         "short_manifest_sha256": sha256_file(manifest_path),
-        "asset_sha256": short_document["asset_sha256"],
-        "config_sha256": short_document["config_sha256"],
-        "reward_sha256": short_document["reward_sha256"],
+        "pilot_manifest": short_document["pilot_manifest"],
+        "pilot_manifest_sha256": short_document["pilot_manifest_sha256"],
+        **lineage,
         "noise_calibration": str(run_dir / "noise_calibration.json"),
         "tolerances": tolerances,
         "candidates": candidate_documents,

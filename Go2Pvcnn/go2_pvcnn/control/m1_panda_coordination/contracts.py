@@ -36,6 +36,71 @@ PANDA_ARM_JOINT_NAMES = tuple(f"panda_joint{i}" for i in range(1, 8))
 PANDA_FINGER_JOINT_NAMES = ("panda_finger_joint1", "panda_finger_joint2")
 
 
+@dataclass(frozen=True)
+class PandaLinkDynamicsState:
+    """Atomic CPU-float64 snapshot of Panda subtree rigid-body dynamics."""
+
+    link_names: tuple[str, ...]
+    mass: torch.Tensor
+    link_pos_w: torch.Tensor
+    link_quat_w: torch.Tensor
+    com_pos_w: torch.Tensor
+    com_quat_w: torch.Tensor
+    inertia_com_local: torch.Tensor
+    linear_vel_w: torch.Tensor
+    angular_vel_w: torch.Tensor
+    linear_acc_w: torch.Tensor
+    angular_acc_w: torch.Tensor
+
+    def __post_init__(self) -> None:
+        if not self.link_names or any(
+            not isinstance(name, str) or not name for name in self.link_names
+        ):
+            raise ValueError("link_names must contain at least one non-empty name")
+        if len(set(self.link_names)) != len(self.link_names):
+            raise ValueError("link_names must be unique")
+        links = len(self.link_names)
+        require_tensor(
+            "mass", self.mass, trailing_shape=(links,), dtype=torch.float64, device="cpu"
+        )
+        for name, value, trailing_shape in (
+            ("link_pos_w", self.link_pos_w, (links, 3)),
+            ("link_quat_w", self.link_quat_w, (links, 4)),
+            ("com_pos_w", self.com_pos_w, (links, 3)),
+            ("com_quat_w", self.com_quat_w, (links, 4)),
+            ("inertia_com_local", self.inertia_com_local, (links, 3, 3)),
+            ("linear_vel_w", self.linear_vel_w, (links, 3)),
+            ("angular_vel_w", self.angular_vel_w, (links, 3)),
+            ("linear_acc_w", self.linear_acc_w, (links, 3)),
+            ("angular_acc_w", self.angular_acc_w, (links, 3)),
+        ):
+            require_tensor(
+                name,
+                value,
+                trailing_shape=trailing_shape,
+                dtype=torch.float64,
+                device="cpu",
+            )
+        if not torch.all(self.mass > 0.0).item():
+            raise ValueError("mass must be strictly positive")
+        for name, quaternion in (
+            ("link_quat_w", self.link_quat_w),
+            ("com_quat_w", self.com_quat_w),
+        ):
+            quaternion_norm = torch.linalg.vector_norm(quaternion, dim=-1)
+            if not torch.allclose(
+                quaternion_norm,
+                torch.ones_like(quaternion_norm),
+                atol=1.0e-5,
+                rtol=1.0e-5,
+            ):
+                raise ValueError(f"{name} must contain unit quaternions")
+
+    @property
+    def link_count(self) -> int:
+        return len(self.link_names)
+
+
 def _indices_for(names: tuple[str, ...], name_to_index: dict[str, int]) -> torch.Tensor:
     return torch.tensor([name_to_index[name] for name in names], dtype=torch.long)
 

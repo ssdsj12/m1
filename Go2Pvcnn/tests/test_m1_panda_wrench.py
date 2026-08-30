@@ -113,7 +113,7 @@ class _FakeRobot:
         return self.responses[name]
 
 
-def test_adapter_rotates_raw_joint_wrench_once_then_shifts_about_base(wrench_module):
+def test_adapter_returns_child_on_parent_reaction_about_base(wrench_module):
     half = 2.0**-0.5
     incoming = torch.zeros(1, 2, 6)
     incoming[:, 1] = torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0, 2.0])
@@ -131,7 +131,11 @@ def test_adapter_rotates_raw_joint_wrench_once_then_shifts_about_base(wrench_mod
         SimpleNamespace(scene={"robot": robot}), asset_cfg, mount_body_name="mount", base_body_name="base"
     )
 
-    assert torch.allclose(result, torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 3.0]]), atol=1e-6)
+    assert torch.allclose(
+        result,
+        torch.tensor([[-1.0, 0.0, 0.0, 0.0, 0.0, -3.0]]),
+        atol=1e-6,
+    )
     assert robot.find_calls == [("mount", True), ("base", True)]
     assert robot.root_physx_view.calls == 1
 

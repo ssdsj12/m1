@@ -9,6 +9,7 @@ from go2_pvcnn.control.m1_panda_coordination import (
     M1_WHEEL_JOINT_NAMES,
     PANDA_ARM_JOINT_NAMES,
     PANDA_FINGER_JOINT_NAMES,
+    PandaLinkDynamicsState,
     WbcJointMap,
     require_tensor,
 )
@@ -36,6 +37,44 @@ EXPECTED_M1_WHEELS = (
 )
 EXPECTED_PANDA_ARM = tuple(f"panda_joint{i}" for i in range(1, 8))
 EXPECTED_FINGERS = ("panda_finger_joint1", "panda_finger_joint2")
+
+
+def _link_dynamics_state():
+    links = 2
+    return PandaLinkDynamicsState(
+        link_names=("panda_link0", "panda_link1"),
+        mass=torch.ones(links, dtype=torch.float64),
+        link_pos_w=torch.zeros((links, 3), dtype=torch.float64),
+        link_quat_w=torch.tensor(
+            [[1.0, 0.0, 0.0, 0.0]] * links, dtype=torch.float64
+        ),
+        com_pos_w=torch.zeros((links, 3), dtype=torch.float64),
+        com_quat_w=torch.tensor(
+            [[1.0, 0.0, 0.0, 0.0]] * links, dtype=torch.float64
+        ),
+        inertia_com_local=torch.eye(3, dtype=torch.float64).repeat(links, 1, 1),
+        linear_vel_w=torch.zeros((links, 3), dtype=torch.float64),
+        angular_vel_w=torch.zeros((links, 3), dtype=torch.float64),
+        linear_acc_w=torch.zeros((links, 3), dtype=torch.float64),
+        angular_acc_w=torch.zeros((links, 3), dtype=torch.float64),
+    )
+
+
+def test_panda_link_dynamics_contract_contains_pose_velocity_and_inertia():
+    state = _link_dynamics_state()
+
+    assert state.link_count == 2
+    assert state.link_names[-1] == "panda_link1"
+    assert state.linear_vel_w.shape == (2, 3)
+    assert state.inertia_com_local.shape == (2, 3, 3)
+
+
+def test_panda_link_dynamics_contract_rejects_wrong_link_velocity_shape():
+    values = vars(_link_dynamics_state()).copy()
+    values["linear_vel_w"] = torch.zeros((1, 3), dtype=torch.float64)
+
+    with pytest.raises(ValueError, match="linear_vel_w"):
+        PandaLinkDynamicsState(**values)
 
 
 def _actual_joint_names():

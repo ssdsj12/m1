@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-import hashlib
 import json
 import math
 import os
@@ -22,9 +21,22 @@ for path in (ROOT, ROOT / "rsl_rl"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from go2_pvcnn.training.m1_panda_arm_mpc_residual_lineage import (
+    ResidualSourcePaths,
+    pilot_schema_sha256,
+    reward_runtime_bundle_sha256,
+    sha256_file,
+    source_lineage,
+    validate_source_lineage,
+)
+from go2_pvcnn.training.m1_panda_arm_mpc_residual_pilot import (
+    PilotIterationRecord,
+    evaluate_pilot,
+)
+
 
 TASK_ID = "Isaac-M1-Panda-ArmMpc-Residual-v0"
-STAGE_LIMITS = {"zero": 10, "short": 100, "long": 3000}
+STAGE_LIMITS = {"zero": 10, "pilot": 10, "short": 100, "long": 3000}
 
 
 @dataclass(frozen=True)
@@ -37,12 +49,10 @@ class PromotionLineage:
     checkpoint_sha256: str
 
 
-def sha256_file(path: str | os.PathLike[str]) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+@dataclass(frozen=True)
+class PilotLineage:
+    manifest: Path
+    manifest_sha256: str
 
 
 def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
@@ -76,8 +86,8 @@ def resolve_max_iterations(stage: str, requested: int | None) -> int:
     value = limit if requested is None else requested
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= limit:
         raise ValueError(f"{stage} max_iterations must be in [1, {limit}]")
-    if stage == "short" and value != limit:
-        raise ValueError("short max_iterations must be exactly 100")
+    if stage in ("pilot", "short") and value != limit:
+        raise ValueError(f"{stage} max_iterations must be exactly {limit}")
     return value
 
 
@@ -100,12 +110,48 @@ def _resolve_manifest_path(raw_path: object, *, parent: Path, label: str) -> Pat
     return path
 
 
+def validate_pilot_manifest(
+    manifest_path: str | os.PathLike[str] | None,
+    paths: ResidualSourcePaths,
+) -> PilotLineage:
+    if manifest_path is None:
+        raise ValueError("short stage requires an accepted pilot manifest")
+    manifest = Path(manifest_path).expanduser().resolve()
+    if not manifest.is_file():
+        raise FileNotFoundError(manifest)
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    if (
+        document.get("schema_version") != 2
+        or document.get("stage") != "pilot"
+        or document.get("status") != "safe_complete"
+        or document.get("accepted") is not False
+        or document.get("promotion_required") is not False
+        or document.get("pilot_accepted") is not True
+        or document.get("completed_iterations") != 10
+    ):
+        raise ValueError("pilot manifest must contain pilot_accepted=true after 10 updates")
+    summaries = document.get("optimizer_summaries")
+    if (
+        not isinstance(summaries, list)
+        or len(summaries) != 10
+        or [value.get("update") for value in summaries if isinstance(value, dict)]
+        != list(range(1, 11))
+    ):
+        raise ValueError("pilot manifest must contain optimizer summaries 1 through 10")
+    decision = document.get("pilot_decision")
+    if not isinstance(decision, dict) or decision.get("accepted") is not True:
+        raise ValueError("pilot decision must contain accepted=true")
+    validate_source_lineage(document, paths)
+    return PilotLineage(manifest, sha256_file(manifest))
+
+
 def validate_promotion_manifest(
     manifest_path: str | os.PathLike[str] | None,
     *,
     asset_path: Path,
     config_path: Path,
     reward_path: Path,
+    runtime_path: Path,
 ) -> PromotionLineage:
     if manifest_path is None:
         raise ValueError("long stage requires an accepted promotion manifest")
@@ -113,14 +159,16 @@ def validate_promotion_manifest(
     if not manifest.is_file():
         raise FileNotFoundError(manifest)
     document = json.loads(manifest.read_text(encoding="utf-8"))
-    if document.get("accepted") is not True:
+    if (
+        document.get("schema_version") != 2
+        or document.get("status") != "accepted"
+        or document.get("accepted") is not True
+    ):
         raise ValueError("promotion manifest must contain accepted=true")
-    if document.get("asset_sha256") != sha256_file(asset_path):
-        raise ValueError("promotion asset SHA does not match current asset")
-    if document.get("config_sha256") != sha256_file(config_path):
-        raise ValueError("promotion config SHA does not match current config")
-    if document.get("reward_sha256") != sha256_file(reward_path):
-        raise ValueError("promotion reward SHA does not match current reward")
+    paths = ResidualSourcePaths(
+        asset_path, config_path, reward_path, runtime_path
+    )
+    validate_source_lineage(document, paths)
     short_manifest = _resolve_manifest_path(
         document.get("short_manifest"), parent=manifest.parent, label="short_manifest"
     )
@@ -133,15 +181,21 @@ def validate_promotion_manifest(
         or short_document.get("status") != "safe_complete"
         or short_document.get("promotion_required") is not True
         or short_document.get("accepted") is not False
+        or short_document.get("requested_iterations") != 100
+        or short_document.get("completed_iterations") != 100
     ):
-        raise ValueError("promotion parent must be a safe-complete short run")
-    for label, path in (
-        ("asset", asset_path),
-        ("config", config_path),
-        ("reward", reward_path),
+        raise ValueError("promotion parent must be a safe-complete 100/100 short run")
+    validate_source_lineage(short_document, paths)
+    pilot_lineage = validate_pilot_manifest(
+        short_document.get("pilot_manifest"), paths
+    )
+    if short_document.get("pilot_manifest_sha256") != pilot_lineage.manifest_sha256:
+        raise ValueError("short manifest pilot SHA mismatch")
+    if (
+        document.get("pilot_manifest") != str(pilot_lineage.manifest)
+        or document.get("pilot_manifest_sha256") != pilot_lineage.manifest_sha256
     ):
-        if short_document.get(f"{label}_sha256") != sha256_file(path):
-            raise ValueError(f"short-run {label} SHA does not match current {label}")
+        raise ValueError("promotion pilot lineage does not match short manifest")
     checkpoint = _resolve_manifest_path(
         document.get("best_checkpoint"),
         parent=manifest.parent,
@@ -150,6 +204,17 @@ def validate_promotion_manifest(
     checkpoint_sha = sha256_file(checkpoint)
     if document.get("best_checkpoint_sha256") != checkpoint_sha:
         raise ValueError("promotion checkpoint SHA does not match manifest")
+    import torch
+
+    checkpoint_payload = torch.load(
+        checkpoint, map_location="cpu", weights_only=False
+    )
+    if not isinstance(checkpoint_payload, dict):
+        raise ValueError("promoted checkpoint must contain a state dictionary")
+    for key in ("obs_norm_state_dict", "critic_obs_norm_state_dict"):
+        value = checkpoint_payload.get(key)
+        if not isinstance(value, dict) or not value:
+            raise ValueError(f"promoted checkpoint is missing normalizer state {key}")
     candidates = short_document.get("candidate_checkpoints")
     if not isinstance(candidates, list) or not any(
         isinstance(value, dict)
@@ -157,6 +222,12 @@ def validate_promotion_manifest(
         for value in candidates
     ):
         raise ValueError("promoted checkpoint is not a recorded short candidate")
+    if {
+        value.get("completed_updates")
+        for value in candidates
+        if isinstance(value, dict)
+    } != {0, 25, 50, 75, 100}:
+        raise ValueError("short manifest must contain all five candidate updates")
     return PromotionLineage(
         manifest=manifest,
         manifest_sha256=sha256_file(manifest),
@@ -171,6 +242,7 @@ def build_arg_parser(*, include_app_launcher_args: bool = True):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", choices=tuple(STAGE_LIMITS), default="short")
     parser.add_argument("--run_dir", type=Path)
+    parser.add_argument("--pilot_manifest", type=Path)
     parser.add_argument("--promotion_manifest", type=Path)
     parser.add_argument("--num_envs", type=int, default=8)
     parser.add_argument("--max_iterations", type=int)
@@ -307,6 +379,19 @@ class ResidualTrainingSafetyController:
         return stop_reason
 
 
+class PilotTrainingController:
+    def __init__(self) -> None:
+        self.records: list[PilotIterationRecord] = []
+
+    def on_iteration(self, runner, summary):
+        del runner
+        self.records.append(PilotIterationRecord.from_summary(summary))
+        return None
+
+    def decision(self):
+        return evaluate_pilot(tuple(self.records))
+
+
 def _default_run_dir(stage: str, seed: int) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return (ROOT / "logs/m1_panda_arm_mpc_residual" / f"{stage}_s{seed}_{stamp}").resolve()
@@ -322,20 +407,34 @@ def main() -> int:
     reward_path = (
         ROOT / "go2_pvcnn/tasks/mdp/m1_panda_arm_mpc_residual.py"
     ).resolve()
+    runtime_path = (
+        ROOT / "go2_pvcnn/tasks/m1_panda_arm_mpc_residual_wrapper.py"
+    ).resolve()
+    source_paths = ResidualSourcePaths(
+        asset_path, config_path, reward_path, runtime_path
+    )
     if not asset_path.is_file():
         raise FileNotFoundError(asset_path)
-    lineage = (
+    promotion_lineage = (
         validate_promotion_manifest(
             args.promotion_manifest,
             asset_path=asset_path,
             config_path=config_path,
             reward_path=reward_path,
+            runtime_path=runtime_path,
         )
         if args.stage == "long"
         else None
     )
     if args.stage != "long" and args.promotion_manifest is not None:
         raise ValueError("promotion_manifest is valid only for the long stage")
+    pilot_lineage = (
+        validate_pilot_manifest(args.pilot_manifest, source_paths)
+        if args.stage == "short"
+        else None
+    )
+    if args.stage != "short" and args.pilot_manifest is not None:
+        raise ValueError("pilot_manifest is valid only for the short stage")
     run_dir = (
         _default_run_dir(args.stage, args.seed)
         if args.run_dir is None
@@ -350,7 +449,7 @@ def main() -> int:
     train_cfg = get_m1_panda_arm_mpc_residual_train_cfg()
     manifest_path = run_dir / "run_manifest.json"
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "starting",
         "accepted": False,
         "task": TASK_ID,
@@ -362,18 +461,29 @@ def main() -> int:
         "fresh_8d_policy": args.stage != "long",
         "legacy_23d_checkpoint_loaded": False,
         "force_zero_residual": args.stage == "zero",
-        "asset_path": str(asset_path),
-        "asset_sha256": sha256_file(asset_path),
-        "config_path": str(config_path),
-        "config_sha256": sha256_file(config_path),
-        "reward_path": str(reward_path),
-        "reward_sha256": sha256_file(reward_path),
-        "promotion_manifest": None if lineage is None else str(lineage.manifest),
-        "promotion_manifest_sha256": None if lineage is None else lineage.manifest_sha256,
-        "short_manifest": None if lineage is None else str(lineage.short_manifest),
-        "short_manifest_sha256": None if lineage is None else lineage.short_manifest_sha256,
-        "parent_checkpoint": None if lineage is None else str(lineage.checkpoint),
-        "parent_checkpoint_sha256": None if lineage is None else lineage.checkpoint_sha256,
+        **source_lineage(source_paths),
+        "pilot_manifest": None if pilot_lineage is None else str(pilot_lineage.manifest),
+        "pilot_manifest_sha256": (
+            None if pilot_lineage is None else pilot_lineage.manifest_sha256
+        ),
+        "promotion_manifest": (
+            None if promotion_lineage is None else str(promotion_lineage.manifest)
+        ),
+        "promotion_manifest_sha256": (
+            None if promotion_lineage is None else promotion_lineage.manifest_sha256
+        ),
+        "short_manifest": (
+            None if promotion_lineage is None else str(promotion_lineage.short_manifest)
+        ),
+        "short_manifest_sha256": (
+            None if promotion_lineage is None else promotion_lineage.short_manifest_sha256
+        ),
+        "parent_checkpoint": (
+            None if promotion_lineage is None else str(promotion_lineage.checkpoint)
+        ),
+        "parent_checkpoint_sha256": (
+            None if promotion_lineage is None else promotion_lineage.checkpoint_sha256
+        ),
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "command": [sys.executable, *sys.argv],
         "pid": os.getpid(),
@@ -410,15 +520,22 @@ def main() -> int:
         if wrapper.num_actions != 8:
             raise RuntimeError("residual policy action dimension must be 8")
         runner = OnPolicyRunner(wrapper, train_cfg, log_dir=str(run_dir), device=args.device)
-        if lineage is None:
+        if promotion_lineage is None:
             initialize_fresh_residual_policy(runner)
         else:
             # Only an accepted, hash-matched 8D short checkpoint may seed long mode;
             # legacy 23D checkpoints never enter this path.
-            runner.load(str(lineage.checkpoint), load_optimizer=False, keep_std=True)
+            runner.load(
+                str(promotion_lineage.checkpoint),
+                load_optimizer=False,
+                keep_std=True,
+            )
             runner.current_learning_iteration = 0
-        controller = ResidualTrainingSafetyController(run_dir)
-        controller.prime(runner)
+        if args.stage == "pilot":
+            controller = PilotTrainingController()
+        else:
+            controller = ResidualTrainingSafetyController(run_dir)
+            controller.prime(runner)
         manifest.update(
             {
                 "status": "running",
@@ -434,6 +551,28 @@ def main() -> int:
             iteration_callback=lambda summary: controller.on_iteration(runner, summary),
         )
         safe_complete = is_safe_completion(result.stop_reason)
+        if args.stage == "pilot":
+            decision = controller.decision()
+            pilot_accepted = safe_complete and decision.accepted
+            manifest.update(
+                {
+                    "status": "safe_complete" if safe_complete else "safety_stopped",
+                    "accepted": False,
+                    "promotion_required": False,
+                    "pilot_accepted": pilot_accepted,
+                    "completed_iterations": result.completed_iterations,
+                    "stop_reason": (
+                        result.stop_reason or "requested_iterations_complete"
+                    ),
+                    "optimizer_summaries": [
+                        asdict(record) for record in controller.records
+                    ],
+                    "pilot_decision": asdict(decision),
+                    "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            atomic_write_json(manifest_path, manifest)
+            return 0 if pilot_accepted else 2
         candidate_records = [
             {
                 "completed_updates": updates,

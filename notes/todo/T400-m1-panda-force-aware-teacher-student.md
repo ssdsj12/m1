@@ -354,3 +354,11 @@ T400.13 Phase 5 Arm MPC + Phase 6 8D Residual PPO 规格与实施计划均已获
 采用论文的三级运动分配和动力学全身控制：Panda 优先跟踪六维末端轨迹，接近关节限制或奇异位形时激活 M1 平面运动；执行层以轮地接触和动态抗扰平衡为最高优先级。第一阶段实现确定性 WBC Teacher，随后用现实可得本体感知、安装六维力和末端目标蒸馏 23 维全身 Student。新任务、日志和 checkpoint contract 与旧 A0/A1 完全隔离。
 
 C0 驻停 foundation 与 C1a 平地直线滚动 deterministic Teacher 均已完成硬验收。下一子阶段只允许先为 C1b 转向编写独立设计并取得用户批准；C2/C3、Student、抓取与实机工作仍不在授权范围内。
+
+### T400.9 Phase 5 传感器校准动力学完整验收（完成）
+
+最终采用用户批准的六轴传感器直接校准：RNE 提供 `0.001` 动力学先验，安装传感器提供 `0.999` 观测更新，并以 active-minus-hold 的匹配动态增量验收。GPU0 独立 4000-step seeds 42/43/44 均通过；力矩方向余弦分别为 `0.9999970431 / 0.9999986872 / 0.9999971937`，力方向余弦分别为 `0.9999999974 / 0.9999999927 / 0.9999999810`。三组均无 reset/base contact/关节越界，四轮持续接触，MPC/QP 可行率 `1.0`。最终相关回归 `90 passed`，compileall 与 diff check 通过，Phase 5 完整验收完成。
+
+### T400.13 Phase 6 固定条件 Residual PPO 晋级（运行中）
+
+已完成归一化有界 wrench reward、100-update 五候选、安全监控与性能选择解耦、九次 zero-pair 噪声标定、十五次 candidate/seed 独立评估和严格 SHA lineage。CPU focused `57 passed`、相关回归 `50 passed`；Phase 5 seed42 4000-step GPU0 回归再次通过。下一门为 GPU0 short → 24-process promotion；仅 `promotion_manifest accepted=true` 后允许启动 3000-update long。
