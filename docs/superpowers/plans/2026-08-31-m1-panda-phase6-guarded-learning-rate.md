@@ -51,7 +51,8 @@ Run:
 
 ~~~bash
 cd /home/xk/coding/M1/Go2Pvcnn
-/home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+PYTHONPATH=.:rsl_rl PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
   tests/test_m1_panda_arm_mpc_residual_train_static.py::test_residual_ppo_config_freezes_200_hz_stability_contract
 ~~~
 
@@ -73,7 +74,8 @@ Run:
 
 ~~~bash
 cd /home/xk/coding/M1/Go2Pvcnn
-/home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+PYTHONPATH=.:rsl_rl PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
   tests/test_m1_panda_arm_mpc_residual_train_static.py \
   tests/test_rsl_ppo_adaptive_schedule.py \
   tests/test_m1_panda_folded_load_ppo.py \
@@ -265,4 +267,3 @@ git commit -m "docs: record phase6 guarded learning rate acceptance"
 ~~~
 
 Expected: the commit contains only authoritative Phase 6 execution records. Do not claim overall completion unless every named manifest and conditional gate above has been inspected and passed.
-
