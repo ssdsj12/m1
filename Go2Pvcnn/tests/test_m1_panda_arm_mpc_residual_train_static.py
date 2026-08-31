@@ -37,7 +37,11 @@ def test_residual_ppo_config_freezes_200_hz_stability_contract():
     assert cfg["algorithm"]["num_learning_epochs"] == 2
     assert cfg["algorithm"]["learning_rate"] == pytest.approx(1.0e-5)
     assert cfg["algorithm"]["min_learning_rate"] == pytest.approx(1.0e-6)
-    assert cfg["algorithm"]["max_learning_rate"] == pytest.approx(1.0e-4)
+    assert cfg["algorithm"]["max_learning_rate"] == pytest.approx(1.0e-5)
+    assert (
+        cfg["algorithm"]["max_learning_rate"]
+        == cfg["algorithm"]["learning_rate"]
+    )
     assert cfg["algorithm"]["kl_abort_threshold"] == pytest.approx(0.015)
     assert cfg["algorithm"]["max_grad_norm"] == pytest.approx(0.5)
     assert cfg["algorithm"]["clip_min_std"] == pytest.approx(0.005)

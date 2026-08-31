@@ -19,7 +19,7 @@ def get_m1_panda_arm_mpc_residual_train_cfg() -> dict:
             "num_mini_batches": 4,
             "learning_rate": 1.0e-5,
             "min_learning_rate": 1.0e-6,
-            "max_learning_rate": 1.0e-4,
+            "max_learning_rate": 1.0e-5,
             "clip_param": 0.2,
             "gamma": 0.9995,
             "lam": 0.995,
