@@ -50,6 +50,10 @@ def test_controller_combines_negative_mpc_feedforward_feedback_and_rl_before_tea
     assert torch.equal(
         result.corrected_mount_wrench_b, torch.zeros((1, 6), dtype=torch.float64)
     )
+    assert torch.equal(
+        controller.corrected_mount_wrench_b,
+        result.corrected_mount_wrench_b,
+    )
 
 
 def test_omitted_mpc_feedforward_is_exactly_legacy_zero_prediction():

@@ -327,6 +327,27 @@ def test_runtime_resolves_exact_200_hz_control_dt():
     assert runtime.control_dt == pytest.approx(0.005)
 
 
+def test_runtime_observation_uses_bias_corrected_dynamic_mount_wrench():
+    runtime, adapters, _ = _make_physical_runtime()
+    runtime.reset()
+    adapters[0].mount_wrench[:] = torch.tensor(
+        [100.0, -20.0, 30.0, 5.0, -4.0, 3.0], dtype=torch.float64
+    )
+
+    runtime.compute_action(torch.zeros((1, 8)), physics_step=0)
+    observation = runtime.observations()
+
+    assert torch.equal(
+        runtime.controller.filtered_mount_wrench_b,
+        adapters[0].mount_wrench[None],
+    )
+    assert torch.equal(
+        runtime.controller.corrected_mount_wrench_b,
+        torch.zeros((1, 6), dtype=torch.float64),
+    )
+    assert torch.equal(observation[:, 79:85], torch.zeros((1, 6)))
+
+
 @pytest.mark.parametrize(
     ("dt", "decimation"),
     ((0.0, 2), (float("nan"), 2), (0.0025, 0)),

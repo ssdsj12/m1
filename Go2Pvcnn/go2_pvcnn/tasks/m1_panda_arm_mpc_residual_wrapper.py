@@ -842,7 +842,7 @@ class M1PandaArmMpcResidualRuntime:
         if self.controller is None or len(self.states) != self.num_envs:
             raise RuntimeError("runtime must be reset before observations")
         result = []
-        filtered = self.controller.filtered_mount_wrench_b
+        corrected = self.controller.corrected_mount_wrench_b
         for env_id, state in enumerate(self.states):
             q = state.coord_q[-7:]
             margin = torch.minimum(
@@ -868,7 +868,7 @@ class M1PandaArmMpcResidualRuntime:
             parts = ResidualObservationParts(
                 m1_state=m1,
                 arm_state=arm,
-                filtered_mount_wrench=filtered[env_id],
+                filtered_mount_wrench=corrected[env_id],
                 task_state=ee_error,
                 sigma_min=state.sigma_min.reshape(1),
                 joint_limit_margin_min=margin.min().reshape(1),

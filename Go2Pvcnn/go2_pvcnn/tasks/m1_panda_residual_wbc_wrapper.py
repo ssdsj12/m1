@@ -80,6 +80,12 @@ class M1PandaResidualWbcController:
     def filtered_mount_wrench_b(self) -> torch.Tensor:
         return self._feedback.filtered_wrench
 
+    @property
+    def corrected_mount_wrench_b(self) -> torch.Tensor:
+        """Return the filtered mount wrench after frozen bias removal."""
+
+        return self._feedback.corrected_wrench
+
     def preview_corrected_mount_wrench_b(
         self, measured_mount_wrench_b: torch.Tensor
     ) -> torch.Tensor:
