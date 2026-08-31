@@ -292,12 +292,69 @@ def _subprocess_worker(
     )
 
 
+def _run_or_resume_worker(
+    *,
+    output: Path,
+    mode: str,
+    seed: int,
+    checkpoint: Path | None,
+    device: str,
+    headless: bool,
+    lineage: dict[str, str],
+    worker_runner: Callable[..., None],
+    resume: bool,
+) -> tuple[ResidualEvalMetrics, ResidualEvalMetrics]:
+    if output.exists():
+        if not resume:
+            raise FileExistsError(f"refusing to reuse worker output: {output}")
+        document = json.loads(output.read_text(encoding="utf-8"))
+        if document.get("status") == "complete":
+            return _validate_worker(
+                output,
+                mode=mode,
+                seed=seed,
+                checkpoint=checkpoint,
+                expected_lineage=lineage,
+            )
+        expected_checkpoint_sha = (
+            None if checkpoint is None else sha256_file(checkpoint)
+        )
+        retryable = document.get("status") in {"failed", "starting"}
+        identity_matches = (
+            document.get("mode") == mode
+            and document.get("seed") == seed
+            and document.get("steps") == EVAL_STEPS
+            and document.get("checkpoint_sha256") == expected_checkpoint_sha
+            and all(document.get(key) == value for key, value in lineage.items())
+        )
+        if not retryable or not identity_matches:
+            raise RuntimeError("retryable worker identity mismatch")
+        output.unlink()
+    worker_runner(
+        mode=mode,
+        seed=seed,
+        output=output,
+        checkpoint=checkpoint,
+        device=device,
+        headless=headless,
+        source_lineage=lineage,
+    )
+    return _validate_worker(
+        output,
+        mode=mode,
+        seed=seed,
+        checkpoint=checkpoint,
+        expected_lineage=lineage,
+    )
+
+
 def run_promotion(
     short_manifest: str | os.PathLike[str],
     *,
     worker_runner: Callable[..., None] | None = None,
     device: str = "cuda:0",
     headless: bool = True,
+    resume: bool = False,
 ) -> dict[str, object]:
     manifest_path = Path(short_manifest).expanduser().resolve()
     if not manifest_path.is_file():
@@ -311,24 +368,17 @@ def run_promotion(
     for seed in SEEDS:
         for pair_index in PAIR_INDICES:
             output = run_dir / "noise_calibration" / f"seed_{seed}_pair_{pair_index}.json"
-            if output.exists():
-                raise FileExistsError(f"refusing to reuse worker output: {output}")
-            worker_runner(
-                mode="zero-pair",
-                seed=seed,
-                output=output,
-                checkpoint=None,
-                device=device,
-                headless=headless,
-                source_lineage=lineage,
-            )
             zero_pairs.append(
-                _validate_worker(
-                    output,
+                _run_or_resume_worker(
+                    output=output,
                     mode="zero-pair",
                     seed=seed,
                     checkpoint=None,
-                    expected_lineage=lineage,
+                    device=device,
+                    headless=headless,
+                    lineage=lineage,
+                    worker_runner=worker_runner,
+                    resume=resume,
                 )
             )
             calibration_files.append(str(output))
@@ -358,23 +408,16 @@ def run_promotion(
                 / f"candidate_u{record.completed_updates:03d}"
                 / f"seed_{seed}.json"
             )
-            if output.exists():
-                raise FileExistsError(f"refusing to reuse worker output: {output}")
-            worker_runner(
+            seed_results[seed] = _run_or_resume_worker(
+                output=output,
                 mode="candidate",
                 seed=seed,
-                output=output,
                 checkpoint=record.checkpoint,
                 device=device,
                 headless=headless,
-                source_lineage=lineage,
-            )
-            seed_results[seed] = _validate_worker(
-                output,
-                mode="candidate",
-                seed=seed,
-                checkpoint=record.checkpoint,
-                expected_lineage=lineage,
+                lineage=lineage,
+                worker_runner=worker_runner,
+                resume=resume,
             )
             worker_files.append(str(output))
         decision = evaluate_candidate(seed_results, tolerances)
@@ -428,13 +471,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--headless", action=argparse.BooleanOptionalAction, default=True
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="reuse fully validated complete workers and retry matching failed workers",
+    )
     return parser
 
 
 def main() -> int:
     args = build_arg_parser().parse_args()
     result = run_promotion(
-        args.short_manifest, device=args.device, headless=args.headless
+        args.short_manifest,
+        device=args.device,
+        headless=args.headless,
+        resume=args.resume,
     )
     return 0 if result["accepted"] else 2
 

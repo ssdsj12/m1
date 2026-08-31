@@ -263,6 +263,94 @@ def test_promotion_rejects_reused_worker_output(tmp_path):
         module.run_promotion(manifest_path, worker_runner=RecordingWorkerRunner(module))
 
 
+def test_resume_reuses_valid_complete_workers_and_retries_failed_worker(tmp_path):
+    module = _load_script()
+    manifest_path = _safe_run(tmp_path, module)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    lineage = module.source_lineage(
+        module.ResidualSourcePaths(
+            *(
+                Path(manifest[f"{label}_path"])
+                for label in ("asset", "config", "reward", "runtime")
+            )
+        )
+    )
+    seeder = RecordingWorkerRunner(module)
+    for seed in module.SEEDS:
+        for pair_index in module.PAIR_INDICES:
+            seeder(
+                mode="zero-pair",
+                seed=seed,
+                output=tmp_path
+                / "noise_calibration"
+                / f"seed_{seed}_pair_{pair_index}.json",
+                checkpoint=None,
+                device="cuda:0",
+                headless=True,
+                source_lineage=lineage,
+            )
+    checkpoint = Path(manifest["candidate_checkpoints"][0]["checkpoint"])
+    complete = tmp_path / "candidate_eval/candidate_u000/seed_42.json"
+    seeder(
+        mode="candidate",
+        seed=42,
+        output=complete,
+        checkpoint=checkpoint,
+        device="cuda:0",
+        headless=True,
+        source_lineage=lineage,
+    )
+    failed = tmp_path / "candidate_eval/candidate_u000/seed_43.json"
+    failed.parent.mkdir(parents=True, exist_ok=True)
+    failed.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "status": "failed",
+                "mode": "candidate",
+                "seed": 43,
+                "steps": module.EVAL_STEPS,
+                "checkpoint": str(checkpoint),
+                "checkpoint_sha256": module.sha256_file(checkpoint),
+                **lineage,
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner = RecordingWorkerRunner(module)
+
+    module.run_promotion(manifest_path, worker_runner=runner, resume=True)
+
+    assert runner.zero_pair_calls == 0
+    assert runner.candidate_calls == 14
+    assert json.loads(failed.read_text(encoding="utf-8"))["status"] == "complete"
+
+
+def test_resume_fails_closed_on_retryable_worker_identity_mismatch(tmp_path):
+    module = _load_script()
+    manifest_path = _safe_run(tmp_path, module)
+    failed = tmp_path / "noise_calibration/seed_42_pair_0.json"
+    failed.parent.mkdir(parents=True)
+    failed.write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "mode": "zero-pair",
+                "seed": 44,
+                "steps": module.EVAL_STEPS,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="identity"):
+        module.run_promotion(
+            manifest_path,
+            worker_runner=RecordingWorkerRunner(module),
+            resume=True,
+        )
+
+
 def test_equivalent_candidates_never_publish_best(tmp_path):
     module = _load_script()
     manifest_path = _safe_run(tmp_path, module)
