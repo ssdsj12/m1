@@ -80,6 +80,13 @@ class M1PandaResidualWbcController:
     def filtered_mount_wrench_b(self) -> torch.Tensor:
         return self._feedback.filtered_wrench
 
+    def preview_corrected_mount_wrench_b(
+        self, measured_mount_wrench_b: torch.Tensor
+    ) -> torch.Tensor:
+        """Preview the next dynamic wrench without mutating controller state."""
+
+        return self._feedback.preview_corrected(measured_mount_wrench_b)
+
     def _env_id_list(
         self, env_ids: torch.Tensor | Iterable[int] | None
     ) -> list[int]:

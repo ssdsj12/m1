@@ -175,6 +175,33 @@ def test_mount_feedback_bias_warmup_and_selective_reset():
     assert torch.equal(feedback.corrected_wrench[1], torch.zeros(6, dtype=torch.float64))
 
 
+def test_mount_feedback_preview_matches_next_update_without_mutating_state():
+    feedback = MountWrenchFeedback(
+        1,
+        "cpu",
+        torch.float64,
+        MountWrenchFeedbackCfg(filter_alpha=0.2, bias_warmup_samples=2),
+    )
+    zeros = torch.zeros((1, 6), dtype=torch.float64)
+    first = zeros.clone()
+    first[0, 0] = 10.0
+    feedback.update(first, zeros)
+    second = zeros.clone()
+    second[0, 0] = 14.0
+    before_filtered = feedback.filtered_wrench
+    before_corrected = feedback.corrected_wrench
+    before_count = feedback.bias_sample_count
+
+    preview = feedback.preview_corrected(second)
+
+    torch.testing.assert_close(preview, torch.tensor([[0.4, 0, 0, 0, 0, 0]], dtype=torch.float64))
+    assert torch.equal(feedback.filtered_wrench, before_filtered)
+    assert torch.equal(feedback.corrected_wrench, before_corrected)
+    assert torch.equal(feedback.bias_sample_count, before_count)
+    feedback.update(second, zeros)
+    torch.testing.assert_close(feedback.corrected_wrench, preview)
+
+
 def test_mount_feedback_rejects_nonfinite_without_mutating_state():
     feedback = MountWrenchFeedback(1, "cpu", torch.float64)
     zeros = torch.zeros(1, 6, dtype=torch.float64)

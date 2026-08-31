@@ -623,6 +623,9 @@ class M1PandaArmMpcResidualRuntime:
         measured = torch.stack(
             [adapter.read_mount_wrench_b() for adapter in self.adapters]
         )
+        corrected_measured = self.controller.preview_corrected_mount_wrench_b(
+            measured
+        )
         joint_margins = []
         for state in self.states:
             q = state.coord_q[-7:]
@@ -649,7 +652,7 @@ class M1PandaArmMpcResidualRuntime:
             ],
             dtype=torch.float64,
         )
-        wrench_error_b = measured - pending.predicted_wrench_b
+        wrench_error_b = corrected_measured - pending.predicted_wrench_b
         raw_wrench_error = torch.linalg.vector_norm(wrench_error_b, dim=1)
         dimensionless_wrench_error = normalized_wrench_error(
             wrench_error_b, self.controller.wrench_scale
@@ -721,6 +724,7 @@ class M1PandaArmMpcResidualRuntime:
             ) / self.num_envs,
         }
         self._last_measured = measured.clone()
+        self._last_dynamic_measured = corrected_measured.clone()
         self._previous_normalized = pending.normalized.clone()
         self._pending_transition = None
         return reward, dict(self._last_metrics)

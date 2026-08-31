@@ -318,13 +318,9 @@ class MountWrenchFeedback:
         if not torch.isfinite(value).all().item():
             raise ValueError(f"{name} must contain only finite values")
 
-    def update(
-        self,
-        measured_wrench_b: torch.Tensor,
-        residual_wrench_b: torch.Tensor,
-    ) -> torch.Tensor:
-        self._validate_wrench("measured_wrench_b", measured_wrench_b)
-        self._validate_wrench("residual_wrench_b", residual_wrench_b)
+    def _next_filter_state(
+        self, measured_wrench_b: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         initialized = self._initialized.unsqueeze(-1)
         alpha = float(self.cfg.filter_alpha)
         filtered = torch.where(
@@ -346,6 +342,24 @@ class MountWrenchFeedback:
             torch.zeros_like(bias_sum),
         )
         corrected = filtered - bias
+        return filtered, bias_sum, bias_count, corrected
+
+    def preview_corrected(self, measured_wrench_b: torch.Tensor) -> torch.Tensor:
+        """Preview the next bias-corrected sample without advancing filter state."""
+
+        self._validate_wrench("measured_wrench_b", measured_wrench_b)
+        return self._next_filter_state(measured_wrench_b)[-1].clone()
+
+    def update(
+        self,
+        measured_wrench_b: torch.Tensor,
+        residual_wrench_b: torch.Tensor,
+    ) -> torch.Tensor:
+        self._validate_wrench("measured_wrench_b", measured_wrench_b)
+        self._validate_wrench("residual_wrench_b", residual_wrench_b)
+        filtered, bias_sum, bias_count, corrected = self._next_filter_state(
+            measured_wrench_b
+        )
         command = residual_wrench_b + self._gains * (
             self._reference - corrected
         )

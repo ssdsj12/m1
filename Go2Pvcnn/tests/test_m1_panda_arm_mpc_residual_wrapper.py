@@ -347,9 +347,11 @@ def test_runtime_scales_only_ppo_reward_by_control_dt(monkeypatch):
     runtime.reset()
     runtime.compute_action(torch.zeros(1, 8), physics_step=0)
     adapters[0].mount_wrench[0] = 30.0
-    expected_wrench_error = torch.linalg.vector_norm(
+    corrected_measurement = runtime.controller.preview_corrected_mount_wrench_b(
         adapters[0].mount_wrench[None]
-        - runtime._pending_transition.predicted_wrench_b,
+    )
+    expected_wrench_error = torch.linalg.vector_norm(
+        corrected_measurement - runtime._pending_transition.predicted_wrench_b,
         dim=1,
     ).item()
     runtime.refresh(1)
@@ -359,6 +361,7 @@ def test_runtime_scales_only_ppo_reward_by_control_dt(monkeypatch):
 
     torch.testing.assert_close(reward, reward_density * 0.005)
     assert diagnostics["wrench_error"] == pytest.approx(expected_wrench_error)
+    assert diagnostics["wrench_error"] < 30.0
 
 
 def test_runtime_requires_matching_post_step_refresh_before_transition_reward():
