@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
@@ -58,6 +59,8 @@ STAGE_LIMITS = {
 class PromotionLineage:
     manifest: Path
     manifest_sha256: str
+    bridge_manifest: Path
+    bridge_manifest_sha256: str
     short_manifest: Path
     short_manifest_sha256: str
     checkpoint: Path
@@ -175,7 +178,7 @@ def validate_promotion_manifest(
         raise FileNotFoundError(manifest)
     document = json.loads(manifest.read_text(encoding="utf-8"))
     if (
-        document.get("schema_version") != 2
+        document.get("schema_version") != 3
         or document.get("status") != "accepted"
         or document.get("accepted") is not True
     ):
@@ -184,33 +187,56 @@ def validate_promotion_manifest(
         asset_path, config_path, reward_path, runtime_path
     )
     validate_source_lineage(document, paths)
+    bridge_manifest = _resolve_manifest_path(
+        document.get("bridge_manifest"),
+        parent=manifest.parent,
+        label="bridge_manifest",
+    )
+    bridge_manifest_sha = sha256_file(bridge_manifest)
+    if document.get("bridge_manifest_sha256") != bridge_manifest_sha:
+        raise ValueError("bridge manifest SHA does not match promotion manifest")
+    bridge_document = json.loads(bridge_manifest.read_text(encoding="utf-8"))
+    if (
+        bridge_document.get("schema_version") != 3
+        or bridge_document.get("stage") != "bridge"
+        or bridge_document.get("status") != "safe_complete"
+        or bridge_document.get("accepted") is not False
+        or bridge_document.get("promotion_required") is not True
+        or bridge_document.get("requested_iterations") != BRIDGE_ADDITIONAL_UPDATES
+        or bridge_document.get("completed_iterations") != BRIDGE_ADDITIONAL_UPDATES
+        or bridge_document.get("starting_updates") != BRIDGE_PARENT_UPDATES
+        or bridge_document.get("requested_additional_updates")
+        != BRIDGE_ADDITIONAL_UPDATES
+        or bridge_document.get("target_total_updates") != BRIDGE_TOTAL_UPDATES
+        or bridge_document.get("completed_total_updates") != BRIDGE_TOTAL_UPDATES
+    ):
+        raise ValueError("promotion parent must be a safe-complete schema-v3 bridge run")
+    validate_source_lineage(bridge_document, paths)
     short_manifest = _resolve_manifest_path(
-        document.get("short_manifest"), parent=manifest.parent, label="short_manifest"
+        bridge_document.get("short_manifest"),
+        parent=bridge_manifest.parent,
+        label="short_manifest",
     )
     short_manifest_sha = sha256_file(short_manifest)
-    if document.get("short_manifest_sha256") != short_manifest_sha:
-        raise ValueError("short manifest SHA does not match promotion manifest")
-    short_document = json.loads(short_manifest.read_text(encoding="utf-8"))
     if (
-        short_document.get("stage") != "short"
-        or short_document.get("status") != "safe_complete"
-        or short_document.get("promotion_required") is not True
-        or short_document.get("accepted") is not False
-        or short_document.get("requested_iterations") != 100
-        or short_document.get("completed_iterations") != 100
+        bridge_document.get("short_manifest_sha256") != short_manifest_sha
+        or document.get("short_manifest") != str(short_manifest)
+        or document.get("short_manifest_sha256") != short_manifest_sha
     ):
-        raise ValueError("promotion parent must be a safe-complete 100/100 short run")
-    validate_source_lineage(short_document, paths)
-    pilot_lineage = validate_pilot_manifest(
-        short_document.get("pilot_manifest"), paths
-    )
-    if short_document.get("pilot_manifest_sha256") != pilot_lineage.manifest_sha256:
-        raise ValueError("short manifest pilot SHA mismatch")
+        raise ValueError("short manifest SHA does not match bridge and promotion lineage")
+    bridge_parent = validate_bridge_parent(short_manifest, paths)
     if (
-        document.get("pilot_manifest") != str(pilot_lineage.manifest)
-        or document.get("pilot_manifest_sha256") != pilot_lineage.manifest_sha256
+        bridge_document.get("pilot_manifest") != str(bridge_parent.pilot_manifest)
+        or bridge_document.get("pilot_manifest_sha256")
+        != bridge_parent.pilot_manifest_sha256
+        or bridge_document.get("parent_checkpoint") != str(bridge_parent.checkpoint)
+        or bridge_document.get("parent_checkpoint_sha256")
+        != bridge_parent.checkpoint_sha256
+        or document.get("pilot_manifest") != str(bridge_parent.pilot_manifest)
+        or document.get("pilot_manifest_sha256")
+        != bridge_parent.pilot_manifest_sha256
     ):
-        raise ValueError("promotion pilot lineage does not match short manifest")
+        raise ValueError("promotion lineage does not match the bridge parent")
     checkpoint = _resolve_manifest_path(
         document.get("best_checkpoint"),
         parent=manifest.parent,
@@ -221,31 +247,44 @@ def validate_promotion_manifest(
         raise ValueError("promotion checkpoint SHA does not match manifest")
     import torch
 
-    checkpoint_payload = torch.load(
-        checkpoint, map_location="cpu", weights_only=False
-    )
-    if not isinstance(checkpoint_payload, dict):
-        raise ValueError("promoted checkpoint must contain a state dictionary")
-    for key in ("obs_norm_state_dict", "critic_obs_norm_state_dict"):
-        value = checkpoint_payload.get(key)
-        if not isinstance(value, dict) or not value:
-            raise ValueError(f"promoted checkpoint is missing normalizer state {key}")
-    candidates = short_document.get("candidate_checkpoints")
-    if not isinstance(candidates, list) or not any(
-        isinstance(value, dict)
-        and value.get("checkpoint_sha256") == checkpoint_sha
-        for value in candidates
+    validate_counted_checkpoint(checkpoint)
+    checkpoint_payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    optimizer = checkpoint_payload.get("optimizer_state_dict")
+    if not isinstance(optimizer, Mapping) or not optimizer:
+        raise ValueError("promoted checkpoint must contain non-empty optimizer state")
+    candidates = bridge_document.get("candidate_checkpoints")
+    if not isinstance(candidates, list) or len(candidates) != len(
+        BRIDGE_CANDIDATE_UPDATES
     ):
-        raise ValueError("promoted checkpoint is not a recorded short candidate")
-    if {
-        value.get("completed_updates")
-        for value in candidates
-        if isinstance(value, dict)
-    } != {0, 25, 50, 75, 100}:
-        raise ValueError("short manifest must contain all five candidate updates")
+        raise ValueError("bridge manifest must contain all five candidate updates")
+    candidate_updates: set[int] = set()
+    selected_recorded = False
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise TypeError("bridge candidate records must be objects")
+        updates = candidate.get("completed_updates")
+        if not isinstance(updates, int) or isinstance(updates, bool):
+            raise TypeError("bridge candidate update must be an integer")
+        candidate_path = _resolve_manifest_path(
+            candidate.get("checkpoint"),
+            parent=bridge_manifest.parent,
+            label="bridge candidate checkpoint",
+        )
+        candidate_sha = sha256_file(candidate_path)
+        if candidate.get("checkpoint_sha256") != candidate_sha:
+            raise ValueError("bridge candidate checkpoint SHA mismatch")
+        validate_counted_checkpoint(candidate_path)
+        candidate_updates.add(updates)
+        selected_recorded |= candidate_sha == checkpoint_sha
+    if candidate_updates != set(BRIDGE_CANDIDATE_UPDATES):
+        raise ValueError("bridge manifest must contain updates 100 through 300")
+    if not selected_recorded:
+        raise ValueError("promoted checkpoint is not a recorded bridge candidate")
     return PromotionLineage(
         manifest=manifest,
         manifest_sha256=sha256_file(manifest),
+        bridge_manifest=bridge_manifest,
+        bridge_manifest_sha256=bridge_manifest_sha,
         short_manifest=short_manifest,
         short_manifest_sha256=short_manifest_sha,
         checkpoint=checkpoint,
@@ -538,6 +577,14 @@ def main() -> int:
         "promotion_manifest_sha256": (
             None if promotion_lineage is None else promotion_lineage.manifest_sha256
         ),
+        "bridge_manifest": (
+            None if promotion_lineage is None else str(promotion_lineage.bridge_manifest)
+        ),
+        "bridge_manifest_sha256": (
+            None
+            if promotion_lineage is None
+            else promotion_lineage.bridge_manifest_sha256
+        ),
         "short_manifest": (
             str(bridge_parent.short_manifest)
             if bridge_parent is not None
@@ -633,10 +680,18 @@ def main() -> int:
             # legacy 23D checkpoints never enter this path.
             runner.load(
                 str(promotion_lineage.checkpoint),
-                load_optimizer=False,
+                load_optimizer=True,
                 keep_std=True,
             )
             runner.current_learning_iteration = 0
+            actor_count, critic_count = validate_counted_checkpoint(
+                promotion_lineage.checkpoint
+            )
+            if (
+                runner.obs_normalizer.count != actor_count
+                or runner.critic_obs_normalizer.count != critic_count
+            ):
+                raise RuntimeError("runner did not restore promoted normalizer counts")
         if args.stage == "pilot":
             controller = PilotTrainingController()
         elif args.stage == "bridge":

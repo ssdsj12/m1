@@ -169,40 +169,15 @@ def test_runner_empty_stop_reason_is_safe_requested_completion():
 
 def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
     module = _load_script()
-    asset = tmp_path / "robot.usd"
-    config = tmp_path / "train_cfg.py"
-    reward = tmp_path / "reward.py"
-    runtime = tmp_path / "runtime.py"
-    checkpoint = tmp_path / "model_best.pt"
-    asset.write_bytes(b"asset")
-    config.write_bytes(b"config")
-    reward.write_bytes(b"reward")
-    runtime.write_bytes(b"runtime")
-    torch.save(
-        {
-            "model_state_dict": {},
-            "optimizer_state_dict": {},
-            "obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
-            "critic_obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
-            "iter": 25,
-        },
-        checkpoint,
+    asset, config, reward, runtime = (
+        tmp_path / name
+        for name in ("robot.usd", "train_cfg.py", "reward.py", "runtime.py")
     )
-    short_manifest = tmp_path / "run_manifest.json"
-    promotion_manifest = tmp_path / "promotion_manifest.json"
+    for path in (asset, config, reward, runtime):
+        path.write_bytes(path.name.encode())
     source = module.source_lineage(
         module.ResidualSourcePaths(asset, config, reward, runtime)
     )
-
-    with pytest.raises(ValueError, match="requires.*manifest"):
-        module.validate_promotion_manifest(
-            None,
-            asset_path=asset,
-            config_path=config,
-            reward_path=reward,
-            runtime_path=runtime,
-        )
-
     pilot_manifest = tmp_path / "pilot_manifest.json"
     pilot_manifest.write_text(
         json.dumps(
@@ -213,6 +188,7 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
                 "accepted": False,
                 "promotion_required": False,
                 "pilot_accepted": True,
+                "requested_iterations": 10,
                 "completed_iterations": 10,
                 "optimizer_summaries": [
                     {"update": update} for update in range(1, 11)
@@ -223,27 +199,27 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
         ),
         encoding="utf-8",
     )
-    candidates = []
+    short_candidates = []
     for updates in (0, 25, 50, 75, 100):
-        candidate_path = checkpoint if updates == 25 else tmp_path / f"candidate_u{updates:03d}.pt"
-        if candidate_path != checkpoint:
-            torch.save(
-                {
-                    "model_state_dict": {},
-                    "optimizer_state_dict": {},
-                    "obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
-                    "critic_obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
-                    "iter": updates,
-                },
-                candidate_path,
-            )
-        candidates.append(
+        candidate_path = tmp_path / f"short_u{updates:03d}.pt"
+        torch.save(
+            {
+                "model_state_dict": {"weight": torch.tensor([float(updates)])},
+                "optimizer_state_dict": {"state": {0: {"step": torch.tensor(updates)}}},
+                "obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
+                "critic_obs_norm_state_dict": {"_mean": torch.zeros(1, 103)},
+                "iter": updates - 1,
+            },
+            candidate_path,
+        )
+        short_candidates.append(
             {
                 "completed_updates": updates,
                 "checkpoint": str(candidate_path),
                 "checkpoint_sha256": module.sha256_file(candidate_path),
             }
         )
+    short_manifest = tmp_path / "short_manifest.json"
     short_payload = {
         "schema_version": 2,
         "stage": "short",
@@ -255,13 +231,72 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
         "pilot_manifest": str(pilot_manifest),
         "pilot_manifest_sha256": module.sha256_file(pilot_manifest),
         **source,
-        "candidate_checkpoints": candidates,
+        "candidate_checkpoints": short_candidates,
     }
     short_manifest.write_text(json.dumps(short_payload), encoding="utf-8")
-    promotion_payload = {
-        "schema_version": 2,
-        "status": "accepted",
+
+    bridge_candidates = []
+    for updates in (100, 150, 200, 250, 300):
+        candidate_path = tmp_path / f"bridge_u{updates:03d}.pt"
+        count = 204800 + (updates - 100) * 2048
+        torch.save(
+            {
+                "model_state_dict": {"weight": torch.tensor([float(updates)])},
+                "optimizer_state_dict": {"state": {0: {"step": torch.tensor(updates)}}},
+                "obs_norm_state_dict": {
+                    "_mean": torch.zeros(1, 103),
+                    "_count": torch.tensor(count, dtype=torch.int64),
+                },
+                "critic_obs_norm_state_dict": {
+                    "_mean": torch.zeros(1, 103),
+                    "_count": torch.tensor(count, dtype=torch.int64),
+                },
+                "iter": updates - 1,
+            },
+            candidate_path,
+        )
+        bridge_candidates.append(
+            {
+                "completed_updates": updates,
+                "checkpoint": str(candidate_path),
+                "checkpoint_sha256": module.sha256_file(candidate_path),
+            }
+        )
+    bridge_manifest = tmp_path / "bridge_manifest.json"
+    bridge_payload = {
+        "schema_version": 3,
+        "stage": "bridge",
+        "status": "safe_complete",
         "accepted": False,
+        "promotion_required": True,
+        "requested_iterations": 200,
+        "completed_iterations": 200,
+        "starting_updates": 100,
+        "requested_additional_updates": 200,
+        "target_total_updates": 300,
+        "completed_total_updates": 300,
+        "starting_normalizer_count": 204800,
+        "short_manifest": str(short_manifest),
+        "short_manifest_sha256": module.sha256_file(short_manifest),
+        "pilot_manifest": str(pilot_manifest),
+        "pilot_manifest_sha256": module.sha256_file(pilot_manifest),
+        "parent_checkpoint": short_candidates[-1]["checkpoint"],
+        "parent_checkpoint_sha256": short_candidates[-1]["checkpoint_sha256"],
+        "migrated_checkpoint": bridge_candidates[0]["checkpoint"],
+        "migrated_checkpoint_sha256": bridge_candidates[0]["checkpoint_sha256"],
+        **source,
+        "candidate_checkpoints": bridge_candidates,
+    }
+    bridge_manifest.write_text(json.dumps(bridge_payload), encoding="utf-8")
+    checkpoint = tmp_path / "model_best.pt"
+    checkpoint.write_bytes(Path(bridge_candidates[1]["checkpoint"]).read_bytes())
+    promotion_manifest = tmp_path / "promotion_manifest.json"
+    promotion_payload = {
+        "schema_version": 3,
+        "status": "accepted",
+        "accepted": True,
+        "bridge_manifest": str(bridge_manifest),
+        "bridge_manifest_sha256": module.sha256_file(bridge_manifest),
         "short_manifest": str(short_manifest),
         "short_manifest_sha256": module.sha256_file(short_manifest),
         "pilot_manifest": str(pilot_manifest),
@@ -270,6 +305,28 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
         "best_checkpoint": str(checkpoint),
         "best_checkpoint_sha256": module.sha256_file(checkpoint),
     }
+    promotion_manifest.write_text(json.dumps(promotion_payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires.*manifest"):
+        module.validate_promotion_manifest(
+            None,
+            asset_path=asset,
+            config_path=config,
+            reward_path=reward,
+            runtime_path=runtime,
+        )
+    lineage = module.validate_promotion_manifest(
+        promotion_manifest,
+        asset_path=asset,
+        config_path=config,
+        reward_path=reward,
+        runtime_path=runtime,
+    )
+    assert lineage.checkpoint == checkpoint.resolve()
+    assert lineage.bridge_manifest == bridge_manifest.resolve()
+    assert lineage.short_manifest == short_manifest.resolve()
+
+    promotion_payload["accepted"] = False
     promotion_manifest.write_text(json.dumps(promotion_payload), encoding="utf-8")
     with pytest.raises(ValueError, match="accepted=true"):
         module.validate_promotion_manifest(
@@ -281,20 +338,9 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
         )
 
     promotion_payload["accepted"] = True
+    promotion_payload["bridge_manifest_sha256"] = "0" * 64
     promotion_manifest.write_text(json.dumps(promotion_payload), encoding="utf-8")
-    lineage = module.validate_promotion_manifest(
-        promotion_manifest,
-        asset_path=asset,
-        config_path=config,
-        reward_path=reward,
-        runtime_path=runtime,
-    )
-    assert lineage.checkpoint == checkpoint.resolve()
-    assert lineage.short_manifest == short_manifest.resolve()
-
-    promotion_payload["reward_sha256"] = "0" * 64
-    promotion_manifest.write_text(json.dumps(promotion_payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="reward SHA"):
+    with pytest.raises(ValueError, match="bridge manifest SHA"):
         module.validate_promotion_manifest(
             promotion_manifest,
             asset_path=asset,
@@ -303,10 +349,45 @@ def test_long_stage_requires_accepted_matching_promotion_manifest(tmp_path):
             runtime_path=runtime,
         )
 
-    promotion_payload["reward_sha256"] = module.sha256_file(reward)
-    promotion_payload["runtime_sha256"] = "0" * 64
+    promotion_payload["bridge_manifest_sha256"] = module.sha256_file(bridge_manifest)
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload["obs_norm_state_dict"].pop("_count")
+    torch.save(payload, checkpoint)
+    promotion_payload["best_checkpoint_sha256"] = module.sha256_file(checkpoint)
     promotion_manifest.write_text(json.dumps(promotion_payload), encoding="utf-8")
-    with pytest.raises(ValueError, match="runtime SHA"):
+    with pytest.raises(ValueError, match="count"):
+        module.validate_promotion_manifest(
+            promotion_manifest,
+            asset_path=asset,
+            config_path=config,
+            reward_path=reward,
+            runtime_path=runtime,
+        )
+
+    checkpoint.write_bytes(Path(bridge_candidates[1]["checkpoint"]).read_bytes())
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload["optimizer_state_dict"] = {}
+    torch.save(payload, checkpoint)
+    promotion_payload["best_checkpoint_sha256"] = module.sha256_file(checkpoint)
+    promotion_manifest.write_text(json.dumps(promotion_payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="optimizer"):
+        module.validate_promotion_manifest(
+            promotion_manifest,
+            asset_path=asset,
+            config_path=config,
+            reward_path=reward,
+            runtime_path=runtime,
+        )
+
+    unrecorded = tmp_path / "unrecorded.pt"
+    unrecorded.write_bytes(Path(bridge_candidates[1]["checkpoint"]).read_bytes())
+    payload = torch.load(unrecorded, map_location="cpu", weights_only=False)
+    payload["model_state_dict"]["weight"] += 1.0
+    torch.save(payload, unrecorded)
+    promotion_payload["best_checkpoint"] = str(unrecorded)
+    promotion_payload["best_checkpoint_sha256"] = module.sha256_file(unrecorded)
+    promotion_manifest.write_text(json.dumps(promotion_payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="recorded bridge candidate"):
         module.validate_promotion_manifest(
             promotion_manifest,
             asset_path=asset,
@@ -333,7 +414,8 @@ def test_train_source_uses_fresh_8d_policy_and_offline_promotion():
     assert "validate_promotion_manifest(" in source
     assert "source_lineage(" in source
     assert "validate_source_lineage(" in source
-    assert "load_optimizer=False" in source
+    assert "load_optimizer=True" in source
+    assert "runner did not restore promoted normalizer counts" in source
     assert "legacy" in source.lower()
 
 

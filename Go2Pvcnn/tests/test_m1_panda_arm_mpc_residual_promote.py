@@ -68,6 +68,7 @@ def _safe_run(tmp_path, module):
                 "accepted": False,
                 "promotion_required": False,
                 "pilot_accepted": True,
+                "requested_iterations": 10,
                 "completed_iterations": 10,
                 "optimizer_summaries": [
                     {"update": update} for update in range(1, 11)
@@ -118,6 +119,84 @@ def _safe_run(tmp_path, module):
         encoding="utf-8",
     )
     return manifest
+
+
+def _safe_bridge_run(tmp_path, module):
+    short = _safe_run(tmp_path, module)
+    short_document = json.loads(short.read_text(encoding="utf-8"))
+    candidates = []
+    for updates in (100, 150, 200, 250, 300):
+        checkpoint = tmp_path / f"bridge_candidate_u{updates:03d}.pt"
+        count = 204800 + (updates - 100) * 2048
+        torch.save(
+            {
+                "model_state_dict": {"candidate": torch.tensor(updates)},
+                "optimizer_state_dict": {"state": {0: {"step": torch.tensor(updates)}}},
+                "obs_norm_state_dict": {
+                    "_mean": torch.zeros(1, 103),
+                    "_count": torch.tensor(count, dtype=torch.int64),
+                },
+                "critic_obs_norm_state_dict": {
+                    "_mean": torch.zeros(1, 103),
+                    "_count": torch.tensor(count, dtype=torch.int64),
+                },
+                "iter": updates - 1,
+            },
+            checkpoint,
+        )
+        candidates.append(
+            {
+                "completed_updates": updates,
+                "checkpoint": str(checkpoint),
+                "checkpoint_sha256": module.sha256_file(checkpoint),
+            }
+        )
+    parent = short_document["candidate_checkpoints"][-1]
+    bridge = tmp_path / "bridge_manifest.json"
+    bridge.write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "stage": "bridge",
+                "status": "safe_complete",
+                "accepted": False,
+                "promotion_required": True,
+                "requested_iterations": 200,
+                "completed_iterations": 200,
+                "starting_updates": 100,
+                "requested_additional_updates": 200,
+                "target_total_updates": 300,
+                "completed_total_updates": 300,
+                "starting_normalizer_count": 204800,
+                "short_manifest": str(short),
+                "short_manifest_sha256": module.sha256_file(short),
+                "pilot_manifest": short_document["pilot_manifest"],
+                "pilot_manifest_sha256": short_document["pilot_manifest_sha256"],
+                "parent_checkpoint": parent["checkpoint"],
+                "parent_checkpoint_sha256": parent["checkpoint_sha256"],
+                "migrated_checkpoint": candidates[0]["checkpoint"],
+                "migrated_checkpoint_sha256": candidates[0]["checkpoint_sha256"],
+                **{
+                    key: value
+                    for key, value in short_document.items()
+                    if key.endswith("_path")
+                    or key.endswith("_sha256")
+                    and key
+                    in {
+                        "asset_sha256",
+                        "config_sha256",
+                        "reward_sha256",
+                        "runtime_sha256",
+                        "reward_runtime_bundle_sha256",
+                        "pilot_schema_sha256",
+                    }
+                },
+                "candidate_checkpoints": candidates,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return bridge
 
 
 class RecordingWorkerRunner:
@@ -196,6 +275,85 @@ def test_driver_launches_nine_calibration_and_fifteen_candidate_workers(tmp_path
 
     assert runner.zero_pair_calls == 9
     assert runner.candidate_calls == 15
+
+
+def test_bridge_driver_keeps_worker_count_and_emits_schema_v3_lineage(tmp_path):
+    module = _load_script()
+    bridge = _safe_bridge_run(tmp_path, module)
+    runner = RecordingWorkerRunner(module)
+
+    result = module.run_promotion(bridge_manifest=bridge, worker_runner=runner)
+
+    assert runner.zero_pair_calls == 9
+    assert runner.candidate_calls == 15
+    assert result["schema_version"] == 3
+    assert result["bridge_manifest"] == str(bridge.resolve())
+    assert result["bridge_manifest_sha256"] == module.sha256_file(bridge)
+    assert [value["completed_updates"] for value in result["candidates"]] == [
+        100,
+        150,
+        200,
+        250,
+        300,
+    ]
+
+
+@pytest.mark.parametrize("failure", ("missing_count", "mismatched_count"))
+def test_bridge_promotion_rejects_invalid_normalizer_counts(tmp_path, failure):
+    module = _load_script()
+    bridge = _safe_bridge_run(tmp_path, module)
+    document = json.loads(bridge.read_text(encoding="utf-8"))
+    candidate = document["candidate_checkpoints"][1]
+    checkpoint = Path(candidate["checkpoint"])
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    if failure == "missing_count":
+        payload["obs_norm_state_dict"].pop("_count")
+    else:
+        payload["critic_obs_norm_state_dict"]["_count"] += 1
+    torch.save(payload, checkpoint)
+    candidate["checkpoint_sha256"] = module.sha256_file(checkpoint)
+    bridge.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="count"):
+        module.run_promotion(
+            bridge_manifest=bridge, worker_runner=RecordingWorkerRunner(module)
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    (
+        ("status", "safety_stopped", "safe-complete"),
+        ("candidate_set", None, "candidate"),
+        ("short_manifest_sha256", "0" * 64, "short manifest SHA"),
+        ("parent_checkpoint_sha256", "0" * 64, "parent_checkpoint_sha256"),
+    ),
+)
+def test_bridge_promotion_rejects_invalid_bridge_lineage(
+    tmp_path, field, value, match
+):
+    module = _load_script()
+    bridge = _safe_bridge_run(tmp_path, module)
+    document = json.loads(bridge.read_text(encoding="utf-8"))
+    if field == "candidate_set":
+        document["candidate_checkpoints"].pop()
+    else:
+        document[field] = value
+    bridge.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        module.run_promotion(
+            bridge_manifest=bridge, worker_runner=RecordingWorkerRunner(module)
+        )
+
+
+def test_bridge_cli_rejects_schema_v2_short_manifest(tmp_path):
+    module = _load_script()
+    short = _safe_run(tmp_path, module)
+    with pytest.raises(ValueError, match="schema-v3"):
+        module.run_promotion(
+            bridge_manifest=short, worker_runner=RecordingWorkerRunner(module)
+        )
 
 
 def test_driver_fails_closed_on_worker_checkpoint_sha_mismatch(tmp_path):

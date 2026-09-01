@@ -25,6 +25,15 @@ for path in (ROOT, ROOT / "rsl_rl"):
         sys.path.insert(0, str(path))
 
 from go2_pvcnn.training.m1_panda_arm_mpc_residual_guard import ResidualEvalMetrics
+from go2_pvcnn.training.m1_panda_arm_mpc_residual_bridge import (
+    BRIDGE_ADDITIONAL_UPDATES,
+    BRIDGE_CANDIDATE_UPDATES,
+    BRIDGE_LEGACY_SAMPLE_COUNT,
+    BRIDGE_PARENT_UPDATES,
+    BRIDGE_TOTAL_UPDATES,
+    validate_bridge_parent,
+    validate_counted_checkpoint,
+)
 from go2_pvcnn.training.m1_panda_arm_mpc_residual_lineage import (
     ResidualSourcePaths,
     sha256_file,
@@ -203,6 +212,97 @@ def _load_short_manifest(
     )
 
 
+def _load_bridge_manifest(
+    path: Path,
+) -> tuple[dict[str, object], list[CandidateRecord], ResidualSourcePaths]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if (
+        document.get("schema_version") != 3
+        or document.get("stage") != "bridge"
+        or document.get("status") != "safe_complete"
+        or document.get("accepted") is not False
+        or document.get("promotion_required") is not True
+        or document.get("requested_iterations") != BRIDGE_ADDITIONAL_UPDATES
+        or document.get("completed_iterations") != BRIDGE_ADDITIONAL_UPDATES
+        or document.get("starting_updates") != BRIDGE_PARENT_UPDATES
+        or document.get("requested_additional_updates") != BRIDGE_ADDITIONAL_UPDATES
+        or document.get("target_total_updates") != BRIDGE_TOTAL_UPDATES
+        or document.get("completed_total_updates") != BRIDGE_TOTAL_UPDATES
+        or document.get("starting_normalizer_count") != BRIDGE_LEGACY_SAMPLE_COUNT
+    ):
+        raise ValueError("promotion requires a safe-complete schema-v3 200/200 bridge manifest")
+    source_paths = ResidualSourcePaths(
+        *(
+            _resolve_file(
+                document.get(f"{label}_path"),
+                parent=path.parent,
+                label=f"{label}_path",
+            )
+            for label in ("asset", "config", "reward", "runtime")
+        )
+    )
+    validate_source_lineage(document, source_paths)
+    short_manifest = _resolve_file(
+        document.get("short_manifest"),
+        parent=path.parent,
+        label="short_manifest",
+    )
+    if document.get("short_manifest_sha256") != sha256_file(short_manifest):
+        raise ValueError("bridge short manifest SHA mismatch")
+    parent = validate_bridge_parent(short_manifest, source_paths)
+    for key, expected in (
+        ("pilot_manifest", str(parent.pilot_manifest)),
+        ("pilot_manifest_sha256", parent.pilot_manifest_sha256),
+        ("parent_checkpoint", str(parent.checkpoint)),
+        ("parent_checkpoint_sha256", parent.checkpoint_sha256),
+    ):
+        if document.get(key) != expected:
+            raise ValueError(f"bridge {key} does not match its short parent")
+
+    migrated = _resolve_file(
+        document.get("migrated_checkpoint"),
+        parent=path.parent,
+        label="migrated_checkpoint",
+    )
+    migrated_sha = sha256_file(migrated)
+    if document.get("migrated_checkpoint_sha256") != migrated_sha:
+        raise ValueError("bridge migrated checkpoint SHA mismatch")
+    validate_counted_checkpoint(
+        migrated, expected_count=BRIDGE_LEGACY_SAMPLE_COUNT
+    )
+
+    raw_candidates = document.get("candidate_checkpoints")
+    if not isinstance(raw_candidates, list) or len(raw_candidates) != len(
+        BRIDGE_CANDIDATE_UPDATES
+    ):
+        raise ValueError("bridge manifest must contain exactly five candidate checkpoints")
+    records: list[CandidateRecord] = []
+    seen: set[int] = set()
+    for raw in raw_candidates:
+        if not isinstance(raw, dict):
+            raise TypeError("candidate records must be objects")
+        updates = raw.get("completed_updates")
+        if not isinstance(updates, int) or isinstance(updates, bool):
+            raise TypeError("candidate completed_updates must be an integer")
+        if updates in seen:
+            raise ValueError("bridge manifest contains a duplicate candidate update")
+        seen.add(updates)
+        checkpoint = _resolve_file(
+            raw.get("checkpoint"), parent=path.parent, label="candidate checkpoint"
+        )
+        digest = sha256_file(checkpoint)
+        if raw.get("checkpoint_sha256") != digest:
+            raise ValueError("bridge candidate checkpoint SHA mismatch")
+        validate_counted_checkpoint(checkpoint)
+        records.append(CandidateRecord(updates, checkpoint, digest))
+    if seen != set(BRIDGE_CANDIDATE_UPDATES):
+        raise ValueError("bridge manifest candidate updates do not match the required set")
+    u100 = next(value for value in records if value.completed_updates == 100)
+    if u100.checkpoint != migrated or u100.checkpoint_sha256 != migrated_sha:
+        raise ValueError("bridge u100 candidate must be the recorded migrated checkpoint")
+    return document, sorted(records, key=lambda value: value.completed_updates), source_paths
+
+
 def _metrics(document: dict[str, object]) -> ResidualEvalMetrics:
     return ResidualEvalMetrics(
         hard_failure_count=int(document["hard_failure_count"]),
@@ -349,17 +449,26 @@ def _run_or_resume_worker(
 
 
 def run_promotion(
-    short_manifest: str | os.PathLike[str],
+    short_manifest: str | os.PathLike[str] | None = None,
     *,
+    bridge_manifest: str | os.PathLike[str] | None = None,
     worker_runner: Callable[..., None] | None = None,
     device: str = "cuda:0",
     headless: bool = True,
     resume: bool = False,
 ) -> dict[str, object]:
-    manifest_path = Path(short_manifest).expanduser().resolve()
+    if (short_manifest is None) == (bridge_manifest is None):
+        raise ValueError("provide exactly one of short_manifest or bridge_manifest")
+    is_bridge = bridge_manifest is not None
+    raw_manifest = bridge_manifest if is_bridge else short_manifest
+    manifest_path = Path(raw_manifest).expanduser().resolve()
     if not manifest_path.is_file():
         raise FileNotFoundError(manifest_path)
-    short_document, records, source_paths = _load_short_manifest(manifest_path)
+    input_document, records, source_paths = (
+        _load_bridge_manifest(manifest_path)
+        if is_bridge
+        else _load_short_manifest(manifest_path)
+    )
     lineage = source_lineage(source_paths)
     run_dir = manifest_path.parent
     worker_runner = worker_runner or _subprocess_worker
@@ -383,8 +492,9 @@ def run_promotion(
             )
             calibration_files.append(str(output))
     tolerances = calibrate_tolerances(zero_pairs)
+    result_schema = 3 if is_bridge else 2
     calibration_manifest = {
-        "schema_version": 2,
+        "schema_version": result_schema,
         "status": "complete",
         "seeds": list(SEEDS),
         "pairs_per_seed": len(PAIR_INDICES),
@@ -444,13 +554,19 @@ def run_promotion(
         if sha256_file(best_path) != selected.sha256:
             raise RuntimeError("published best checkpoint SHA mismatch")
     result = {
-        "schema_version": 2,
+        "schema_version": result_schema,
         "status": "accepted" if selected is not None else "rejected",
         "accepted": selected is not None,
-        "short_manifest": str(manifest_path),
-        "short_manifest_sha256": sha256_file(manifest_path),
-        "pilot_manifest": short_document["pilot_manifest"],
-        "pilot_manifest_sha256": short_document["pilot_manifest_sha256"],
+        "short_manifest": (
+            input_document["short_manifest"] if is_bridge else str(manifest_path)
+        ),
+        "short_manifest_sha256": (
+            input_document["short_manifest_sha256"]
+            if is_bridge
+            else sha256_file(manifest_path)
+        ),
+        "pilot_manifest": input_document["pilot_manifest"],
+        "pilot_manifest_sha256": input_document["pilot_manifest_sha256"],
         **lineage,
         "noise_calibration": str(run_dir / "noise_calibration.json"),
         "tolerances": tolerances,
@@ -460,13 +576,22 @@ def run_promotion(
         "best_checkpoint_sha256": None if selected is None else selected.sha256,
         "completed_at_utc": datetime.now(timezone.utc).isoformat(),
     }
+    if is_bridge:
+        result.update(
+            {
+                "bridge_manifest": str(manifest_path),
+                "bridge_manifest_sha256": sha256_file(manifest_path),
+            }
+        )
     atomic_write_json(run_dir / "promotion_manifest.json", result)
     return result
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--short_manifest", type=Path, required=True)
+    manifests = parser.add_mutually_exclusive_group(required=True)
+    manifests.add_argument("--short_manifest", type=Path)
+    manifests.add_argument("--bridge_manifest", type=Path)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument(
         "--headless", action=argparse.BooleanOptionalAction, default=True
@@ -483,6 +608,7 @@ def main() -> int:
     args = build_arg_parser().parse_args()
     result = run_promotion(
         args.short_manifest,
+        bridge_manifest=args.bridge_manifest,
         device=args.device,
         headless=args.headless,
         resume=args.resume,
