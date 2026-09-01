@@ -104,7 +104,13 @@ T400.10b 分方向 evaluation diagnostics 交互设计已获用户确认并写�
 
 T400.12 8D Residual WBC 第一版 Phase 1–4 已完成。新增与现有 103/23 Coordinated PPO、Folded Load 和 C0/C1a 并行的独立控制链：8D contract、6D virtual wrench 到既有 WBC/QP、height/stance、连续 base participation、安装点六维力反馈、103D observation、runtime wrapper、Gym 注册与 play 入口。CPU 最终回归 `185 passed`；GPU0 零残差 256 步和八轴正负 `0.1` 共 16 组探针全部通过，QP 可行率 `1.0`，四轮接触、无机身触地/越界/reset。本版不包含 Arm MPC 或 PPO 长训。
 
-T400.13 Phase 5 Arm MPC + Phase 6 8D Residual PPO 规格与实施计划均已获批准。首轮严格限定 `M1 原地 + Panda 小幅六自由度 EE 运动`：50 Hz、0.4 s 线性化末端空间 MPC 生成 arm reference 与预测 mount wrench，200 Hz WBC/QP 执行；103D 多分支单头 actor 从零训练 8D residual，安全层最终投影。11-task 单代理 TDD Inline Execution 已开始；当前尚未完成运行代码或启动训练。
+T400.13 Phase 5 已完成，Phase 6 v4/v5/v6 的 pilot、100-update short
+和 seeds 42/43/44 共 24 个固定条件进程均完整执行。三个 promotion
+manifest 均为 `accepted=false`，所以 3000-update long 正确保持未启动。
+v6 的 u100 有小幅有利变化但未超过噪声门限，真实动作 RMS 仅约
+`0.00092–0.00323`。进一步确认经验 normalizer 未持久化样本计数，直接
+续训会覆盖统计。更新100到300的受保护 bridge 与 normalizer 连续性设计
+已写入并提交，当前等待书面规格复核。
 
 ## Open Children
 
@@ -123,7 +129,10 @@ T400.13 Phase 5 Arm MPC + Phase 6 8D Residual PPO 规格与实施计划均已获
   - [ ] Long monitor：等待 fresh 64×600 guard 停止并审计 eligible best/final manifest。
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 - [x] T400.12 按 PDF 推荐顺序完成 8D Residual WBC 第一版 Phase 1–4；CPU 和 GPU0 硬门通过，Arm MPC/PPO 留待独立阶段。
-- [ ] T400.13 按批准规格实现 Phase 5 Arm MPC 与 Phase 6 8D Residual PPO；设计和 11-task 实施计划已批准，正在单代理执行 Task 1。
+- [ ] T400.13 完成 Phase 6 Residual PPO 晋级和条件长训；Phase 5、三轮
+  100-update short 和三轮 24-worker promotion 已完成，均未晋级。下一步
+  是复核 bridge/normalizer 规格、实施 update100→300 bridge、重新执行
+  不变的24进程门，并仅在 `accepted=true` 后启动3000-update long。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
 - [x] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
@@ -311,7 +320,10 @@ T400.13 Phase 5 Arm MPC + Phase 6 8D Residual PPO 规格与实施计划均已获
 
 ## Next Step
 
-当前下一步是用户复核分方向 diagnostics 书面规格；批准后才进入 TDD 实施计划、代码修改和隔离 GPU0 复评。在具体失败方向定位前不盲目续训、不放宽门槛，也不调整 reward/命令分布。
+当前 T400.13 下一步是用户复核 Phase 6 bridge/normalizer 连续性书面
+规格；批准后才进入 TDD 实施计划和代码修改。不得直接从缺少 normalizer
+count 的 v6 u100 续训，不放宽 promotion 门槛，也不在 `accepted=false`
+时创建 long 目录或进程。
 
 协同任务第一版已完成纯 PyTorch mission/零空间辅助和 combined Gym 启动；下一步必须先处理或独立复验 `Panda/root_joint` disjointed body transforms 的 PhysX snap 警告，再进行多环境动态验收。6D mount wrench 契约保持不变，Student S1 暂不更新。
 
@@ -361,4 +373,16 @@ C0 驻停 foundation 与 C1a 平地直线滚动 deterministic Teacher 均已完�
 
 ### T400.13 Phase 6 固定条件 Residual PPO 晋级（运行中）
 
-已完成归一化有界 wrench reward、100-update 五候选、安全监控与性能选择解耦、九次 zero-pair 噪声标定、十五次 candidate/seed 独立评估和严格 SHA lineage。CPU focused `57 passed`、相关回归 `50 passed`；Phase 5 seed42 4000-step GPU0 回归再次通过。下一门为 GPU0 short → 24-process promotion；仅 `promotion_manifest accepted=true` 后允许启动 3000-update long。
+已完成归一化有界 wrench reward、100-update 五候选、安全监控与性能
+选择解耦、九次 zero-pair 噪声标定、十五次 candidate/seed 独立评估和
+严格 SHA lineage。v4/v5/v6 每轮均完成完整 24 个 GPU0 worker，但三轮
+promotion 均拒绝，未启动 long。v6 u000/u025/u100 为
+`aggregate_equivalent`，u050/u075 为 `seed_42_wrench_regression`。
+
+架构诊断确认 u100 normalized action RMS 只有约 `0.00092–0.00323`，100
+updates 尚不足以从接近最优的 zero-residual WBC 基线产生超过 PhysX
+噪声的改善；同时 RSL empirical normalizer 的 sample count 没有进入
+checkpoint。已批准的方向是不改 reward、物理限制、seed、4000-step 和
+promotion tolerance，增加恢复完整模型/optimizer/normalizer/count 的
+update100→300 bridge。书面规格 commit 为 `5217989`，仍需用户复核后
+才可编写实施计划。
