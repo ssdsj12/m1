@@ -279,3 +279,59 @@ The long command remains locked behind a parsed schema-v3
 equal scalar-int64 normalizer counts, and non-empty optimizer state.  Its fresh
 root is
 `Go2Pvcnn/logs/m1_panda_arm_mpc_residual/long_s42_normalizer_continuity_v7`.
+
+## Safe-complete v7 normalizer-continuity bridge
+
+The frozen bridge command exited normally after approximately `1:13:28.63`.
+The schema-v3 manifest SHA-256 is
+`7de719d285bc66c2985be2685ddfda6f63ff8a48d19c51f7c8cdbb369901f07f`.
+It records `status=safe_complete`, `200/200` additional updates, total update
+`300`, `accepted=false`, `promotion_required=true`, and
+`stop_reason=requested_iterations_complete`.
+
+The immutable legacy parent remains
+`6a0bf84c007d1291218ed0573fc6fa44100dc7b5fe6051aefa44538375962b73`;
+its counted migrated u100 is
+`c0e7752490f7a7ac2a7d3c29087bc0171872f350b14f5c382b76d2ee3e020b47`.
+All five candidates contain finite model and optimizer state plus equal
+scalar-int64 actor/critic normalizer counts:
+
+| Total update | Checkpoint SHA-256 | Normalizer count |
+| ---: | --- | ---: |
+| 100 | `c0e7752490f7a7ac2a7d3c29087bc0171872f350b14f5c382b76d2ee3e020b47` | 204800 |
+| 150 | `24126c85f09ad0a617a1778657034bddb914a9c888c26f11c712e6e23cc5b241` | 307208 |
+| 200 | `6d290624db71c2e93c45791a77bba19a31e2d07055c7e57f22b99e8a8bb7ce60` | 409608 |
+| 250 | `34d1ebbddaece4554e6cd9e3b10ea2d1a1091e42eac2ed49da53e90fd16a80c5` | 512008 |
+| 300 | `1530badb0be9f339a732d2fab568848f98ffb814312cce0a5d16bb4cac7bc4d4` | 614408 |
+
+The count sequence proves one normalized initial eight-environment
+observation followed by exactly `256 * 8` samples per bridge update.  The
+full bridge audit completed with `AUDIT_OK`; promotion is now unlocked, while
+the 3000-update long run remains locked pending `accepted=true`.
+
+## Rejected v7 promotion gate
+
+The unchanged schema-v3 promotion gate completed all 24 isolated GPU0
+workers: nine zero-pair noise-calibration workers and fifteen candidate
+workers.  Every worker records `status=complete`, exactly `4000` steps, and
+the required seed, checkpoint, source, and hash lineage.  The final promotion
+manifest SHA-256 is
+`9ad03f53a18a33740249e70b6def654a31b6b6a58986c0271969f47cb6796986`.
+
+The fail-closed result is `status=rejected`, `accepted=false`, with
+`best_checkpoint=null`:
+
+| Total update | Decision |
+| ---: | --- |
+| 100 | `aggregate_equivalent` |
+| 150 | `aggregate_equivalent` |
+| 200 | `seed_42_wrench_regression` |
+| 250 | `seed_42_rank_regression` |
+| 300 | `seed_42_rank_regression` |
+
+The final independent audit returned `PROMOTION_AUDIT_OK`.  It rehashed the
+bridge manifest, all five candidate checkpoints, and the current asset,
+configuration, reward, and runtime sources; it also checked the exact 9+15
+worker set, equal scalar-int64 normalizer counts, and non-empty optimizer
+state.  Because no candidate passed the unchanged promotion tolerances, the
+fresh long-run root was not created and no 3000-update process was started.
