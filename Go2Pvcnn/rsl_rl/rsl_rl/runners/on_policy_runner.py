@@ -250,7 +250,8 @@ class OnPolicyRunner:
         critic_obs = extras["observations"].get("critic", obs)  # critic观测（可能包含额外信息）
         obs, critic_obs = obs.to(self.device), critic_obs.to(self.device)  # 移动到GPU/CPU
         self.train_mode()  # 切换到训练模式（启用dropout、batchnorm训练行为等）
-        
+        obs = self.obs_normalizer(obs)
+        critic_obs = self.critic_obs_normalizer(critic_obs)
 
         # ========================================
         # 初始化训练统计变量

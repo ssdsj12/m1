@@ -26,7 +26,11 @@ class EmpiricalNormalization(nn.Module):
         self.register_buffer("_mean", torch.zeros(shape).unsqueeze(0))
         self.register_buffer("_var", torch.ones(shape).unsqueeze(0))
         self.register_buffer("_std", torch.ones(shape).unsqueeze(0))
-        self.count = 0
+        self.register_buffer("_count", torch.zeros((), dtype=torch.int64))
+
+    @property
+    def count(self) -> int:
+        return int(self._count.item())
 
     @property
     def mean(self):
@@ -54,12 +58,13 @@ class EmpiricalNormalization(nn.Module):
     def update(self, x):
         """Learn input values without computing the output values of them"""
 
-        if self.until is not None and self.count >= self.until:
+        previous_count = self.count
+        if self.until is not None and previous_count >= self.until:
             return
 
-        count_x = x.shape[0]
-        self.count += count_x
-        rate = count_x / self.count
+        count_x = int(x.shape[0])
+        next_count = previous_count + count_x
+        rate = count_x / next_count
 
         var_x = torch.var(x, dim=0, unbiased=False, keepdim=True)
         mean_x = torch.mean(x, dim=0, keepdim=True)
@@ -67,6 +72,7 @@ class EmpiricalNormalization(nn.Module):
         self._mean += rate * delta_mean
         self._var += rate * (var_x - self._var + delta_mean * (mean_x - self._mean))
         self._std = torch.sqrt(self._var)
+        self._count.fill_(next_count)
 
     @torch.jit.unused
     def inverse(self, y):
