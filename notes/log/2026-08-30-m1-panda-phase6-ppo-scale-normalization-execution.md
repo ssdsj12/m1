@@ -219,3 +219,63 @@ rerunning the unchanged promotion protocol.
 
 The written design is committed at `5217989`:
 `docs/superpowers/specs/2026-09-01-m1-panda-phase6-bridge-normalizer-continuity-design.md`.
+
+## Bridge/normalizer continuity implementation preflight
+
+The approved single-agent TDD implementation is now complete through the CPU
+preflight.  No bridge GPU process, promotion worker, or long run had been
+started at the time of this entry.
+
+- Persistent empirical-normalizer count and first-observation normalization:
+  commit `3c4a931`.
+- Fail-closed v6 u100 lineage and atomic legacy-count migration: commit
+  `4b324d1`.
+- Guarded total-update 100-to-300 bridge stage: commit `b5a9cf4`.
+- Schema-v3 bridge promotion and counted optimizer-preserving long lineage:
+  commit `48832be`.
+- Complete corrected residual/runner CPU suite: `134 passed in 1.89s`.
+  The implementation plan's obsolete
+  `test_m1_panda_arm_mpc_residual_runtime.py` name was replaced by the present
+  `test_m1_panda_arm_mpc_residual_wrapper.py` and
+  `test_m1_panda_arm_mpc_runtime.py` files.
+- `python -m compileall -q agent go2_pvcnn scripts rsl_rl/rsl_rl`: exit `0`.
+- `git diff --check`: no whitespace errors.
+
+Immutable v6 input evidence:
+
+- short manifest SHA-256:
+  `4d827de3e76e0fb8321543ab41dce7061a9f76eb1744f6db5bb2f7602e742e50`;
+- legacy u100 checkpoint SHA-256:
+  `6a0bf84c007d1291218ed0573fc6fa44100dc7b5fe6051aefa44538375962b73`;
+- migrated count contract: actor and critic both start at `204800` samples;
+- source SHA-256 values remain asset `643fd061...`, config `4aab4e8e...`,
+  reward `34576caf...`, and runtime `b5f8f17f...`.
+
+Frozen GPU0 bridge command:
+
+```bash
+cd /home/xk/coding/M1/Go2Pvcnn
+CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python \
+  scripts/m1_panda_arm_mpc_residual_train.py \
+  --stage bridge \
+  --short_manifest /home/xk/coding/M1/Go2Pvcnn/logs/m1_panda_arm_mpc_residual/short_s42_corrected_obs_v6/run_manifest.json \
+  --run_dir /home/xk/coding/M1/Go2Pvcnn/logs/m1_panda_arm_mpc_residual/bridge_s42_normalizer_continuity_v7 \
+  --num_envs 8 --max_iterations 200 --seed 42 \
+  --device cuda:0 --headless
+```
+
+Conditional promotion command after a verified safe-complete bridge:
+
+```bash
+cd /home/xk/coding/M1/Go2Pvcnn
+CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python \
+  scripts/m1_panda_arm_mpc_residual_promote.py \
+  --bridge_manifest /home/xk/coding/M1/Go2Pvcnn/logs/m1_panda_arm_mpc_residual/bridge_s42_normalizer_continuity_v7/run_manifest.json \
+  --device cuda:0 --headless
+```
+
+The long command remains locked behind a parsed schema-v3
+`promotion_manifest.json` with `accepted=true`, a SHA-valid bridge candidate,
+equal scalar-int64 normalizer counts, and non-empty optimizer state.  Its fresh
+root is
+`Go2Pvcnn/logs/m1_panda_arm_mpc_residual/long_s42_normalizer_continuity_v7`.

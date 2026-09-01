@@ -107,10 +107,10 @@ T400.12 8D Residual WBC 第一版 Phase 1–4 已完成。新增与现有 103/23
 T400.13 Phase 5 已完成，Phase 6 v4/v5/v6 的 pilot、100-update short
 和 seeds 42/43/44 共 24 个固定条件进程均完整执行。三个 promotion
 manifest 均为 `accepted=false`，所以 3000-update long 正确保持未启动。
-v6 的 u100 有小幅有利变化但未超过噪声门限，真实动作 RMS 仅约
-`0.00092–0.00323`。进一步确认经验 normalizer 未持久化样本计数，直接
-续训会覆盖统计。更新100到300的受保护 bridge 与 normalizer 连续性设计
-已写入并提交，当前等待书面规格复核。
+受保护的 update100→300 bridge、经验 normalizer count 持久化、v6 u100
+原子迁移、schema-v3 promotion 和 long 的 optimizer/count 连续恢复已按
+批准规格完成；完整 CPU 预检 `134 passed`，compile/diff 通过。下一步是
+在 GPU0 执行 v7 bridge，尚无 bridge/promotion/long 的运行验收结论。
 
 ## Open Children
 
@@ -130,9 +130,9 @@ v6 的 u100 有小幅有利变化但未超过噪声门限，真实动作 RMS 仅
 - [ ] T400.11 调查 reset/启动 mount wrench 峰值的物理与传感来源，并冻结训练归一化/裁剪合同；不得外推为实机允许载荷。
 - [x] T400.12 按 PDF 推荐顺序完成 8D Residual WBC 第一版 Phase 1–4；CPU 和 GPU0 硬门通过，Arm MPC/PPO 留待独立阶段。
 - [ ] T400.13 完成 Phase 6 Residual PPO 晋级和条件长训；Phase 5、三轮
-  100-update short 和三轮 24-worker promotion 已完成，均未晋级。下一步
-  是复核 bridge/normalizer 规格、实施 update100→300 bridge、重新执行
-  不变的24进程门，并仅在 `accepted=true` 后启动3000-update long。
+  100-update short 和三轮 24-worker promotion 已完成，均未晋级。bridge/
+  normalizer 实现与 CPU 预检已完成；下一步执行 update100→300 GPU0
+  bridge 和不变的24进程门，并仅在 `accepted=true` 后启动3000-update long。
 
 - [x] T400.8a 复核优先级 WBC Teacher–Student 书面规格，并生成 C0 逐文件 TDD 实施计划。
 - [x] T400.8b 单代理执行 C0 deterministic Teacher foundation，完成静态回归与 GPU0 8+2000-step 验收。
@@ -382,7 +382,7 @@ promotion 均拒绝，未启动 long。v6 u000/u025/u100 为
 架构诊断确认 u100 normalized action RMS 只有约 `0.00092–0.00323`，100
 updates 尚不足以从接近最优的 zero-residual WBC 基线产生超过 PhysX
 噪声的改善；同时 RSL empirical normalizer 的 sample count 没有进入
-checkpoint。已批准的方向是不改 reward、物理限制、seed、4000-step 和
-promotion tolerance，增加恢复完整模型/optimizer/normalizer/count 的
-update100→300 bridge。书面规格 commit 为 `5217989`，仍需用户复核后
-才可编写实施计划。
+checkpoint。现已在不改 reward、物理限制、seed、4000-step 和 promotion
+tolerance 的前提下实现完整模型/optimizer/normalizer/count 连续恢复、
+legacy u100 精确迁移、update100→300 bridge 与 schema-v3 晋级。CPU
+预检 `134 passed`；GPU0 bridge、24-worker promotion 和条件 long 仍待执行。
