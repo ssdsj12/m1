@@ -117,9 +117,13 @@ retains the current online safety controller:
 
 Any violation stops the bridge, records an atomic safety-stopped manifest, and
 blocks promotion.  A safe bridge publishes candidates at total completed
-updates 100, 150, 200, 250, and 300.  The validated parent u100 is atomically
-copied into the bridge directory as its u100 candidate, and the copy must have
-the identical SHA-256 hash.
+updates 100, 150, 200, 250, and 300.  The validated legacy parent u100 is
+migrated atomically into the bridge directory by adding only the exact actor
+and critic normalizer counts.  Its model, optimizer, mean, variance and
+standard-deviation tensors must remain value-identical.  The bridge manifest
+records both the original parent SHA-256 and the distinct migrated u100
+SHA-256, so the migration is explicit rather than pretending the files are
+byte-identical.
 
 ## 5. Promotion contract
 
