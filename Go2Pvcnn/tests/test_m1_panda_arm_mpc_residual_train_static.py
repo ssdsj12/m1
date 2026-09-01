@@ -59,11 +59,14 @@ def test_train_cli_defaults_to_bounded_short_gate():
     assert args.num_envs == 8
     assert args.max_iterations is None
     assert args.pilot_manifest is None
+    assert args.short_manifest is None
     assert args.seed == 42
     assert args.headless is True
     assert module.resolve_max_iterations("zero", None) == 10
     assert module.resolve_max_iterations("pilot", None) == 10
     assert module.resolve_max_iterations("short", None) == 100
+    assert module.resolve_max_iterations("bridge", None) == 200
+    assert module.resolve_max_iterations("bridge", 200) == 200
     assert module.resolve_max_iterations("long", None) == 3000
     with pytest.raises(ValueError, match="short.*100"):
         module.resolve_max_iterations("short", 101)
@@ -71,6 +74,18 @@ def test_train_cli_defaults_to_bounded_short_gate():
         module.resolve_max_iterations("short", 99)
     with pytest.raises(ValueError, match="pilot.*10"):
         module.resolve_max_iterations("pilot", 9)
+    with pytest.raises(ValueError, match="bridge.*exactly 200"):
+        module.resolve_max_iterations("bridge", 199)
+
+
+def test_bridge_cli_accepts_only_its_short_manifest():
+    module = _load_script()
+    args = module.build_arg_parser(include_app_launcher_args=False).parse_args(
+        ["--stage", "bridge", "--short_manifest", "short.json"]
+    )
+
+    assert args.stage == "bridge"
+    assert args.short_manifest == Path("short.json")
 
 
 def test_pilot_controller_records_ten_updates_without_candidates(tmp_path):
@@ -311,7 +326,8 @@ def test_train_source_uses_fresh_8d_policy_and_offline_promotion():
     assert "ResidualTrainingSafetyGuard" in source
     assert "iteration_callback=" in source
     assert "candidate_u000.pt" in source
-    assert '"promotion_required": True' in source
+    assert '"promotion_required": promotion_required' in source
+    assert 'args.stage == "bridge" and safe_complete' in source
     assert "os.replace" in source
     assert "legacy_23d_checkpoint_loaded" in source
     assert "validate_promotion_manifest(" in source
@@ -365,6 +381,64 @@ def test_candidate_names_use_completed_update_counts(tmp_path):
     assert (tmp_path / "candidate_u000.pt").read_bytes() == b"rollout-policy"
     assert (tmp_path / "candidate_u025.pt").read_bytes() == b"post-update-policy"
     assert not (tmp_path / "model_best.pt").exists()
+
+
+def test_bridge_controller_publishes_only_total_update_candidates(tmp_path):
+    module = _load_script()
+
+    class Runner:
+        saves = 0
+
+        def save(self, path):
+            self.saves += 1
+            Path(path).write_bytes(f"policy-{self.saves}".encode())
+
+    metrics = {
+        "hard_failure_count": 0.0,
+        "mpc_feasible_rate": 1.0,
+        "qp_feasible_rate": 1.0,
+        "four_contact_rate": 1.0,
+        "roll_pitch_rms": 0.01,
+        "base_height_rms": 0.01,
+        "ee_position_error": 0.01,
+        "ee_orientation_error": 0.04,
+        "wrench_error": 0.1,
+        "slip": 0.0,
+        "intervention_ratio": 0.0,
+        **{f"saturation_fraction_{index}": 0.0 for index in range(8)},
+    }
+    initial = tmp_path / "candidate_u100.pt"
+    initial.write_bytes(b"migrated-parent")
+    controller = module.ResidualTrainingSafetyController(
+        tmp_path,
+        starting_updates=100,
+        candidate_updates=(100, 150, 200, 250, 300),
+    )
+    controller.register_initial_candidate(100, initial)
+    runner = Runner()
+    for total_update in (150, 200, 250, 300):
+        summary = SimpleNamespace(
+            iteration=total_update - 1,
+            environment_metrics=tuple(metrics.items()),
+            learning_rate=1.0e-5,
+            kl_mean=0.01,
+            kl_max=0.01,
+            grad_norm=0.1,
+            active_action_std_min=0.005,
+            active_action_std_max=0.005,
+        )
+        assert controller.on_iteration(runner, summary) is None
+
+    assert tuple(controller.candidate_checkpoints) == (100, 150, 200, 250, 300)
+    assert sorted(path.name for path in tmp_path.glob("candidate_u*.pt")) == [
+        "candidate_u100.pt",
+        "candidate_u150.pt",
+        "candidate_u200.pt",
+        "candidate_u250.pt",
+        "candidate_u300.pt",
+    ]
+    assert not (tmp_path / "candidate_u101.pt").exists()
+    assert not (tmp_path / "candidate_u299.pt").exists()
 
 
 def test_safety_controller_stops_on_hard_failure(tmp_path):

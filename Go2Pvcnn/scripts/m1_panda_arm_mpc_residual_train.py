@@ -29,6 +29,15 @@ from go2_pvcnn.training.m1_panda_arm_mpc_residual_lineage import (
     source_lineage,
     validate_source_lineage,
 )
+from go2_pvcnn.training.m1_panda_arm_mpc_residual_bridge import (
+    BRIDGE_ADDITIONAL_UPDATES,
+    BRIDGE_CANDIDATE_UPDATES,
+    BRIDGE_PARENT_UPDATES,
+    BRIDGE_TOTAL_UPDATES,
+    migrate_legacy_u100_checkpoint,
+    validate_bridge_parent,
+    validate_counted_checkpoint,
+)
 from go2_pvcnn.training.m1_panda_arm_mpc_residual_pilot import (
     PilotIterationRecord,
     evaluate_pilot,
@@ -36,7 +45,13 @@ from go2_pvcnn.training.m1_panda_arm_mpc_residual_pilot import (
 
 
 TASK_ID = "Isaac-M1-Panda-ArmMpc-Residual-v0"
-STAGE_LIMITS = {"zero": 10, "pilot": 10, "short": 100, "long": 3000}
+STAGE_LIMITS = {
+    "zero": 10,
+    "pilot": 10,
+    "short": 100,
+    "bridge": BRIDGE_ADDITIONAL_UPDATES,
+    "long": 3000,
+}
 
 
 @dataclass(frozen=True)
@@ -86,7 +101,7 @@ def resolve_max_iterations(stage: str, requested: int | None) -> int:
     value = limit if requested is None else requested
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= limit:
         raise ValueError(f"{stage} max_iterations must be in [1, {limit}]")
-    if stage in ("pilot", "short") and value != limit:
+    if stage in ("pilot", "short", "bridge") and value != limit:
         raise ValueError(f"{stage} max_iterations must be exactly {limit}")
     return value
 
@@ -243,6 +258,7 @@ def build_arg_parser(*, include_app_launcher_args: bool = True):
     parser.add_argument("--stage", choices=tuple(STAGE_LIMITS), default="short")
     parser.add_argument("--run_dir", type=Path)
     parser.add_argument("--pilot_manifest", type=Path)
+    parser.add_argument("--short_manifest", type=Path)
     parser.add_argument("--promotion_manifest", type=Path)
     parser.add_argument("--num_envs", type=int, default=8)
     parser.add_argument("--max_iterations", type=int)
@@ -304,20 +320,53 @@ def initialize_fresh_residual_policy(runner) -> None:
 class ResidualTrainingSafetyController:
     CANDIDATE_UPDATES = (0, 25, 50, 75, 100)
 
-    def __init__(self, run_dir: Path):
+    def __init__(
+        self,
+        run_dir: Path,
+        *,
+        starting_updates: int = 0,
+        candidate_updates: tuple[int, ...] = CANDIDATE_UPDATES,
+    ):
         from go2_pvcnn.training.m1_panda_arm_mpc_residual_guard import (
             ResidualTrainingSafetyGuard,
         )
 
         self.run_dir = run_dir
+        self.starting_updates = starting_updates
+        self.candidate_updates = candidate_updates
         self.safety_guard = ResidualTrainingSafetyGuard()
         self.candidate_checkpoints: dict[int, Path] = {}
 
+        if (
+            isinstance(starting_updates, bool)
+            or not isinstance(starting_updates, int)
+            or starting_updates < 0
+        ):
+            raise ValueError("starting_updates must be a non-negative integer")
+        if (
+            not candidate_updates
+            or tuple(sorted(set(candidate_updates))) != candidate_updates
+            or starting_updates not in candidate_updates
+        ):
+            raise ValueError(
+                "candidate_updates must be sorted, unique, and include starting_updates"
+            )
+
+    def register_initial_candidate(self, updates: int, checkpoint: Path) -> None:
+        if updates != self.starting_updates:
+            raise ValueError("initial candidate must match starting_updates")
+        path = Path(checkpoint).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        self.candidate_checkpoints[updates] = path
+
     def prime(self, runner) -> None:
         """Save the exact pre-rollout, pre-update zero policy."""
+        if self.starting_updates != 0:
+            raise ValueError("prime is valid only for a fresh zero-update run")
         checkpoint = self.run_dir / "candidate_u000.pt"
         _atomic_save(runner, checkpoint)
-        self.candidate_checkpoints[0] = checkpoint
+        self.register_initial_candidate(0, checkpoint)
 
     @staticmethod
     def _metrics(summary):
@@ -372,7 +421,9 @@ class ResidualTrainingSafetyController:
         metrics = self._metrics(summary)
         stop_reason = self.safety_guard.observe(metrics)
         completed_updates = int(summary.iteration) + 1
-        if stop_reason is None and completed_updates in self.CANDIDATE_UPDATES:
+        if completed_updates <= self.starting_updates:
+            raise RuntimeError("training callback did not advance beyond its starting update")
+        if stop_reason is None and completed_updates in self.candidate_updates:
             checkpoint = self.run_dir / f"candidate_u{completed_updates:03d}.pt"
             _atomic_save(runner, checkpoint)
             self.candidate_checkpoints[completed_updates] = checkpoint
@@ -435,6 +486,15 @@ def main() -> int:
     )
     if args.stage != "short" and args.pilot_manifest is not None:
         raise ValueError("pilot_manifest is valid only for the short stage")
+    bridge_parent = (
+        validate_bridge_parent(args.short_manifest, source_paths)
+        if args.stage == "bridge" and args.short_manifest is not None
+        else None
+    )
+    if args.stage == "bridge" and bridge_parent is None:
+        raise ValueError("bridge stage requires a safe-complete short_manifest")
+    if args.stage != "bridge" and args.short_manifest is not None:
+        raise ValueError("short_manifest is valid only for the bridge stage")
     run_dir = (
         _default_run_dir(args.stage, args.seed)
         if args.run_dir is None
@@ -449,7 +509,7 @@ def main() -> int:
     train_cfg = get_m1_panda_arm_mpc_residual_train_cfg()
     manifest_path = run_dir / "run_manifest.json"
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3 if args.stage == "bridge" else 2,
         "status": "starting",
         "accepted": False,
         "task": TASK_ID,
@@ -458,13 +518,19 @@ def main() -> int:
         "num_envs": args.num_envs,
         "seed": args.seed,
         "requested_iterations": iterations,
-        "fresh_8d_policy": args.stage != "long",
+        "fresh_8d_policy": args.stage not in ("bridge", "long"),
         "legacy_23d_checkpoint_loaded": False,
         "force_zero_residual": args.stage == "zero",
         **source_lineage(source_paths),
-        "pilot_manifest": None if pilot_lineage is None else str(pilot_lineage.manifest),
+        "pilot_manifest": (
+            str(bridge_parent.pilot_manifest)
+            if bridge_parent is not None
+            else None if pilot_lineage is None else str(pilot_lineage.manifest)
+        ),
         "pilot_manifest_sha256": (
-            None if pilot_lineage is None else pilot_lineage.manifest_sha256
+            bridge_parent.pilot_manifest_sha256
+            if bridge_parent is not None
+            else None if pilot_lineage is None else pilot_lineage.manifest_sha256
         ),
         "promotion_manifest": (
             None if promotion_lineage is None else str(promotion_lineage.manifest)
@@ -473,17 +539,33 @@ def main() -> int:
             None if promotion_lineage is None else promotion_lineage.manifest_sha256
         ),
         "short_manifest": (
-            None if promotion_lineage is None else str(promotion_lineage.short_manifest)
+            str(bridge_parent.short_manifest)
+            if bridge_parent is not None
+            else None if promotion_lineage is None else str(promotion_lineage.short_manifest)
         ),
         "short_manifest_sha256": (
-            None if promotion_lineage is None else promotion_lineage.short_manifest_sha256
+            bridge_parent.short_manifest_sha256
+            if bridge_parent is not None
+            else None if promotion_lineage is None else promotion_lineage.short_manifest_sha256
         ),
         "parent_checkpoint": (
-            None if promotion_lineage is None else str(promotion_lineage.checkpoint)
+            str(bridge_parent.checkpoint)
+            if bridge_parent is not None
+            else None if promotion_lineage is None else str(promotion_lineage.checkpoint)
         ),
         "parent_checkpoint_sha256": (
-            None if promotion_lineage is None else promotion_lineage.checkpoint_sha256
+            bridge_parent.checkpoint_sha256
+            if bridge_parent is not None
+            else None if promotion_lineage is None else promotion_lineage.checkpoint_sha256
         ),
+        "starting_updates": BRIDGE_PARENT_UPDATES if bridge_parent is not None else 0,
+        "requested_additional_updates": iterations if bridge_parent is not None else None,
+        "target_total_updates": BRIDGE_TOTAL_UPDATES if bridge_parent is not None else None,
+        "starting_normalizer_count": (
+            None if bridge_parent is None else bridge_parent.sample_count
+        ),
+        "migrated_checkpoint": None,
+        "migrated_checkpoint_sha256": None,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "command": [sys.executable, *sys.argv],
         "pid": os.getpid(),
@@ -520,7 +602,31 @@ def main() -> int:
         if wrapper.num_actions != 8:
             raise RuntimeError("residual policy action dimension must be 8")
         runner = OnPolicyRunner(wrapper, train_cfg, log_dir=str(run_dir), device=args.device)
-        if promotion_lineage is None:
+        if bridge_parent is not None:
+            migrated = run_dir / "candidate_u100.pt"
+            migrated_sha = migrate_legacy_u100_checkpoint(
+                bridge_parent.checkpoint,
+                migrated,
+                expected_parent_sha256=bridge_parent.checkpoint_sha256,
+                sample_count=bridge_parent.sample_count,
+            )
+            runner.load(str(migrated), load_optimizer=True, keep_std=True)
+            runner.current_learning_iteration = BRIDGE_PARENT_UPDATES
+            validate_counted_checkpoint(
+                migrated, expected_count=bridge_parent.sample_count
+            )
+            if (
+                runner.obs_normalizer.count != bridge_parent.sample_count
+                or runner.critic_obs_normalizer.count != bridge_parent.sample_count
+            ):
+                raise RuntimeError("runner did not restore bridge normalizer counts")
+            manifest.update(
+                {
+                    "migrated_checkpoint": str(migrated),
+                    "migrated_checkpoint_sha256": migrated_sha,
+                }
+            )
+        elif promotion_lineage is None:
             initialize_fresh_residual_policy(runner)
         else:
             # Only an accepted, hash-matched 8D short checkpoint may seed long mode;
@@ -533,6 +639,13 @@ def main() -> int:
             runner.current_learning_iteration = 0
         if args.stage == "pilot":
             controller = PilotTrainingController()
+        elif args.stage == "bridge":
+            controller = ResidualTrainingSafetyController(
+                run_dir,
+                starting_updates=BRIDGE_PARENT_UPDATES,
+                candidate_updates=BRIDGE_CANDIDATE_UPDATES,
+            )
+            controller.register_initial_candidate(BRIDGE_PARENT_UPDATES, migrated)
         else:
             controller = ResidualTrainingSafetyController(run_dir)
             controller.prime(runner)
@@ -581,16 +694,31 @@ def main() -> int:
             }
             for updates, checkpoint in sorted(controller.candidate_checkpoints.items())
         ]
-        if args.stage == "short" and safe_complete and set(
+        expected_candidates = set(controller.candidate_updates)
+        if args.stage in ("short", "bridge") and safe_complete and set(
             controller.candidate_checkpoints
-        ) != set(controller.CANDIDATE_UPDATES):
-            raise RuntimeError("safe short run did not produce all five candidates")
+        ) != expected_candidates:
+            raise RuntimeError(f"safe {args.stage} run did not produce all five candidates")
+        if args.stage == "bridge" and safe_complete and (
+            result.completed_iterations != BRIDGE_ADDITIONAL_UPDATES
+            or BRIDGE_PARENT_UPDATES + result.completed_iterations
+            != BRIDGE_TOTAL_UPDATES
+        ):
+            raise RuntimeError("safe bridge run did not complete total update 300")
+        promotion_required = args.stage == "short" or (
+            args.stage == "bridge" and safe_complete
+        )
         manifest.update(
             {
                 "status": "safe_complete" if safe_complete else "safety_stopped",
                 "accepted": False,
-                "promotion_required": True,
+                "promotion_required": promotion_required,
                 "completed_iterations": result.completed_iterations,
+                "completed_total_updates": (
+                    BRIDGE_PARENT_UPDATES + result.completed_iterations
+                    if args.stage == "bridge"
+                    else result.completed_iterations
+                ),
                 "stop_reason": result.stop_reason or "requested_iterations_complete",
                 "candidate_checkpoints": candidate_records,
                 "completed_at_utc": datetime.now(timezone.utc).isoformat(),
