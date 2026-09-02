@@ -1,0 +1,86 @@
+{
+  "left": {
+    "entry": "o6_left/O6_left.usd",
+    "layers": {
+      "base": "o6_left/configuration/linkerhand_O6_left.urdf_base.usd",
+      "physics": "o6_left/configuration/linkerhand_O6_left.urdf_physics.usd",
+      "robot": "o6_left/configuration/linkerhand_O6_left.urdf_robot.usd",
+      "sensor": "o6_left/configuration/linkerhand_O6_left.urdf_sensor.usd"
+    },
+    "meshes": [
+      "o6_left/meshes/hand_base_link.STL",
+      "o6_left/meshes/index_distal.STL",
+      "o6_left/meshes/index_proximal.STL",
+      "o6_left/meshes/middle_distal.STL",
+      "o6_left/meshes/middle_proximal.STL",
+      "o6_left/meshes/pinky_distal.STL",
+      "o6_left/meshes/pinky_proximal.STL",
+      "o6_left/meshes/ring_distal.STL",
+      "o6_left/meshes/ring_proximal.STL",
+      "o6_left/meshes/thumb_distal.STL",
+      "o6_left/meshes/thumb_metacarpals.STL",
+      "o6_left/meshes/thumb_metacarpals_base2.STL"
+    ]
+  },
+  "right": {
+    "entry": "o6_right/O6_right.usd",
+    "layers": {
+      "base": "o6_right/configuration/linkerhand_O6_right.urdf_base.usd",
+      "physics": "o6_right/configuration/linkerhand_O6_right.urdf_physics.usd",
+      "robot": "o6_right/configuration/linkerhand_O6_right.urdf_robot.usd",
+      "sensor": "o6_right/configuration/linkerhand_O6_right.urdf_sensor.usd"
+    },
+    "meshes": [
+      "o6_right/meshes/hand_base_link.STL",
+      "o6_right/meshes/index_distal.STL",
+      "o6_right/meshes/index_proximal.STL",
+      "o6_right/meshes/middle_distal.STL",
+      "o6_right/meshes/middle_proximal.STL",
+      "o6_right/meshes/pinky_distal.STL",
+      "o6_right/meshes/pinky_proximal.STL",
+      "o6_right/meshes/ring_distal.STL",
+      "o6_right/meshes/ring_proximal.STL",
+      "o6_right/meshes/thumb_distal.STL",
+      "o6_right/meshes/thumb_metacarpals.STL",
+      "o6_right/meshes/thumb_metacarpals_base2.STL"
+    ]
+  },
+  "schema": 1,
+  "sha256": {
+    "o6_left/O6_left.usd": "8be15c7d4479064d1a8913fc6dca1e726fe9eeb6d3e4f6119c3a46e5d4afe4b4",
+    "o6_left/configuration/O6_left.usd": "8be15c7d4479064d1a8913fc6dca1e726fe9eeb6d3e4f6119c3a46e5d4afe4b4",
+    "o6_left/configuration/linkerhand_O6_left.urdf_base.usd": "7066cb87b8087a1d88460ac5de6b7aa9f1f33fbbd6329c53696a56af944bb7f9",
+    "o6_left/configuration/linkerhand_O6_left.urdf_physics.usd": "25f7d5f61a6ad91567f89d8d97eedef62c55a3806f1f5f9ba680e1e68a98016b",
+    "o6_left/configuration/linkerhand_O6_left.urdf_robot.usd": "36e67242061052cf298ff0d43f42864bdd838d07b16f88d5fb8119194f45b944",
+    "o6_left/configuration/linkerhand_O6_left.urdf_sensor.usd": "941dd8d876bc0717f15a481c2e9d49e33ee9f88f3b8af06492d3ab66b1eedcbb",
+    "o6_left/meshes/hand_base_link.STL": "2dc0d80eb470c0ccd6e338650f383efea75a5b77eee7e51d2b6a1da553afcdfe",
+    "o6_left/meshes/index_distal.STL": "4f2699ea27c60f6c28a3ca0cae64ddab40b24b4929bbc23e112cbe08f7ae311c",
+    "o6_left/meshes/index_proximal.STL": "dd77da3a5c18d236c46c3adb51e7be8262e64926a0ee9e996741609d5ed0b08d",
+    "o6_left/meshes/middle_distal.STL": "b92ed1e3af1d6ef3389287a45c27433a1584a1233fcb0825ee48411b59299697",
+    "o6_left/meshes/middle_proximal.STL": "ed2daec64e98506a9fdd3e63708f5644c5d0660ef54c7711c83f15351fc8eb85",
+    "o6_left/meshes/pinky_distal.STL": "01a8db3f672c232cd3430c2314e1422cc14950c6f2e03606f9f4d20e66c30311",
+    "o6_left/meshes/pinky_proximal.STL": "8d0a3df9d46abe366d27132a49a45552031b57d1684fdf3adf7969a19faf6bf0",
+    "o6_left/meshes/ring_distal.STL": "a21ba5ccb885f939788ef701d99a94781d0001ffe2b43a3d79a32c376dab988b",
+    "o6_left/meshes/ring_proximal.STL": "d17d67b52a5f02d9ff5dbb0b7315fea055f0ee43a0f2443faf7df28942cf3663",
+    "o6_left/meshes/thumb_distal.STL": "baf3c1b16f94925bcd06768af7ec811de1a97d78f253d26adcd502d35067cf75",
+    "o6_left/meshes/thumb_metacarpals.STL": "c91dc63ccd81ca270d166e9e276665ea3fbe6bb42fbee31d1c7bb545b4238045",
+    "o6_left/meshes/thumb_metacarpals_base2.STL": "9e8bd4b4adce43f74df492c1cd3890457b2ac0151c12582c5a8faaf6cdc9f1d9",
+    "o6_right/O6_right.usd": "71cac97aea71f6b615c8c76faba7cc555bcd53eb2b63ba61e27d3f5d363ef1be",
+    "o6_right/configuration/linkerhand_O6_right.urdf_base.usd": "88d440d3f633863062f1384f523e1ffcb83e220b82c09587173175de154e8ad9",
+    "o6_right/configuration/linkerhand_O6_right.urdf_physics.usd": "755e1583dd988731c352f9ea1936c719af12294214e65c690e4e9f0db706189a",
+    "o6_right/configuration/linkerhand_O6_right.urdf_robot.usd": "f2b1fad91ca7ef6839f02e9ce0765d03f86efb58f1a001887d67726fe085fa1d",
+    "o6_right/configuration/linkerhand_O6_right.urdf_sensor.usd": "746134929c8772e411ff8a19d36bf42be4efce16f050f8cf586680b06feae739",
+    "o6_right/meshes/hand_base_link.STL": "f7fc8dae5d375e5a33251593c46f8b882c3a1aaafe89fa9544f0ef57d657f5de",
+    "o6_right/meshes/index_distal.STL": "f07c23647d61bbc3e1c195fd94a726fa1a7828d128100ad49176af4c2364645f",
+    "o6_right/meshes/index_proximal.STL": "38c58f62b9911203069925c3d374703772927ffd3fa98049400fd75e66e7194a",
+    "o6_right/meshes/middle_distal.STL": "15d9e1daab1e75a1ce6808a64d37effd1f7cd179b9d1ecb44f3a4be70d0e186e",
+    "o6_right/meshes/middle_proximal.STL": "392519c735b9658d3417d793a00f6a0f655b8e8b0a64fdd096eb2bcb31a4de65",
+    "o6_right/meshes/pinky_distal.STL": "1b4b1c44dadd484bc3564ad622e0b7609c60eb8d76937b2a10c7d262cddc96e0",
+    "o6_right/meshes/pinky_proximal.STL": "50a1131fbead7bcf79ed1f435d4d799bd29f637ce81aa5220f31dc8b75a43777",
+    "o6_right/meshes/ring_distal.STL": "e6488d4c8d8a8aa2d857c51178472f50e398dac1a2552cf90d2cf08561ae69cf",
+    "o6_right/meshes/ring_proximal.STL": "e7485a837556d6c8a6101617bb113a625d65a878a00ac297b096d59b89629d5b",
+    "o6_right/meshes/thumb_distal.STL": "c3642be300b1ae3f7f5af071f5b1cfd4dec99e610e57e7bfe44a3b804886a360",
+    "o6_right/meshes/thumb_metacarpals.STL": "6bb54d668aea4f71251d48dc010897e08717b0cd13f63b304357fdc36894b897",
+    "o6_right/meshes/thumb_metacarpals_base2.STL": "d92665c1cf3304617674cb4bc64cb20bc42ee49238043a427c222e32b4bdfe56"
+  }
+}
