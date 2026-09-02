@@ -31,6 +31,15 @@ from .hand_mpc import (
     O6HandMpc,
     build_hand_contact_qp,
 )
+from .whole_body_qp import (
+    BimanualWbcCfg,
+    BimanualWbcDiagnostics,
+    BimanualWbcRequest,
+    BimanualWbcSolution,
+    BimanualWholeBodyQp,
+    build_bimanual_constraints,
+    build_wbc_problem,
+)
 
 __all__ = [
     "ACTIVE_CONTROL_DOF",
@@ -56,4 +65,11 @@ __all__ = [
     "HandMpcSolution",
     "O6HandMpc",
     "build_hand_contact_qp",
+    "BimanualWbcCfg",
+    "BimanualWbcDiagnostics",
+    "BimanualWbcRequest",
+    "BimanualWbcSolution",
+    "BimanualWholeBodyQp",
+    "build_bimanual_constraints",
+    "build_wbc_problem",
 ]
