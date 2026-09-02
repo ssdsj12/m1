@@ -18,6 +18,11 @@ from .object_mpc import (
     ObjectMpcSolution,
     build_object_qp,
 )
+from .dual_arm_mpc import (
+    DualArmMpcCoordinator,
+    DualArmMpcInput,
+    DualArmMpcSolution,
+)
 
 __all__ = [
     "ACTIVE_CONTROL_DOF",
@@ -34,4 +39,7 @@ __all__ = [
     "ObjectMpcInput",
     "ObjectMpcSolution",
     "build_object_qp",
+    "DualArmMpcCoordinator",
+    "DualArmMpcInput",
+    "DualArmMpcSolution",
 ]
