@@ -10,6 +10,14 @@ from .contracts import (
     SideHandState,
     validate_monotonic_snapshot,
 )
+from .object_mpc import (
+    BimanualObjectMpc,
+    ObjectMpcCfg,
+    ObjectMpcDiagnostics,
+    ObjectMpcInput,
+    ObjectMpcSolution,
+    build_object_qp,
+)
 
 __all__ = [
     "ACTIVE_CONTROL_DOF",
@@ -20,4 +28,10 @@ __all__ = [
     "SideArmState",
     "SideHandState",
     "validate_monotonic_snapshot",
+    "BimanualObjectMpc",
+    "ObjectMpcCfg",
+    "ObjectMpcDiagnostics",
+    "ObjectMpcInput",
+    "ObjectMpcSolution",
+    "build_object_qp",
 ]
