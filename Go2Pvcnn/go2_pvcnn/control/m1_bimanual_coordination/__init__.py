@@ -23,6 +23,14 @@ from .dual_arm_mpc import (
     DualArmMpcInput,
     DualArmMpcSolution,
 )
+from .hand_mpc import (
+    HandMpcCfg,
+    HandMpcDiagnostics,
+    HandMpcInput,
+    HandMpcSolution,
+    O6HandMpc,
+    build_hand_contact_qp,
+)
 
 __all__ = [
     "ACTIVE_CONTROL_DOF",
@@ -42,4 +50,10 @@ __all__ = [
     "DualArmMpcCoordinator",
     "DualArmMpcInput",
     "DualArmMpcSolution",
+    "HandMpcCfg",
+    "HandMpcDiagnostics",
+    "HandMpcInput",
+    "HandMpcSolution",
+    "O6HandMpc",
+    "build_hand_contact_qp",
 ]
