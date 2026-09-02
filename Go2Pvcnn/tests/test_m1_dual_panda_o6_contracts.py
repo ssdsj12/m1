@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import importlib
 import sys
 import types
 
 import pytest
+import torch
+
+from go2_pvcnn.control.m1_bimanual_coordination import (
+    BimanualCommand,
+    BimanualPhase,
+    BimanualSnapshot,
+    BoxState,
+    SideArmState,
+    SideHandState,
+    validate_monotonic_snapshot,
+)
 
 
 class _Cfg:
@@ -19,6 +31,49 @@ class _Cfg:
 
     def copy(self):
         return copy.deepcopy(self)
+
+
+def _arm_state() -> SideArmState:
+    return SideArmState(
+        q=torch.zeros(7, dtype=torch.float64),
+        qd=torch.zeros(7, dtype=torch.float64),
+        palm_pose_b=torch.zeros(6, dtype=torch.float64),
+        palm_twist_b=torch.zeros(6, dtype=torch.float64),
+        jacobian_b=torch.zeros(6, 7, dtype=torch.float64),
+        mass_matrix=torch.eye(7, dtype=torch.float64),
+        bias=torch.zeros(7, dtype=torch.float64),
+    )
+
+
+def _hand_state() -> SideHandState:
+    return SideHandState(
+        q=torch.zeros(6, dtype=torch.float64),
+        qd=torch.zeros(6, dtype=torch.float64),
+        fingertip_forces_b=torch.zeros(5, 3, dtype=torch.float64),
+        fingertip_positions_b=torch.zeros(5, 3, dtype=torch.float64),
+        contact_mask=torch.zeros(5, dtype=torch.bool),
+    )
+
+
+def _snapshot(timestamp_ns: int = 10) -> BimanualSnapshot:
+    return BimanualSnapshot(
+        timestamp_ns=timestamp_ns,
+        base_state=torch.zeros(13, dtype=torch.float64),
+        m1_q=torch.zeros(16, dtype=torch.float64),
+        m1_qd=torch.zeros(16, dtype=torch.float64),
+        platform_q_qd=torch.zeros(2, dtype=torch.float64),
+        left_arm=_arm_state(),
+        right_arm=_arm_state(),
+        left_hand=_hand_state(),
+        right_hand=_hand_state(),
+        box=BoxState(
+            pose_b=torch.zeros(6, dtype=torch.float64),
+            twist_b=torch.zeros(6, dtype=torch.float64),
+            mass=torch.tensor(0.5, dtype=torch.float64),
+            inertia_b=torch.eye(3, dtype=torch.float64),
+            supported=True,
+        ),
+    )
 
 
 @pytest.fixture()
@@ -177,4 +232,84 @@ def test_package_lazily_reexports_primary_contract(contract):
     assert package.M1_DUAL_PANDA_O6_ACTIVE_DOF_COUNT == 43
     assert package.M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES == (
         contract.M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES
+    )
+
+
+def test_snapshot_rejects_nonmonotonic_and_nonfinite_hand_state():
+    valid = _snapshot(timestamp_ns=10)
+    with pytest.raises(ValueError, match="monotonic"):
+        validate_monotonic_snapshot(valid, replace(valid, timestamp_ns=10))
+    with pytest.raises(ValueError, match="finite"):
+        replace(
+            valid,
+            left_hand=replace(
+                valid.left_hand,
+                q=torch.full((6,), float("nan"), dtype=torch.float64),
+            ),
+        )
+
+
+def test_snapshot_tensors_are_exact_cpu_float64_and_caller_isolated():
+    source = torch.arange(7, dtype=torch.float64)
+    arm = replace(_arm_state(), q=source)
+    source.add_(100.0)
+    assert torch.equal(arm.q, torch.arange(7, dtype=torch.float64))
+    assert arm.q.data_ptr() != source.data_ptr()
+
+    with pytest.raises(TypeError, match="float64"):
+        replace(arm, q=torch.zeros(7, dtype=torch.float32))
+    with pytest.raises(ValueError, match="shape"):
+        replace(arm, jacobian_b=torch.zeros(7, 6, dtype=torch.float64))
+    with pytest.raises(TypeError, match="bool"):
+        replace(_hand_state(), contact_mask=torch.zeros(5, dtype=torch.float64))
+
+
+def test_box_mass_and_snapshot_timestamp_are_strict():
+    valid = _snapshot()
+    with pytest.raises(ValueError, match="positive"):
+        replace(valid.box, mass=torch.tensor(0.0, dtype=torch.float64))
+    with pytest.raises(ValueError, match="symmetric"):
+        replace(
+            valid.box,
+            inertia_b=torch.tensor(
+                [[1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                dtype=torch.float64,
+            ),
+        )
+    with pytest.raises(ValueError, match="positive integer"):
+        replace(valid, timestamp_ns=0)
+
+
+def test_command_has_exact_43_channel_order_and_is_caller_isolated():
+    source = torch.arange(43, dtype=torch.float64)
+    command = BimanualCommand(
+        timestamp_ns=11,
+        effort=source,
+        feasible=True,
+        fallback_reasons=(),
+    )
+    source.zero_()
+    assert command.effort.shape == (43,)
+    assert command.timestamp_ns > 0
+    assert command.effort[42].item() == pytest.approx(42.0)
+    with pytest.raises(ValueError, match="shape"):
+        replace(command, effort=torch.zeros(42, dtype=torch.float64))
+    with pytest.raises(ValueError, match="fallback_reasons"):
+        replace(command, fallback_reasons=("",))
+
+
+def test_bimanual_phase_includes_normal_and_safe_paths():
+    assert tuple(phase.name for phase in BimanualPhase) == (
+        "APPROACH",
+        "PRELOAD",
+        "GRASP",
+        "LIFT",
+        "HOLD",
+        "LOWER",
+        "RELEASE",
+        "DONE",
+        "HOLD_SAFE",
+        "LOWER_SAFE",
+        "SAFE_RELEASE",
+        "TERMINATED",
     )
