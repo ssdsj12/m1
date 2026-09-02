@@ -6,6 +6,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILDER = PROJECT_ROOT / "scripts/build_m1_dual_panda_o6_asset.py"
+VERIFIER = PROJECT_ROOT / "scripts/verify_m1_dual_panda_o6_asset.py"
 
 
 def _source() -> str:
@@ -76,3 +77,31 @@ def test_builder_exposes_required_phases_and_reopen_validation():
         "export_reopen_validate_and_manifest",
     ):
         assert f"def {phase}(" in source
+
+
+def test_builder_scrubs_flattened_layer_source_paths():
+    source = _source()
+    assert 'flattened.comment = ""' in source
+    assert 'flattened.documentation = ""' in source
+
+
+def test_verifier_requires_runtime_measured_dof_and_2000_steps():
+    assert VERIFIER.is_file()
+    source = VERIFIER.read_text(encoding="utf-8")
+    assert "EXPECTED_ACTIVE_DOF_COUNT = 43" in source
+    assert "EXPECTED_PHYSICS_STEPS = 2000" in source
+    assert '"measured_physical_dof_count"' in source
+    assert '"hard_gates_passed"' in source
+
+
+def test_verifier_reports_mount_drift_limits_contacts_and_resets():
+    source = VERIFIER.read_text(encoding="utf-8")
+    for field in (
+        "max_mount_position_drift_m",
+        "max_mount_orientation_drift_rad",
+        "nonfinite_count",
+        "hard_joint_limit_count",
+        "unexpected_contact_count",
+        "unexpected_reset_count",
+    ):
+        assert f'"{field}"' in source

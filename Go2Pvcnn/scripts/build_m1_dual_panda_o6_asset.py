@@ -163,6 +163,66 @@ def ensure_arm_only_panda(asset_root: Path, force: bool = False) -> Path:
     return output
 
 
+def _write_side_prefixed_asset(source: Path, output: Path, side: str) -> Path:
+    source_stage = Usd.Stage.Open(str(source), load=Usd.Stage.LoadAll)
+    _require(source_stage is not None, f"failed to open source asset: {source}")
+    flattened = source_stage.Flatten()
+    # Stage.Flatten() records the source layer's absolute path in layer metadata.
+    # Clear it before export so generated project assets remain relocatable.
+    flattened.comment = ""
+    flattened.documentation = ""
+    stage = Usd.Stage.Open(flattened)
+    _require(stage is not None, f"failed to open flattened source asset: {source}")
+    default_prim = stage.GetDefaultPrim()
+    _require(default_prim.IsValid(), f"source has no default prim: {source}")
+
+    rename_paths = sorted(
+        (
+            prim.GetPath()
+            for prim in stage.Traverse()
+            if prim != default_prim
+            and (
+                prim.HasAPI(UsdPhysics.RigidBodyAPI)
+                or prim.IsA(UsdPhysics.Joint)
+            )
+        ),
+        key=lambda path: (path.pathElementCount, path.pathString),
+        reverse=True,
+    )
+    for old_path in rename_paths:
+        basename = old_path.name
+        if basename.startswith(f"{side}_"):
+            continue
+        new_path = old_path.GetParentPath().AppendChild(f"{side}_{basename}")
+        editor = Usd.NamespaceEditor(stage)
+        _require(
+            editor.MovePrimAtPath(old_path, new_path),
+            f"failed to queue namespace edit: {old_path} -> {new_path}",
+        )
+        _require(editor.CanApplyEdits(), f"invalid namespace edit: {old_path} -> {new_path}")
+        _require(editor.ApplyEdits(), f"failed to side-prefix {old_path}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _require(flattened.Export(str(output)), f"failed to export side-prefixed asset: {output}")
+    return output
+
+
+def ensure_side_prefixed_assets(asset_root: Path, panda_usd: Path) -> dict[str, dict[str, Path]]:
+    output_root = asset_root / "prefixed"
+    result: dict[str, dict[str, Path]] = {}
+    for side in ("left", "right"):
+        result[side] = {
+            "panda": _write_side_prefixed_asset(
+                panda_usd, output_root / f"{side}_panda.usd", side
+            ),
+            "o6": _write_side_prefixed_asset(
+                asset_root / _O6_ENTRIES[side],
+                output_root / f"{side}_o6.usd",
+                side,
+            ),
+        }
+    return result
+
+
 def _write_platform_asset(asset_root: Path) -> Path:
     output = asset_root / "platform.usda"
     stage = Usd.Stage.CreateNew(str(output))
@@ -285,7 +345,7 @@ def assemble_panda(
     _set_joint_frames(
         joint,
         PLATFORM_PRIM,
-        f"{arm_prim_path}/panda_link0",
+        f"{arm_prim_path}/{side}_panda_link0",
         (mount[0], mount[1], PLATFORM_HALF_EXTENTS_M[2]),
     )
     return joint
@@ -295,11 +355,11 @@ def assemble_o6(
     stage: Usd.Stage,
     side: str,
     wrist_body: str,
-    asset_root: Path,
+    o6_usd: Path,
 ) -> UsdPhysics.FixedJoint:
     hand_path = _HAND_PRIMS[side]
     hand = stage.DefinePrim(hand_path, "Xform")
-    hand.GetReferences().AddReference(_O6_ENTRIES[side])
+    hand.GetReferences().AddReference(str(o6_usd.relative_to(o6_usd.parent.parent)))
     stage.Load()
     arm = stage.GetPrimAtPath(_ARM_PRIMS[side])
     wrist = stage.GetPrimAtPath(wrist_body)
@@ -307,17 +367,19 @@ def assemble_o6(
     relative, _ = UsdGeom.XformCache().ComputeRelativeTransform(wrist, arm)
     _set_matrix(hand, relative)
     joint = UsdPhysics.FixedJoint.Define(stage, f"{ROOT_PRIM}/joints/{side}_hand_mount_joint")
-    _set_joint_frames(joint, wrist_body, f"{hand_path}/hand_base_link", (0.0, 0.0, 0.0))
+    _set_joint_frames(
+        joint, wrist_body, f"{hand_path}/{side}_hand_base_link", (0.0, 0.0, 0.0)
+    )
     return joint
 
 
 def remove_child_roots_scenes_and_root_joints(stage: Usd.Stage) -> None:
     root_joint_paths = [
         f"{ROOT_PRIM}/root_joint",
-        f"{LEFT_ARM_PRIM}/root_joint",
-        f"{RIGHT_ARM_PRIM}/root_joint",
-        f"{LEFT_HAND_PRIM}/root_joint",
-        f"{RIGHT_HAND_PRIM}/root_joint",
+        f"{LEFT_ARM_PRIM}/left_root_joint",
+        f"{RIGHT_ARM_PRIM}/right_root_joint",
+        f"{LEFT_HAND_PRIM}/left_root_joint",
+        f"{RIGHT_HAND_PRIM}/right_root_joint",
     ]
     for path in root_joint_paths:
         prim = stage.GetPrimAtPath(path)
@@ -375,7 +437,16 @@ def _physical_dof_paths(stage: Usd.Stage) -> list[str]:
 def _active_dof_paths(stage: Usd.Stage) -> list[str]:
     physical = _physical_dof_paths(stage)
     mimic_names = set(_O6_MIMIC_JOINTS)
-    return [path for path in physical if path.rsplit("/", 1)[-1] not in mimic_names]
+    result = []
+    for path in physical:
+        name = path.rsplit("/", 1)[-1]
+        for side in ("left", "right"):
+            if name.startswith(f"{side}_"):
+                name = name[len(side) + 1 :]
+                break
+        if name not in mimic_names:
+            result.append(path)
+    return result
 
 
 def validate_stage_contract(stage: Usd.Stage, context: str = "stage") -> dict[str, Any]:
@@ -467,13 +538,28 @@ def build_asset(asset_root: Path, force_panda_conversion: bool = False) -> Path:
     asset_root = Path(asset_root).resolve(strict=True)
     source_manifest = validate_source_manifests(asset_root)
     panda_usd = ensure_arm_only_panda(asset_root, force=force_panda_conversion)
+    prefixed = ensure_side_prefixed_assets(asset_root, panda_usd)
     _write_platform_asset(asset_root)
     stage = create_m1_and_platform_stage(asset_root)
     author_platform_revolute_joint(stage, lower=-math.pi / 2, upper=math.pi / 2)
-    assemble_panda(stage, side="left", mount=LEFT_ARM_MOUNT_XYZ, panda_usd=panda_usd)
-    assemble_panda(stage, side="right", mount=RIGHT_ARM_MOUNT_XYZ, panda_usd=panda_usd)
-    assemble_o6(stage, side="left", wrist_body=f"{LEFT_ARM_PRIM}/panda_link8", asset_root=asset_root)
-    assemble_o6(stage, side="right", wrist_body=f"{RIGHT_ARM_PRIM}/panda_link8", asset_root=asset_root)
+    assemble_panda(
+        stage, side="left", mount=LEFT_ARM_MOUNT_XYZ, panda_usd=prefixed["left"]["panda"]
+    )
+    assemble_panda(
+        stage, side="right", mount=RIGHT_ARM_MOUNT_XYZ, panda_usd=prefixed["right"]["panda"]
+    )
+    assemble_o6(
+        stage,
+        side="left",
+        wrist_body=f"{LEFT_ARM_PRIM}/left_panda_link8",
+        o6_usd=prefixed["left"]["o6"],
+    )
+    assemble_o6(
+        stage,
+        side="right",
+        wrist_body=f"{RIGHT_ARM_PRIM}/right_panda_link8",
+        o6_usd=prefixed["right"]["o6"],
+    )
     remove_child_roots_scenes_and_root_joints(stage)
     convex_mesh_count = author_convex_collision_approximations(stage)
     validate_stage_contract(stage, "pre-export stage")
