@@ -187,3 +187,20 @@ UNITREE_GO2_CFG_SIMPLE = ArticulationCfg(
     },
 )
 """Configuration of Unitree Go2 with implicit (simple) actuator model."""
+
+
+_M1_DUAL_PANDA_O6_EXPORTS = {
+    "M1_DUAL_PANDA_O6_ACTIVE_DOF_COUNT",
+    "M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES",
+    "M1_DUAL_PANDA_O6_CFG",
+}
+
+
+def __getattr__(name: str):
+    """Lazily export the combined cfg without changing legacy asset imports."""
+
+    if name in _M1_DUAL_PANDA_O6_EXPORTS:
+        from . import m1_dual_panda_o6
+
+        return getattr(m1_dual_panda_o6, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
