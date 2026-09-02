@@ -121,7 +121,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T500 | design-review | M1 + 公共 yaw 平台 + 双 Panda + 双 O6 的固定箱体确定性分层 MPC 设计已逐段确认；尚未修改资产或运行代码。 | 用户复核书面规格后，编写逐文件 TDD 实施计划。 |
+| T500 | plan-ready | M1 + 公共 yaw 平台 + 双 Panda + 双 O6 的规格已确认，13 任务 TDD 实施计划已完成；尚未修改资产或运行代码。 | 用户选择 Subagent-Driven 或 Inline Execution 后，从隔离 worktree 的 O6 资产闭合 RED 开始。 |
 | T400 | active | T400.12 Phase 1–4 已验收；Phase 5 Arm MPC + Phase 6 8D PPO 交互设计已确认，首轮限定原地 M1 + Panda 小幅六自由度运动。 | 用户复核 Phase 5–6 书面规格后，编写单代理 TDD 实施计划。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
@@ -137,7 +137,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Root | Status | Stage | Branch | Current | Refs |
 | --- | --- | --- | --- | --- | --- |
-| T500 | design-review | M1 dual-Panda O6 bimanual manipulation | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | Approved interactive design: deterministic object/dual-arm/dual-hand MPC plus 200 Hz WBC/QP for fixed box lift; written-spec review pending. | [design](../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md); [log](log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md) |
+| T500 | plan-ready | M1 dual-Panda O6 bimanual manipulation | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | Written spec approved; 13-task TDD plan covers source closure through 30-trial acceptance; execution choice pending. | [design](../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md); [plan](../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md) |
 | T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | C0 stationary prioritized-WBC foundation accepted on GPU0; rolling C1/C2, wrench C3, Student and grasping remain open. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md); [runbook](../docs/superpowers/runbooks/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | T302q | active | flat small-obstacle avoidance RL reward | [T302q](todo/T302q-flat-small-avoidance-reward-plan.md) | Local implementation complete; focused regression, pycompile, fresh IsaacLab train smoke, and old-checkpoint resume smoke pass; small-collision eval smoke remains open. | design [2026-06-10](../docs/superpowers/specs/2026-06-10-flat-small-obstacle-avoidance-reward-design.html); latest log [2026-06-10 20:35](log/2026-06-10-2035-t302q-flat-small-local-implementation-and-smoke.md) |
 | T302r | active | Go2 geometry clearance reward | [T302r](todo/T302r-go2-geometry-clearance-reward-plan.md) | Local implementation, smoke, and radius/margin probe pass; signal-first params can produce nonzero reward, but TensorBoard sanity is still open. | design [2026-06-11](../docs/superpowers/specs/2026-06-11-go2-body-geometry-clearance-reward-design.html); latest log [2026-06-11 18:10](log/2026-06-11-1810-t302r-clearance-radius-margin-probe.md) |
@@ -163,7 +163,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T500.1 | T500 | design-review | P0 | Five design sections are interactively approved; written specification is ready for user review before planning. | [design](../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md) |
+| T500.2 | T500 | plan-ready | P0 | Written specification is approved; 13-task TDD plan is self-reviewed and ready for an execution-mode choice. | [plan](../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md) |
 | T400.12 | T400 | done | P0 | 8D Residual WBC Phase 1–4 完成；CPU `185 passed`，GPU0 零残差 256 步和 16 组 ±0.1 探针全部通过。 | [GPU0 evidence](log/2026-08-26-m1-panda-8d-residual-wbc-gpu0-smoke.md) |
 | T400.10b | T400 | active | P0 | Tasks 1–8 通过；train/eval/编排、严格完整 SHA 父链、固定三种子接受与失败 rollback 已接通；GPU 尚未完成。 | [Task 8 log](log/2026-08-25-m1-panda-folded-load-curriculum-orchestrator.md) |
 | T400.10a | T400 | active | P0 | Tasks 1–9 implementation/短门/清理完成；fresh 64×600 已在 GPU0 启动，PID `1128844`，首个 update 健康；尚无 acceptance claim。 | [launch evidence](log/2026-08-24-m1-panda-coordinated-stable-long-launch.md) |
@@ -216,6 +216,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 - [T200-semantic-static-course-viewer.md](todo/T200-semantic-static-course-viewer.md)
 
 ## Recent Logs
+
+| 2026-09-02 | M1 + 双 Panda + 双 O6 分层双手 MPC | T500 implementation plan | 13-task TDD plan written and self-reviewed; no runtime or asset change | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [plan log](log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md) |
 
 | 2026-09-02 | M1 + 双 Panda + 双 O6 分层双手 MPC | T500 design | approved interactive design written; no runtime or asset change | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [design log](log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md) |
 
