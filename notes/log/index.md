@@ -6,6 +6,7 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 | Time | Topic | Stage | Result | Key Metrics | Todo | File |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-02 | M1 + dual Panda + dual O6 combined asset | T500 Tasks 1–3 | pass; normalized sources and relocatable single articulation committed | 53 physical DOF; 43 active; 2000 steps; zero hard-limit/contact/reset/nonfinite failures; mount drift `2.38e-7 m` / `4.81e-7 rad` | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md](2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md) |
 | 2026-09-02 | M1 + dual Panda + dual O6 bimanual MPC plan | T500 implementation planning | 13-task TDD plan written and self-reviewed; execution choice pending; no runtime change | source closure → single articulation → physics → contracts → object/arm/hand MPC → WBC/runtime/env → 30-trial acceptance | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md) |
 | 2026-09-02 | M1 + dual Panda + dual O6 bimanual MPC design | T500 design | interactive and written design approved; no runtime change | 43 active channels; expected 53 runtime DOF; 25/50/100/200 Hz hierarchy; fixed 0.5 kg box; 30/30 acceptance | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md) |
 | 2026-09-01 | M1 + Panda Phase 6 bridge/normalizer preflight | T400.13 Phase 6 implementation | CPU implementation pass; GPU0 bridge next; no acceptance claim | persistent actor/critic count; exact v6 u100 migration; guarded total u100→u300; schema-v3 promotion; `134 passed`; compile/diff pass | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-30-m1-panda-phase6-ppo-scale-normalization-execution.md](2026-08-30-m1-panda-phase6-ppo-scale-normalization-execution.md) |
@@ -426,6 +427,7 @@ This page indexes verification evidence. Keep it short enough to scan.
 ## Topic Log Index
 
 - T500 M1 + dual Panda + dual O6 bimanual MPC:
+  - [2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md](2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md)
   - [2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md)
   - [2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)
 - T400 M1 + Panda force-aware Teacher–Student:

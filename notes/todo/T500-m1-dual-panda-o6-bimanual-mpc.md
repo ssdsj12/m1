@@ -4,13 +4,13 @@
 
 交互设计和书面规格均已由用户确认。首版使用 M1、公共单轴回转平台、左右两条 Panda 和左右 O6，完成固定 `0.5 kg` 箱体的确定性双手夹持、抬升 `0.10 m`、保持 `3 s`、下降和释放。采用 object MPC、双 Arm MPC、双 Hand MPC 和 200 Hz WBC/QP；第一阶段不训练 RL。
 
-规格已写入 [设计文档](../../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)，13 任务 TDD [实施计划](../../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md)已完成并自检。当前没有运行时代码、资产或训练进程变化。
+规格已写入 [设计文档](../../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)，13 任务 TDD [实施计划](../../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md)正在以 Inline Execution 执行。Tasks 1–3 已完成：左右 O6 资产规范化入库，组合 articulation 已生成并通过最终 Isaac 2000 步硬门。
 
 ## Open Children
 
 - T500.1：书面规格已确认。
-- T500.2：逐文件 TDD 实施计划已完成，等待用户选择执行方式。
-- T500.3：实施前冻结双臂平台精确安装变换和 O6 规范化资产 manifest。
+- T500.2：逐文件 TDD 实施计划正在 Inline Execution 执行，Task 4 进行中。
+- T500.3：已冻结双臂平台安装变换和 O6 规范化资产 manifest；53 物理 DOF、43 主动通道运行时确认通过。
 
 ## Closed Children Archive
 
@@ -20,12 +20,13 @@
 
 - [2026-09-02 设计记录](../log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)
 - [2026-09-02 实施计划](../log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md)
+- [2026-09-02 Tasks 1–3 资产验证](../log/2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md)
 
 ## Git Refs
 
-- Last Feature Commit: none
-- Last Verified Commit: design-only
-- Current Work Ref: `main`
+- Last Feature Commit: `a17912d`
+- Last Verified Commit: `a17912d`
+- Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)
   - [实施计划](../../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md)
@@ -34,7 +35,7 @@
 
 ## Next Step
 
-等待用户选择 Subagent-Driven 或 Inline Execution。开始实施时先创建隔离 worktree，再从 Task 1 的 O6 资产闭合 RED 开始。
+执行 Task 4，冻结 43 通道主动关节顺序、左右 body 名称及 IsaacLab actuator 配置。
 
 ## Node Details
 
