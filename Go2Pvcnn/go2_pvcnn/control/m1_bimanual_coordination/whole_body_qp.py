@@ -22,6 +22,18 @@ from .constraints import (
 from .contracts import ACTIVE_CONTROL_DOF
 
 
+M1_STANDING_Q = torch.tensor(
+    (
+        0.0, 0.30, -0.60,
+        0.0, 0.30, -0.60,
+        0.0, -0.30, 0.60,
+        0.0, -0.30, 0.60,
+        0.0, 0.0, 0.0, 0.0,
+    ),
+    dtype=torch.float64,
+)
+
+
 @dataclass(frozen=True)
 class BimanualWbcCfg:
     regularization: float = 1.0e-8
@@ -92,8 +104,13 @@ class BimanualWbcSolution:
 
 def _nominal_effort(request: BimanualWbcRequest, cfg: BimanualWbcCfg) -> torch.Tensor:
     effort = torch.zeros(ACTIVE_CONTROL_DOF, dtype=torch.float64)
-    # M1 stays at its accepted implicit-actuator hold; wheel channels 12:16 are
-    # explicitly zero for the fixed-condition first task.
+    # The private action manager owns every active drive, so the WBC command
+    # must include the same deterministic M1 standing impedance as the asset.
+    effort[:12] = (
+        120.0 * (M1_STANDING_Q[:12] - request.snapshot.m1_q[:12])
+        - 5.5 * request.snapshot.m1_qd[:12]
+    )
+    effort[12:16] = -30.0 * request.snapshot.m1_qd[12:16]
     platform = request.snapshot.platform_q_qd
     effort[16] = (
         cfg.platform_kp * (request.object_solution.platform_yaw[0] - platform[0])
@@ -117,7 +134,6 @@ def _nominal_effort(request: BimanualWbcRequest, cfg: BimanualWbcCfg) -> torch.T
             cfg.hand_kp * (solution.q_ref - state.q)
             + cfg.hand_kd * (solution.qd_ref - state.qd)
         )
-    effort[12:16] = 0.0
     return effort
 
 

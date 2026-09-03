@@ -410,11 +410,21 @@ def build_object_qp(sample: ObjectMpcInput, cfg: ObjectMpcCfg) -> DenseQpProblem
     )
 
 
-def _palm_targets(box_pose: torch.Tensor, half_width: float) -> tuple[torch.Tensor, torch.Tensor]:
+def _palm_targets(
+    box_pose: torch.Tensor,
+    half_width: float,
+    left_orientation: torch.Tensor,
+    right_orientation: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
     left = box_pose.clone()
     right = box_pose.clone()
     left[:, 1] += half_width
     right[:, 1] -= half_width
+    # The O6 mounting transform is not the box frame.  For this fixed first
+    # task, retain each calibrated mounted-hand orientation while translating
+    # the palms to the two object faces.
+    left[:, 3:] = left_orientation
+    right[:, 3:] = right_orientation
     return left, right
 
 
@@ -465,7 +475,12 @@ class BimanualObjectMpc:
             return self._clone(safe, diagnostics)
         horizon = self.cfg.horizon_steps
         box_pose = sample.snapshot.box.pose_b.repeat(horizon, 1)
-        left_palm, right_palm = _palm_targets(box_pose, self.cfg.grasp_half_width_m)
+        left_palm, right_palm = _palm_targets(
+            box_pose,
+            self.cfg.grasp_half_width_m,
+            sample.snapshot.left_arm.palm_pose_b[3:],
+            sample.snapshot.right_arm.palm_pose_b[3:],
+        )
         return ObjectMpcSolution(
             box_pose=box_pose,
             box_twist=torch.zeros((horizon, 6), dtype=torch.float64),
@@ -508,7 +523,12 @@ class BimanualObjectMpc:
                 (right_normal - normal_max).abs() <= 1.0e-6,
             )
         )
-        left_palm, right_palm = _palm_targets(box_pose, self.cfg.grasp_half_width_m)
+        left_palm, right_palm = _palm_targets(
+            box_pose,
+            self.cfg.grasp_half_width_m,
+            sample.snapshot.left_arm.palm_pose_b[3:],
+            sample.snapshot.right_arm.palm_pose_b[3:],
+        )
         return ObjectMpcSolution(
             box_pose=box_pose,
             box_twist=box_twist,

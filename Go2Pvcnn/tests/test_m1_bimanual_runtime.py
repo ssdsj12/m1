@@ -99,3 +99,15 @@ def test_runtime_rejects_nonmonotonic_snapshots():
         assert "monotonic" in str(error)
     else:
         raise AssertionError("nonmonotonic snapshot was accepted")
+
+
+def test_runtime_exposes_latest_attempt_even_when_wbc_rejects_it():
+    runtime = _runtime(_WbcController(fail_at=1))
+    command = runtime.compute(replace(_snapshot(), timestamp_ns=1))
+    assert not command.feasible
+    latest = runtime.latest_solutions
+    assert latest["object"] is not None
+    assert latest["arm"] is not None
+    assert latest["left_hand"] is not None
+    assert latest["right_hand"] is not None
+    assert latest["wbc"] is not None

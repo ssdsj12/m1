@@ -126,7 +126,12 @@ def subsolution_failure_reason(request: BimanualWbcRequest) -> str | None:
         return "left_hand_mpc_infeasible"
     if not request.right_hand_solution.diagnostics.feasible:
         return "right_hand_mpc_infeasible"
-    if request.object_solution.diagnostics.force_closure_margin <= 0.0:
+    # APPROACH commands intentionally carry no grasp wrench.  Force closure is
+    # a hard gate only once both object-MPC normal forces reach grasp preload.
+    left_normal = -float(request.object_solution.left_wrench[0, 1].item())
+    right_normal = float(request.object_solution.right_wrench[0, 1].item())
+    grasp_loaded = min(left_normal, right_normal) >= 8.0 - 1.0e-6
+    if grasp_loaded and request.object_solution.diagnostics.force_closure_margin <= 0.0:
         return "force_closure_lost"
     return None
 

@@ -27,6 +27,12 @@ _BIMANUAL_ROBOT_CFG = M1_DUAL_PANDA_O6_CFG.copy()
 _BIMANUAL_ROBOT_CFG.spawn = _BIMANUAL_ROBOT_CFG.spawn.replace(
     activate_contact_sensors=True
 )
+# JointEffortAction supplies the complete impedance/WBC effort.  Disable the
+# actuator-side gains so the same feedback is not applied a second time.
+_BIMANUAL_ROBOT_CFG.actuators = {
+    name: actuator.replace(stiffness=0.0, damping=0.0)
+    for name, actuator in _BIMANUAL_ROBOT_CFG.actuators.items()
+}
 
 
 @configclass
@@ -36,9 +42,9 @@ class M1DualPandaO6BimanualSceneCfg(M1SmokeSceneCfg):
     robot = _BIMANUAL_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     support_table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/SupportTable",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.55, 0.0, 0.50)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.90, 0.0, 0.90)),
         spawn=sim_utils.CuboidCfg(
-            size=(0.80, 0.70, 0.10),
+            size=(0.50, 0.70, 0.10),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.28, 0.30, 0.32)),
@@ -46,7 +52,7 @@ class M1DualPandaO6BimanualSceneCfg(M1SmokeSceneCfg):
     )
     box = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Box",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.55, 0.0, 0.60)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.75, 0.0, 1.00)),
         spawn=sim_utils.CuboidCfg(
             size=BOX_SIZE_M,
             mass_props=sim_utils.MassPropertiesCfg(mass=BOX_MASS_KG),

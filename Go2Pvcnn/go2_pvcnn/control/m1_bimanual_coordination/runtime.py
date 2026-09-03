@@ -147,10 +147,23 @@ class BimanualRuntime:
         self._last_right_hand: HandMpcSolution | None = None
         self._last_command: BimanualCommand | None = None
         self._initial_box_pose: torch.Tensor | None = None
+        self._latest_solutions = {
+            "object": None,
+            "arm": None,
+            "left_hand": None,
+            "right_hand": None,
+            "wbc": None,
+        }
 
     @property
     def counts(self) -> dict[str, int]:
         return dict(self._counts)
+
+    @property
+    def latest_solutions(self) -> dict[str, object | None]:
+        """Return the most recent attempted layer outputs, including fallbacks."""
+
+        return dict(self._latest_solutions)
 
     def _object_input(self, snapshot: BimanualSnapshot) -> ObjectMpcInput:
         if self._object_input_provider is not None:
@@ -279,6 +292,13 @@ class BimanualRuntime:
         )
         wbc_solution = self.wbc.solve(request)
         self._counts["wbc"] += 1
+        self._latest_solutions = {
+            "object": object_solution,
+            "arm": arm_solution,
+            "left_hand": left_hand_solution,
+            "right_hand": right_hand_solution,
+            "wbc": wbc_solution,
+        }
         if wbc_solution.feasible:
             command = BimanualCommand(
                 timestamp_ns=snapshot.timestamp_ns,

@@ -105,6 +105,22 @@ def test_static_box_solution_balances_gravity_and_is_mirrored():
     assert torch.allclose(solution.box_pose, _snapshot().box.pose_b.expand(25, -1), atol=1.0e-7)
 
 
+def test_palm_targets_preserve_each_mounted_hand_orientation():
+    snapshot = _snapshot()
+    left_pose = snapshot.left_arm.palm_pose_b.clone()
+    right_pose = snapshot.right_arm.palm_pose_b.clone()
+    left_pose[3:] = torch.tensor([0.2, -0.3, 0.4], dtype=DTYPE)
+    right_pose[3:] = torch.tensor([-0.2, 0.3, -0.4], dtype=DTYPE)
+    snapshot = replace(
+        snapshot,
+        left_arm=replace(snapshot.left_arm, palm_pose_b=left_pose),
+        right_arm=replace(snapshot.right_arm, palm_pose_b=right_pose),
+    )
+    solution = BimanualObjectMpc().plan(_input(snapshot=snapshot))
+    assert torch.allclose(solution.left_palm_pose[:, 3:], left_pose[3:].expand(25, -1))
+    assert torch.allclose(solution.right_palm_pose[:, 3:], right_pose[3:].expand(25, -1))
+
+
 def test_wrenches_obey_normal_bounds_and_four_sided_friction_pyramids():
     planner = BimanualObjectMpc()
     solution = planner.plan(_input())

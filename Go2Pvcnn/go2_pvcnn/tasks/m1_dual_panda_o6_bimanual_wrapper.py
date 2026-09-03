@@ -105,8 +105,9 @@ class M1DualPandaO6SnapshotAdapter:
         self.left_tip_sensor_ids = tuple(_exact_sensor_body_id(left_sensor_names, name) for name in LEFT_O6_FINGERTIP_BODY_NAMES)
         self.right_tip_sensor_ids = tuple(_exact_sensor_body_id(right_sensor_names, name) for name in RIGHT_O6_FINGERTIP_BODY_NAMES)
         self._sequence = 0
+        self.arm_dynamics_diagnostics: dict[str, dict[str, object]] = {}
 
-    def _arm_state(self, joint_ids: tuple[int, ...], palm_id: int) -> SideArmState:
+    def _arm_state(self, side: str, joint_ids: tuple[int, ...], palm_id: int) -> SideArmState:
         data = self.robot.data
         env = self.env_index
         base_position = data.root_pos_w[env]
@@ -117,18 +118,48 @@ class M1DualPandaO6SnapshotAdapter:
         jacobian = torch.zeros((6, 7), dtype=torch.float64)
         mass = torch.eye(7, dtype=torch.float64)
         bias = torch.zeros(7, dtype=torch.float64)
+        diagnostics: dict[str, object] = {"physx_used": False, "fallback_reason": None}
         try:
             all_jacobians = self.robot.root_physx_view.get_jacobians()
-            jacobian_body_id = max(palm_id - 1, 0)
-            jacobian = _cpu64(all_jacobians[env, jacobian_body_id, :, list(joint_ids)])
+            jacobian_body_count = all_jacobians.shape[1]
+            body_count = len(self.robot.body_names)
+            if jacobian_body_count == body_count:
+                jacobian_body_id = palm_id
+            elif jacobian_body_count == body_count - 1:
+                if palm_id <= 0:
+                    raise RuntimeError("floating root body has no legacy Jacobian row")
+                jacobian_body_id = palm_id - 1
+            else:
+                raise RuntimeError(
+                    "PhysX Jacobian body count does not match articulation bodies"
+                )
+            generalized_ids = tuple(joint_id + 6 for joint_id in joint_ids)
+            full_body_jacobian = all_jacobians[env, jacobian_body_id]
+            jacobian = _cpu64(full_body_jacobian[:, list(generalized_ids)])
             all_mass = self.robot.root_physx_view.get_generalized_mass_matrices()
-            index = torch.tensor(joint_ids, device=all_mass.device)
+            index = torch.tensor(generalized_ids, device=all_mass.device)
             mass = _cpu64(all_mass[env].index_select(0, index).index_select(1, index))
             gravity = self.robot.root_physx_view.get_gravity_compensation_forces()[env]
             coriolis = self.robot.root_physx_view.get_coriolis_and_centrifugal_compensation_forces()[env]
-            bias = _cpu64((gravity + coriolis)[list(joint_ids)])
-        except (AttributeError, IndexError, RuntimeError):
-            pass
+            bias = _cpu64((gravity + coriolis)[list(generalized_ids)])
+            diagnostics.update(
+                physx_used=True,
+                jacobian_shape=list(all_jacobians.shape),
+                mass_matrix_shape=list(all_mass.shape),
+                body_count=len(self.robot.body_names),
+                palm_body_id=palm_id,
+                jacobian_body_id=jacobian_body_id,
+                full_body_jacobian_norm=float(torch.linalg.vector_norm(full_body_jacobian)),
+                joint_id_columns_norm=float(
+                    torch.linalg.vector_norm(full_body_jacobian[:, list(joint_ids)])
+                ),
+                generalized_id_columns=list(generalized_ids),
+                jacobian_norm=float(torch.linalg.vector_norm(jacobian)),
+                mass_condition=float(torch.linalg.cond(mass)),
+            )
+        except (AttributeError, IndexError, RuntimeError) as error:
+            diagnostics["fallback_reason"] = f"{type(error).__name__}: {error}"
+        self.arm_dynamics_diagnostics[side] = diagnostics
         return SideArmState(
             q=_cpu64(data.joint_pos[env, list(joint_ids)]),
             qd=_cpu64(data.joint_vel[env, list(joint_ids)]),
@@ -190,8 +221,8 @@ class M1DualPandaO6SnapshotAdapter:
             m1_q=_cpu64(joint_pos[list(self.m1_ids)]),
             m1_qd=_cpu64(joint_vel[list(self.m1_ids)]),
             platform_q_qd=_cpu64(torch.stack((joint_pos[self.platform_id], joint_vel[self.platform_id]))),
-            left_arm=self._arm_state(self.left_arm_ids, self.left_palm_id),
-            right_arm=self._arm_state(self.right_arm_ids, self.right_palm_id),
+            left_arm=self._arm_state("left", self.left_arm_ids, self.left_palm_id),
+            right_arm=self._arm_state("right", self.right_arm_ids, self.right_palm_id),
             left_hand=self._hand_state(self.left_hand_ids, self.left_tip_ids, self.left_tip_sensor_ids, "o6_contacts"),
             right_hand=self._hand_state(self.right_hand_ids, self.right_tip_ids, self.right_tip_sensor_ids, "right_o6_contacts"),
             box=BoxState(
@@ -199,7 +230,7 @@ class M1DualPandaO6SnapshotAdapter:
                 twist_b=box_twist,
                 mass=torch.tensor(0.5, dtype=torch.float64),
                 inertia_b=inertia,
-                supported=bool(box_position[2] <= 0.605),
+                supported=bool(box_position[2] <= 1.005),
             ),
         )
 

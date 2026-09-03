@@ -11,6 +11,8 @@ from go2_pvcnn.control.m1_bimanual_coordination.object_mpc import BimanualObject
 from go2_pvcnn.control.m1_bimanual_coordination.whole_body_qp import (
     BimanualWbcRequest,
     BimanualWholeBodyQp,
+    M1_STANDING_Q,
+    _nominal_effort,
     build_bimanual_constraints,
 )
 from tests.test_m1_bimanual_dual_arm_mpc import _arm_input, _solution as _arm_solution
@@ -113,6 +115,32 @@ def test_constraint_set_covers_effort_collision_and_force_closure():
     assert constraints.inequality_matrix.shape[1] == 43
     assert constraints.min_collision_distance == pytest.approx(0.10)
     assert constraints.force_closure_margin > 0.0
+
+
+def test_approach_zero_wrench_does_not_require_force_closure():
+    request = _request()
+    approach_object = replace(
+        request.object_solution,
+        left_wrench=torch.zeros_like(request.object_solution.left_wrench),
+        right_wrench=torch.zeros_like(request.object_solution.right_wrench),
+        diagnostics=replace(request.object_solution.diagnostics, force_closure_margin=0.0),
+    )
+    solution = BimanualWholeBodyQp().solve(
+        _request(object_solution=approach_object)
+    )
+    assert solution.feasible
+
+
+def test_nominal_effort_actively_holds_m1_standing_posture():
+    request = _request()
+    displaced = replace(
+        request.snapshot,
+        m1_q=M1_STANDING_Q + 0.1,
+        m1_qd=torch.full((16,), 0.2, dtype=DTYPE),
+    )
+    effort = _nominal_effort(_request(snapshot=displaced), BimanualWholeBodyQp().cfg)
+    assert torch.all(effort[:12] < 0.0)
+    assert torch.allclose(effort[12:16], torch.full((4,), -6.0, dtype=DTYPE))
 
 
 def test_request_rejects_nonfinite_or_wrong_collision_contract():

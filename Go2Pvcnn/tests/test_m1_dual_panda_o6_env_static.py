@@ -77,6 +77,14 @@ def test_wrapper_resolves_ids_once_and_rejects_ambiguous_names():
     assert "command.effort" in source
 
 
+def test_wrapper_handles_root_inclusive_and_legacy_jacobian_body_layouts():
+    source = _source(WRAPPER)
+    assert "if jacobian_body_count == body_count:" in source
+    assert "jacobian_body_id = palm_id" in source
+    assert "elif jacobian_body_count == body_count - 1:" in source
+    assert "jacobian_body_id = palm_id - 1" in source
+
+
 def test_probe_has_required_startup_smoke_cli():
     source = _source(PROBE)
     for option in ("--num-envs", "--steps", "--seed", "--headless"):
