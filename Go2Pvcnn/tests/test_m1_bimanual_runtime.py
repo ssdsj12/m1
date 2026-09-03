@@ -111,3 +111,16 @@ def test_runtime_exposes_latest_attempt_even_when_wbc_rejects_it():
     assert latest["left_hand"] is not None
     assert latest["right_hand"] is not None
     assert latest["wbc"] is not None
+
+
+def test_runtime_reset_clears_all_temporal_state_and_accepts_reused_timestamp():
+    runtime = _runtime()
+    runtime.compute(replace(_snapshot(), timestamp_ns=10))
+
+    runtime.reset()
+
+    assert runtime.counts == {"object": 0, "arm": 0, "hand": 0, "wbc": 0}
+    assert all(value is None for value in runtime.latest_solutions.values())
+    assert runtime.mission.phase.name == "APPROACH"
+    command = runtime.compute(replace(_snapshot(), timestamp_ns=10))
+    assert command.feasible

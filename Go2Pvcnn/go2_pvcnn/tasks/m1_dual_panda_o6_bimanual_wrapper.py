@@ -265,8 +265,62 @@ class M1DualPandaO6BimanualWrapper:
         self.runtime = BimanualRuntime() if runtime is None else runtime
         self.last_snapshot: BimanualSnapshot | None = None
         self.last_command = None
+        self.startup_complete = False
+        self.base_reference_w: torch.Tensor | None = None
+
+    def _write_default_physics_state(self) -> None:
+        raw = self.env.unwrapped
+        robot = raw.scene["robot"]
+        box = raw.scene["box"]
+        robot_root = robot.data.default_root_state.clone()
+        robot_root[:, 7:13] = 0.0
+        robot.write_root_state_to_sim(robot_root)
+        robot.write_joint_state_to_sim(
+            robot.data.default_joint_pos.clone(),
+            torch.zeros_like(robot.data.default_joint_vel),
+        )
+        box_root = box.data.default_root_state.clone()
+        box_root[:, 7:13] = 0.0
+        box.write_root_state_to_sim(box_root)
+
+    def reset(self, *, seed: int) -> BimanualSnapshot:
+        """Reset, physically synchronize once, then expose an exact zero-velocity state."""
+
+        self.startup_complete = False
+        self.env.reset(seed=int(seed))
+        raw = self.env.unwrapped
+        self._write_default_physics_state()
+        raw.scene.reset()
+
+        zero_action = torch.zeros(
+            (raw.num_envs, raw.action_manager.total_action_dim),
+            device=raw.device,
+            dtype=torch.float32,
+        )
+        raw.action_manager.process_action(zero_action)
+        raw.action_manager.apply_action()
+        raw.scene.write_data_to_sim()
+        raw.sim.step(render=False)
+        raw.scene.update(dt=float(raw.physics_dt))
+
+        self._write_default_physics_state()
+        raw.scene.reset()
+        raw.sim.forward()
+        raw.scene.update(dt=0.0)
+
+        self.adapter = M1DualPandaO6SnapshotAdapter(self.env)
+        self.runtime.reset()
+        self.last_command = None
+        self.last_snapshot = self.adapter.snapshot()
+        self.base_reference_w = _cpu64(
+            raw.scene["robot"].data.default_root_state[0, :7]
+        )
+        self.startup_complete = True
+        return self.last_snapshot
 
     def step(self):
+        if not self.startup_complete:
+            raise RuntimeError("wrapper.reset(seed=...) must complete before step()")
         snapshot = self.adapter.snapshot()
         command = self.runtime.compute(snapshot)
         action = command.effort.to(device=self.env.unwrapped.device, dtype=torch.float32)

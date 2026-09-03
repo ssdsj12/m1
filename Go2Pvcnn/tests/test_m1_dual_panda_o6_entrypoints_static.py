@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "scripts/m1_dual_panda_o6_bimanual_probe.py"
 PLAY = ROOT / "scripts/m1_dual_panda_o6_bimanual_play.py"
+WRAPPER = ROOT / "go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_wrapper.py"
 
 
 def _load_acceptance_functions():
@@ -85,6 +86,8 @@ def test_probe_records_reproducibility_and_all_diagnostic_groups():
         "limit_violation_count",
         "reset_count",
         "nonfinite_count",
+        "initial_velocity_max",
+        "startup_terminal_count",
         "asset_sha256",
         "source_sha256",
         "git_ref",
@@ -92,3 +95,18 @@ def test_probe_records_reproducibility_and_all_diagnostic_groups():
         "command",
     ):
         assert token in source
+
+
+def test_probe_and_play_delegate_physical_reset_to_common_wrapper():
+    probe = PROBE.read_text(encoding="utf-8")
+    play = PLAY.read_text(encoding="utf-8")
+    wrapper = WRAPPER.read_text(encoding="utf-8")
+
+    assert "def _reset_physical_scene" not in probe
+    assert "wrapper.reset(seed=" in probe
+    assert "wrapper.reset(seed=" in play
+    assert "env.reset(seed=" not in probe
+    assert "env.reset(seed=" not in play
+    assert "def reset(self, *, seed: int) -> BimanualSnapshot:" in wrapper
+    assert "self.startup_complete = True" in wrapper
+    assert "raw.sim.step(render=False)" in wrapper

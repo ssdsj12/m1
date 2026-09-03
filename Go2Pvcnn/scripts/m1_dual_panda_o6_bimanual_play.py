@@ -30,8 +30,8 @@ def main() -> int:
     cfg.scene.num_envs = 1
     cfg.seed = args.seed
     env = gym.make("Isaac-M1-DualPanda-O6-Bimanual-Lift-v0", cfg=cfg)
-    env.reset(seed=args.seed)
     wrapper = M1DualPandaO6BimanualWrapper(env)
+    wrapper.reset(seed=args.seed)
     previous_phase = wrapper.runtime.mission.phase.name
     for step in range(args.max_steps):
         wrapper.step()

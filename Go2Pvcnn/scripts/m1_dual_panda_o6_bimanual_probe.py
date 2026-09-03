@@ -131,26 +131,25 @@ def _finite_snapshot(snapshot) -> bool:
     return all(torch.isfinite(value).all().item() for value in tensors)
 
 
-def _reset_physical_scene(env) -> None:
-    """Restore fixed defaults explicitly; no stochastic reset event is involved."""
-
-    raw = env.unwrapped
-    robot = raw.scene["robot"]
-    box = raw.scene["box"]
-    robot.write_root_state_to_sim(robot.data.default_root_state)
-    robot.write_joint_state_to_sim(robot.data.default_joint_pos, robot.data.default_joint_vel)
-    box.write_root_state_to_sim(box.data.default_root_state)
-    raw.scene.reset()
-
-
 def _run_trial(env, wrapper_type, *, seed: int, trial_index: int, steps: int) -> dict[str, object]:
     import torch
 
-    env.reset(seed=seed)
-    _reset_physical_scene(env)
     wrapper = wrapper_type(env)
-    initial = wrapper.adapter.snapshot()
+    initial = wrapper.reset(seed=seed)
     initial_box_pose = initial.box.pose_b.clone()
+    initial_velocity_max = max(
+        float(torch.max(torch.abs(value)).item())
+        for value in (
+            initial.base_state[7:13],
+            initial.m1_qd,
+            initial.platform_q_qd[1:],
+            initial.left_arm.qd,
+            initial.right_arm.qd,
+            initial.left_hand.qd,
+            initial.right_hand.qd,
+            initial.box.twist_b,
+        )
+    )
     previous = initial
     phase_steps: dict[str, int] = {}
     fallback_counts = {"object_mpc": 0, "arm_mpc": 0, "left_hand_mpc": 0, "right_hand_mpc": 0, "wbc_qp": 0}
@@ -165,6 +164,7 @@ def _run_trial(env, wrapper_type, *, seed: int, trial_index: int, steps: int) ->
     max_pitch = 0.0
     max_forces = {"left_o6": 0.0, "right_o6": 0.0}
     reset_count = 0
+    startup_terminal_count = 0
     nonfinite_count = 0
     collision_count = 0
     limit_violation_count = 0
@@ -172,11 +172,14 @@ def _run_trial(env, wrapper_type, *, seed: int, trial_index: int, steps: int) ->
     min_palm_target_errors = [1.0e9, 1.0e9]
     final_palm_target_errors = [1.0e9, 1.0e9]
 
-    for _ in range(steps):
+    for step_index in range(steps):
         _, _, terminated, truncated, _ = wrapper.step()
         snapshot = wrapper.last_snapshot
         command = wrapper.last_command
         phase = wrapper.runtime.mission.phase.name
+        startup_terminal_count += int(
+            step_index < 3 and phase in {"DONE", "TERMINATED"}
+        )
         phase_steps[phase] = phase_steps.get(phase, 0) + 1
         reset_count += int(torch.count_nonzero(terminated | truncated).item())
         if not _finite_snapshot(snapshot) or not torch.isfinite(command.effort).all().item():
@@ -249,7 +252,12 @@ def _run_trial(env, wrapper_type, *, seed: int, trial_index: int, steps: int) ->
     rates = {key: feasible[key] / max(samples[key], 1) for key in feasible}
     released_supported = bool(wrapper.runtime.mission.phase.name == "DONE" and previous.box.supported)
     hard_failure_count = (
-        reset_count + nonfinite_count + collision_count + limit_violation_count + int(box_dropped)
+        reset_count
+        + startup_terminal_count
+        + nonfinite_count
+        + collision_count
+        + limit_violation_count
+        + int(box_dropped)
     )
     row: dict[str, object] = {
         "seed": seed,
@@ -259,6 +267,8 @@ def _run_trial(env, wrapper_type, *, seed: int, trial_index: int, steps: int) ->
         "initial_box_pose_b": initial_box_pose.tolist(),
         "initial_left_palm_pose_b": initial.left_arm.palm_pose_b.tolist(),
         "initial_right_palm_pose_b": initial.right_arm.palm_pose_b.tolist(),
+        "initial_velocity_max": initial_velocity_max,
+        "startup_terminal_count": startup_terminal_count,
         "phase_dwell_times_s": {key: value * 0.005 for key, value in sorted(phase_steps.items())},
         "lift_height_m": max_lift,
         "hold_duration_s": phase_steps.get("HOLD", 0) * 0.005,
@@ -340,7 +350,11 @@ def main() -> int:
     ]
     aggregate = aggregate_acceptance(trials, seeds=seeds, trials_per_seed=trials_per_seed)
     smoke_passed = all(
-        row["nonfinite_count"] == 0 and row["reset_count"] == 0 for row in trials
+        row["nonfinite_count"] == 0
+        and row["reset_count"] == 0
+        and row["startup_terminal_count"] == 0
+        and row["initial_velocity_max"] <= 1.0e-12
+        for row in trials
     )
     metadata = {
         "asset_sha256": _sha256(Path(M1_DUAL_PANDA_O6_USD_PATH)),

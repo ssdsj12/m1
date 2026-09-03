@@ -165,6 +165,27 @@ class BimanualRuntime:
 
         return dict(self._latest_solutions)
 
+    def reset(self) -> None:
+        """Clear every temporal cache while preserving controllers and configuration."""
+
+        self.mission = BimanualMission(cfg=self.mission.cfg)
+        self._step = 0
+        self._counts = {"object": 0, "arm": 0, "hand": 0, "wbc": 0}
+        self._last_snapshot = None
+        self._last_object = None
+        self._last_arm = None
+        self._last_left_hand = None
+        self._last_right_hand = None
+        self._last_command = None
+        self._initial_box_pose = None
+        self._latest_solutions = {
+            "object": None,
+            "arm": None,
+            "left_hand": None,
+            "right_hand": None,
+            "wbc": None,
+        }
+
     def _object_input(self, snapshot: BimanualSnapshot) -> ObjectMpcInput:
         if self._object_input_provider is not None:
             return self._object_input_provider(snapshot, self.mission.phase, self._last_object)
