@@ -127,3 +127,27 @@ def test_latent_data_entrypoints_separate_failures_and_freeze_training_split():
     assert "normalization.pt" in trainer
     assert "latent_action_model.pt" in trainer
     assert "metadata.json" in trainer
+
+
+def test_wrapper_integrates_full_teacher_and_latent_modes_without_59_actions():
+    wrapper = WRAPPER.read_text(encoding="utf-8")
+
+    assert 'mode: str = "teacher"' in wrapper
+    assert 'if mode not in {"teacher", "latent"}' in wrapper
+    assert "build_teacher_input(" in wrapper
+    assert "self.last_teacher_solution" in wrapper
+    assert "LatentRuntime.from_artifact(" in wrapper
+    assert "teacher_solution.action_trajectory[0]" in wrapper
+    assert "torch.zeros(59" not in wrapper
+
+
+def test_probe_selects_artifact_but_play_uses_only_canonical_environment_path():
+    probe = PROBE.read_text(encoding="utf-8")
+    play = PLAY.read_text(encoding="utf-8")
+
+    assert '"--mode", choices=("teacher", "latent")' in probe
+    assert '"--latent-artifact"' in probe
+    assert "mode=args.mode" in probe
+    assert '"--mode", choices=("teacher", "latent")' in play
+    assert "mode=args.mode" in play
+    assert "--latent-artifact" not in play

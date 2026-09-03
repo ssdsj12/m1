@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--max-steps", type=int, default=4000)
 parser.add_argument("--diagnostics", action="store_true")
+parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 app_launcher = AppLauncher(args)
@@ -30,7 +31,7 @@ def main() -> int:
     cfg.scene.num_envs = 1
     cfg.seed = args.seed
     env = gym.make("Isaac-M1-DualPanda-O6-Bimanual-Lift-v0", cfg=cfg)
-    wrapper = M1DualPandaO6BimanualWrapper(env)
+    wrapper = M1DualPandaO6BimanualWrapper(env, mode=args.mode)
     wrapper.reset(seed=args.seed)
     previous_phase = wrapper.runtime.mission.phase.name
     for step in range(args.max_steps):

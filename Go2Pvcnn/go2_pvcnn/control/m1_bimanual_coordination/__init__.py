@@ -26,6 +26,7 @@ from .full_action_teacher import (
     TeacherDiagnostics,
     TeacherInput,
     TeacherSolution,
+    build_teacher_input,
 )
 from .latent_contracts import (
     LatentArtifactMetadata,
@@ -35,6 +36,7 @@ from .latent_contracts import (
 )
 from .latent_model import LatentActionModel
 from .safety_projection import SafetyInput, SafetyProjection, SafetyResult
+from .latent_runtime import LatentRuntime
 from .object_mpc import (
     BimanualObjectMpc,
     ObjectMpcCfg,
@@ -93,6 +95,7 @@ __all__ = [
     "TeacherDiagnostics",
     "TeacherInput",
     "TeacherSolution",
+    "build_teacher_input",
     "LatentArtifactMetadata",
     "LatentNormalizer",
     "pack_state_features",
@@ -101,6 +104,7 @@ __all__ = [
     "SafetyInput",
     "SafetyProjection",
     "SafetyResult",
+    "LatentRuntime",
     "BimanualObjectMpc",
     "ObjectMpcCfg",
     "ObjectMpcDiagnostics",

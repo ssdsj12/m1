@@ -12,7 +12,7 @@ from go2_pvcnn.control.m1_panda_coordination.qp_backend import (
     solve_reference_qp,
 )
 
-from .contracts import FullDynamicsState, _float64
+from .contracts import BimanualCommand, BimanualSnapshot, FullDynamicsState, _float64
 from .reduced_dynamics import condense_constrained_dynamics
 
 
@@ -20,6 +20,96 @@ TEACHER_DT = 0.04
 TEACHER_HORIZON = 25
 ACTIVE_DOF = 43
 TASK_ACCELERATION_DOF = 18
+
+
+def _pose_with_twist(
+    current_pose: torch.Tensor, target_pose: torch.Tensor
+) -> torch.Tensor:
+    previous = torch.cat((current_pose.unsqueeze(0), target_pose[:-1]), dim=0)
+    twist = (target_pose - previous) / TEACHER_DT
+    return torch.cat((target_pose, twist), dim=1)
+
+
+def build_teacher_input(
+    *,
+    snapshot: BimanualSnapshot,
+    dynamics: FullDynamicsState,
+    task_jacobian: torch.Tensor,
+    baseline_command: BimanualCommand,
+    latest_solutions: dict[str, object | None],
+    effort_limits: torch.Tensor,
+) -> "TeacherInput":
+    """Bridge the existing object/arm/hand hierarchy into one full-action plan."""
+
+    if not isinstance(snapshot, BimanualSnapshot):
+        raise TypeError("snapshot must be BimanualSnapshot")
+    if not isinstance(dynamics, FullDynamicsState):
+        raise TypeError("dynamics must be FullDynamicsState")
+    if not isinstance(baseline_command, BimanualCommand):
+        raise TypeError("baseline_command must be BimanualCommand")
+    required = ("object", "arm", "left_hand", "right_hand", "wbc")
+    if any(latest_solutions.get(name) is None for name in required):
+        raise ValueError("all hierarchical solutions are required")
+    object_solution = latest_solutions["object"]
+    arm_solution = latest_solutions["arm"]
+    left_hand = latest_solutions["left_hand"]
+    right_hand = latest_solutions["right_hand"]
+    nominal = baseline_command.effort.repeat(TEACHER_HORIZON, 1)
+    nominal[:, 12:16] = 0.0
+    target_acceleration = torch.zeros(
+        (TEACHER_HORIZON, TASK_ACCELERATION_DOF), dtype=torch.float64
+    )
+    for node in range(TEACHER_HORIZON):
+        arm_node = min(
+            int(node * arm_solution.left.qdd.shape[0] / TEACHER_HORIZON),
+            arm_solution.left.qdd.shape[0] - 1,
+        )
+        target_acceleration[node, 6:12] = (
+            snapshot.left_arm.jacobian_b @ arm_solution.left.qdd[arm_node]
+        )
+        target_acceleration[node, 12:18] = (
+            snapshot.right_arm.jacobian_b @ arm_solution.right.qdd[arm_node]
+        )
+    platform_position = object_solution.platform_yaw
+    platform_previous = torch.cat(
+        (snapshot.platform_q_qd[:1], platform_position[:-1])
+    )
+    platform_velocity = (platform_position - platform_previous) / TEACHER_DT
+    source_feasible = bool(
+        baseline_command.feasible
+        and object_solution.diagnostics.feasible
+        and arm_solution.both_feasible
+        and left_hand.diagnostics.feasible
+        and right_hand.diagnostics.feasible
+    )
+    return TeacherInput(
+        dynamics=dynamics,
+        nominal_action_trajectory=nominal,
+        task_jacobian=task_jacobian,
+        task_acceleration_target=target_acceleration,
+        task_bias=torch.zeros(
+            (TEACHER_HORIZON, TASK_ACCELERATION_DOF), dtype=torch.float64
+        ),
+        task_weights=torch.tensor(
+            [20.0] * 6 + [10.0] * 12, dtype=torch.float64
+        ),
+        effort_limits=effort_limits,
+        box_trajectory_b=torch.cat(
+            (object_solution.box_pose, object_solution.box_twist), dim=1
+        ),
+        left_palm_trajectory_b=_pose_with_twist(
+            snapshot.left_arm.palm_pose_b, object_solution.left_palm_pose
+        ),
+        right_palm_trajectory_b=_pose_with_twist(
+            snapshot.right_arm.palm_pose_b, object_solution.right_palm_pose
+        ),
+        left_wrench_b=object_solution.left_wrench,
+        right_wrench_b=object_solution.right_wrench,
+        platform_trajectory=torch.stack(
+            (platform_position, platform_velocity), dim=1
+        ),
+        source_feasible=source_feasible,
+    )
 
 
 @dataclass(frozen=True)
@@ -295,4 +385,5 @@ __all__ = [
     "TeacherDiagnostics",
     "TeacherInput",
     "TeacherSolution",
+    "build_teacher_input",
 ]

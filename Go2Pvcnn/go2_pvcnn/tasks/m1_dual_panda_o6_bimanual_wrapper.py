@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 import time
 from collections.abc import Sequence
 
@@ -15,6 +17,7 @@ from go2_pvcnn.assets.m1_dual_panda_o6 import (
     LEFT_PANDA_ACTIVE_JOINT_NAMES,
     LEFT_PANDA_WRIST_BODY_NAME,
     M1_BASE_ACTIVE_JOINT_NAMES,
+    M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES,
     M1_DUAL_PANDA_O6_BASE_BODY_NAME,
     M1_DUAL_PANDA_O6_PLATFORM_JOINT_NAME,
     O6_MIMIC_MAP,
@@ -27,15 +30,22 @@ from go2_pvcnn.assets.m1_dual_panda_o6 import (
 )
 from go2_pvcnn.control.m1_bimanual_coordination import (
     BimanualRuntime,
+    BimanualCommand,
     BimanualSnapshot,
     BoxState,
+    FullActionTeacher,
     FullDynamicsState,
+    LatentRuntime,
+    SafetyInput,
+    SafetyProjection,
     SideArmState,
     SideHandState,
     build_actuation_matrix,
+    build_teacher_input,
     fold_o6_fingertip_jacobians,
     stack_stationary_wheel_jacobians,
 )
+from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
 from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
     physx_jacobian_body_row,
     pose_in_base,
@@ -189,6 +199,32 @@ class M1DualPandaO6SnapshotAdapter:
             wheel_contact_jacobian=wheel_contact_jacobian,
             wheel_contact_bias=wheel_contact_bias,
         )
+
+    def teacher_task_jacobian(self) -> torch.Tensor:
+        """Return base plus both palm spatial Jacobians in full 59 columns."""
+
+        env = self.env_index
+        base_quaternion = _cpu64(self.robot.data.root_quat_w[env])
+        all_jacobians = self.robot.root_physx_view.get_jacobians()
+        body_count = len(self.robot.body_names)
+        result = torch.zeros((18, 59), dtype=torch.float64)
+        result[:6, :6] = torch.eye(6, dtype=torch.float64)
+        for rows, body_id in (
+            (slice(6, 12), self.left_palm_id),
+            (slice(12, 18), self.right_palm_id),
+        ):
+            result[rows] = spatial_jacobian_in_base(
+                base_quaternion,
+                _cpu64(
+                    all_jacobians[
+                        env,
+                        physx_jacobian_body_row(
+                            body_id, body_count, all_jacobians.shape[1]
+                        ),
+                    ]
+                ),
+            )
+        return result
 
     def _arm_state(self, side: str, joint_ids: tuple[int, ...], palm_id: int) -> SideArmState:
         data = self.robot.data
@@ -387,15 +423,100 @@ class M1DualPandaO6SnapshotAdapter:
 class M1DualPandaO6BimanualWrapper:
     """Compute one MPC command and apply it atomically on every physics step."""
 
-    def __init__(self, env, runtime: BimanualRuntime | None = None) -> None:
+    def __init__(
+        self,
+        env,
+        runtime: BimanualRuntime | None = None,
+        *,
+        mode: str = "teacher",
+        latent_artifact: str | Path | None = None,
+    ) -> None:
+        if mode not in {"teacher", "latent"}:
+            raise ValueError("mode must be 'teacher' or 'latent'")
         self.env = env
         self.adapter = M1DualPandaO6SnapshotAdapter(env)
         self.runtime = BimanualRuntime() if runtime is None else runtime
+        self.mode = mode
+        self.teacher = FullActionTeacher()
+        self.safety = SafetyProjection()
+        self._effort_limits = effort_limits()
+        self._baseline_command: BimanualCommand | None = None
+        self.latent_runtime: LatentRuntime | None = None
+        if mode == "latent":
+            selected_artifact = latent_artifact or os.environ.get(
+                "M1_BIMANUAL_LATENT_ARTIFACT"
+            )
+            if selected_artifact is None:
+                raise FileNotFoundError(
+                    "latent model path is required through M1_BIMANUAL_LATENT_ARTIFACT"
+                )
+            self.latent_runtime = LatentRuntime.from_artifact(
+                Path(selected_artifact),
+                action_order=tuple(M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES),
+                teacher=self.teacher,
+                safety=self.safety,
+                effort_limits=self._effort_limits,
+                safety_input_provider=self._safety_input,
+            )
         self.last_snapshot: BimanualSnapshot | None = None
         self.last_dynamics: FullDynamicsState | None = None
+        self.last_teacher_solution = None
         self.last_command = None
         self.startup_complete = False
         self.base_reference_w: torch.Tensor | None = None
+        self._step = 0
+
+    def _active_q_qd(self) -> tuple[torch.Tensor, torch.Tensor]:
+        data = self.adapter.robot.data
+        ids = list(self.adapter.active_joint_ids)
+        return _cpu64(data.joint_pos[0, ids]), _cpu64(data.joint_vel[0, ids])
+
+    def _safety_input(
+        self,
+        snapshot: BimanualSnapshot,
+        dynamics: FullDynamicsState,
+        candidate: torch.Tensor,
+    ) -> SafetyInput:
+        if self._baseline_command is None or self.base_reference_w is None:
+            raise RuntimeError("baseline command and base reference must exist")
+        active_q, active_qd = self._active_q_qd()
+        data = self.adapter.robot.data
+        ids = list(self.adapter.active_joint_ids)
+        limits = _cpu64(data.soft_joint_pos_limits[0, ids])
+        velocity_limits = _cpu64(data.soft_joint_vel_limits[0, ids])
+        current_root = _cpu64(data.root_state_w[0])
+        base_error = pose_in_base(
+            self.base_reference_w[:3],
+            self.base_reference_w[3:7],
+            current_root[:3],
+            current_root[3:7],
+        )
+        latest_wbc = self.runtime.latest_solutions["wbc"]
+        closure = (
+            1.0
+            if latest_wbc is None
+            else latest_wbc.diagnostics.force_closure_margin
+        )
+        return SafetyInput(
+            candidate_effort=candidate,
+            safe_effort=self._baseline_command.effort,
+            dynamics=dynamics,
+            active_generalized_ids=torch.tensor(
+                [index + 6 for index in self.adapter.active_joint_ids],
+                dtype=torch.int64,
+            ),
+            active_q=active_q,
+            active_qd=active_qd,
+            q_min=limits[:, 0],
+            q_max=limits[:, 1],
+            qd_max=velocity_limits,
+            effort_limits=self._effort_limits,
+            collision_distances=torch.ones(1, dtype=torch.float64),
+            collision_jacobian=torch.zeros((1, 43), dtype=torch.float64),
+            base_error=base_error,
+            force_closure_margin=float(closure),
+            phase=self.runtime.mission.phase,
+        )
 
     def _write_default_physics_state(self) -> None:
         raw = self.env.unwrapped
@@ -439,13 +560,17 @@ class M1DualPandaO6BimanualWrapper:
 
         self.adapter = M1DualPandaO6SnapshotAdapter(self.env)
         self.runtime.reset()
+        if self.latent_runtime is not None:
+            self.latent_runtime.reset()
         self.last_command = None
+        self.last_teacher_solution = None
         self.last_snapshot = self.adapter.snapshot()
         self.last_dynamics = self.adapter.dynamics()
         self.base_reference_w = _cpu64(
             raw.scene["robot"].data.default_root_state[0, :7]
         )
         self.startup_complete = True
+        self._step = 0
         return self.last_snapshot
 
     def step(self):
@@ -453,11 +578,48 @@ class M1DualPandaO6BimanualWrapper:
             raise RuntimeError("wrapper.reset(seed=...) must complete before step()")
         snapshot = self.adapter.snapshot()
         self.last_dynamics = self.adapter.dynamics()
-        command = self.runtime.compute(snapshot)
+        self._baseline_command = self.runtime.compute(snapshot)
+        teacher_input = build_teacher_input(
+            snapshot=snapshot,
+            dynamics=self.last_dynamics,
+            task_jacobian=self.adapter.teacher_task_jacobian(),
+            baseline_command=self._baseline_command,
+            latest_solutions=self.runtime.latest_solutions,
+            effort_limits=self._effort_limits,
+        )
+        if self.mode == "teacher":
+            if self._step % 8 == 0 or self.last_teacher_solution is None:
+                self.last_teacher_solution = self.teacher.plan(teacher_input)
+            teacher_solution = self.last_teacher_solution
+            if teacher_solution.diagnostics.feasible:
+                command = BimanualCommand(
+                    timestamp_ns=snapshot.timestamp_ns,
+                    effort=teacher_solution.action_trajectory[0],
+                    feasible=True,
+                    fallback_reasons=(),
+                )
+            else:
+                command = BimanualCommand(
+                    timestamp_ns=snapshot.timestamp_ns,
+                    effort=self._baseline_command.effort,
+                    feasible=False,
+                    fallback_reasons=(
+                        teacher_solution.diagnostics.fallback_reason
+                        or "teacher_infeasible",
+                    ),
+                )
+        else:
+            if self.latent_runtime is None:
+                raise RuntimeError("latent runtime was not initialized")
+            command = self.latent_runtime.compute(
+                snapshot, self.last_dynamics, teacher_input
+            )
+            self.last_teacher_solution = self.latent_runtime.last_teacher_solution
         action = command.effort.to(device=self.env.unwrapped.device, dtype=torch.float32)
         action = action.unsqueeze(0).repeat(self.env.unwrapped.num_envs, 1)
         self.last_snapshot = snapshot
         self.last_command = command
+        self._step += 1
         return self.env.step(action)
 
     def close(self) -> None:

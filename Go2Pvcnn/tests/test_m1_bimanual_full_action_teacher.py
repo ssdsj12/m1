@@ -8,7 +8,10 @@ from go2_pvcnn.control.m1_bimanual_coordination.contracts import FullDynamicsSta
 from go2_pvcnn.control.m1_bimanual_coordination.full_action_teacher import (
     FullActionTeacher,
     TeacherInput,
+    build_teacher_input,
 )
+from tests.test_m1_bimanual_runtime import _runtime
+from tests.test_m1_bimanual_object_mpc import _snapshot
 
 
 DTYPE = torch.float64
@@ -91,3 +94,29 @@ def test_teacher_rejects_infeasible_source_without_exposing_59_actions() -> None
     assert solution.action_trajectory.shape[-1] == 43
     assert torch.all(solution.action_trajectory[:, 12:16] == 0.0)
 
+
+def test_bridge_builds_teacher_input_from_live_hierarchical_plans() -> None:
+    snapshot = _snapshot()
+    runtime = _runtime()
+    command = runtime.compute(snapshot)
+    task_jacobian = torch.zeros((18, 59), dtype=DTYPE)
+    task_jacobian[:6, :6] = torch.eye(6, dtype=DTYPE)
+    task_jacobian[6:12, 19:26] = snapshot.left_arm.jacobian_b
+    task_jacobian[12:18, 26:33] = snapshot.right_arm.jacobian_b
+
+    sample = build_teacher_input(
+        snapshot=snapshot,
+        dynamics=_dynamics(),
+        task_jacobian=task_jacobian,
+        baseline_command=command,
+        latest_solutions=runtime.latest_solutions,
+        effort_limits=100.0 * torch.ones(43, dtype=DTYPE),
+    )
+
+    assert sample.nominal_action_trajectory.shape == (25, 43)
+    assert sample.task_acceleration_target.shape == (25, 18)
+    assert sample.box_trajectory_b.shape == (25, 12)
+    assert sample.left_palm_trajectory_b.shape == (25, 12)
+    assert sample.right_palm_trajectory_b.shape == (25, 12)
+    assert sample.platform_trajectory.shape == (25, 2)
+    assert sample.source_feasible

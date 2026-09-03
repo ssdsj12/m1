@@ -131,10 +131,23 @@ def _finite_snapshot(snapshot) -> bool:
     return all(torch.isfinite(value).all().item() for value in tensors)
 
 
-def _run_trial(env, wrapper_type, *, seed: int, trial_index: int, steps: int) -> dict[str, object]:
+def _run_trial(
+    env,
+    wrapper_type,
+    *,
+    seed: int,
+    trial_index: int,
+    steps: int,
+    mode: str,
+    latent_artifact: Path | None,
+) -> dict[str, object]:
     import torch
 
-    wrapper = wrapper_type(env)
+    wrapper = wrapper_type(
+        env,
+        mode=mode,
+        latent_artifact=latent_artifact,
+    )
     initial = wrapper.reset(seed=seed)
     initial_box_pose = initial.box.pose_b.clone()
     initial_velocity_max = max(
@@ -323,6 +336,8 @@ def _parser():
     parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument("--trials-per-seed", type=int, default=DEFAULT_TRIALS_PER_SEED)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
+    parser.add_argument("--latent-artifact", type=Path)
     # AppLauncher supplies the standard --headless flag.
     AppLauncher.add_app_launcher_args(parser)
     return parser
@@ -356,7 +371,15 @@ def main() -> int:
     cfg.seed = seeds[0]
     env = gym.make(GYM_ID, cfg=cfg)
     trials = [
-        _run_trial(env, M1DualPandaO6BimanualWrapper, seed=seed, trial_index=index, steps=steps)
+        _run_trial(
+            env,
+            M1DualPandaO6BimanualWrapper,
+            seed=seed,
+            trial_index=index,
+            steps=steps,
+            mode=args.mode,
+            latent_artifact=args.latent_artifact,
+        )
         for seed in seeds
         for index in range(trials_per_seed)
     ]
@@ -377,7 +400,8 @@ def main() -> int:
     }
     report: dict[str, Any] = {
         "schema_version": 1,
-        "mode": "formal" if formal else "smoke",
+        "mode": args.mode,
+        "acceptance_mode": "formal" if formal else "smoke",
         "action_dim": int(env.unwrapped.action_manager.total_action_dim),
         "finite_snapshot": all(row["nonfinite_count"] == 0 for row in trials),
         "unexpected_reset_count": sum(int(row["reset_count"]) for row in trials),
