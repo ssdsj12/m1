@@ -34,6 +34,7 @@ from .latent_contracts import (
     pack_teacher_task_features,
 )
 from .latent_model import LatentActionModel
+from .safety_projection import SafetyInput, SafetyProjection, SafetyResult
 from .object_mpc import (
     BimanualObjectMpc,
     ObjectMpcCfg,
@@ -97,6 +98,9 @@ __all__ = [
     "pack_state_features",
     "pack_teacher_task_features",
     "LatentActionModel",
+    "SafetyInput",
+    "SafetyProjection",
+    "SafetyResult",
     "BimanualObjectMpc",
     "ObjectMpcCfg",
     "ObjectMpcDiagnostics",
