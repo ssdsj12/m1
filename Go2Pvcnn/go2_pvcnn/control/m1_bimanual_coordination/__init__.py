@@ -6,9 +6,16 @@ from .contracts import (
     BimanualPhase,
     BimanualSnapshot,
     BoxState,
+    FullDynamicsState,
     SideArmState,
     SideHandState,
     validate_monotonic_snapshot,
+)
+from .reduced_dynamics import (
+    ReducedDynamicsMap,
+    build_actuation_matrix,
+    condense_constrained_dynamics,
+    stack_stationary_wheel_jacobians,
 )
 from .object_mpc import (
     BimanualObjectMpc,
@@ -54,9 +61,14 @@ __all__ = [
     "BimanualPhase",
     "BimanualSnapshot",
     "BoxState",
+    "FullDynamicsState",
     "SideArmState",
     "SideHandState",
     "validate_monotonic_snapshot",
+    "ReducedDynamicsMap",
+    "build_actuation_matrix",
+    "condense_constrained_dynamics",
+    "stack_stationary_wheel_jacobians",
     "BimanualObjectMpc",
     "ObjectMpcCfg",
     "ObjectMpcDiagnostics",

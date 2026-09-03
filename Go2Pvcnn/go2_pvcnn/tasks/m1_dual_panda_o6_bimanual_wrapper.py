@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 import torch
 
+from go2_pvcnn.assets import M1_FOOT_BODY_NAMES
 from go2_pvcnn.assets.m1_dual_panda_o6 import (
     LEFT_O6_ACTIVE_JOINT_NAMES,
     LEFT_O6_FINGERTIP_BODY_NAMES,
@@ -27,8 +28,11 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     BimanualRuntime,
     BimanualSnapshot,
     BoxState,
+    FullDynamicsState,
     SideArmState,
     SideHandState,
+    build_actuation_matrix,
+    stack_stationary_wheel_jacobians,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
     physx_jacobian_body_row,
@@ -94,13 +98,77 @@ class M1DualPandaO6SnapshotAdapter:
         self.right_wrist_id = _exact_body_id(body_names, RIGHT_PANDA_WRIST_BODY_NAME)
         self.left_tip_ids = tuple(_exact_body_id(body_names, name) for name in LEFT_O6_FINGERTIP_BODY_NAMES)
         self.right_tip_ids = tuple(_exact_body_id(body_names, name) for name in RIGHT_O6_FINGERTIP_BODY_NAMES)
+        self.wheel_body_ids = tuple(
+            _exact_body_id(body_names, name) for name in M1_FOOT_BODY_NAMES
+        )
 
         left_sensor_names = tuple(self.env.scene["o6_contacts"].body_names)
         right_sensor_names = tuple(self.env.scene["right_o6_contacts"].body_names)
         self.left_tip_sensor_ids = tuple(_exact_sensor_body_id(left_sensor_names, name) for name in LEFT_O6_FINGERTIP_BODY_NAMES)
         self.right_tip_sensor_ids = tuple(_exact_sensor_body_id(right_sensor_names, name) for name in RIGHT_O6_FINGERTIP_BODY_NAMES)
         self._sequence = 0
+        self._previous_wheel_contact_jacobian: torch.Tensor | None = None
         self.arm_dynamics_diagnostics: dict[str, dict[str, object]] = {}
+
+    def dynamics(self) -> FullDynamicsState:
+        """Read full PhysX dynamics and four fixed-wheel contact constraints."""
+
+        env = self.env_index
+        base_quaternion = _cpu64(self.robot.data.root_quat_w[env])
+        physx = self.robot.root_physx_view
+        mass_matrix = _cpu64(physx.get_generalized_mass_matrices()[env])
+        gravity = physx.get_gravity_compensation_forces()[env]
+        coriolis = physx.get_coriolis_and_centrifugal_compensation_forces()[env]
+        bias = _cpu64(gravity + coriolis)
+        all_jacobians = physx.get_jacobians()
+        body_count = len(self.robot.body_names)
+        wheel_jacobians = torch.stack(
+            tuple(
+                spatial_jacobian_in_base(
+                    base_quaternion,
+                    _cpu64(
+                        all_jacobians[
+                            env,
+                            physx_jacobian_body_row(
+                                body_id, body_count, all_jacobians.shape[1]
+                            ),
+                        ]
+                    ),
+                )
+                for body_id in self.wheel_body_ids
+            )
+        )
+        wheel_contact_jacobian = stack_stationary_wheel_jacobians(
+            wheel_jacobians
+        )
+        wheel_contact_bias = torch.zeros(12, dtype=torch.float64)
+        if self._previous_wheel_contact_jacobian is not None:
+            base_linear_b = vectors_in_base(
+                base_quaternion, _cpu64(self.robot.data.root_lin_vel_w[env])
+            )
+            base_angular_b = vectors_in_base(
+                base_quaternion, _cpu64(self.robot.data.root_ang_vel_w[env])
+            )
+            generalized_velocity = torch.cat(
+                (
+                    base_linear_b,
+                    base_angular_b,
+                    _cpu64(self.robot.data.joint_vel[env]),
+                )
+            )
+            dt = float(self.env.physics_dt)
+            jacobian_rate = (
+                wheel_contact_jacobian - self._previous_wheel_contact_jacobian
+            ) / dt
+            wheel_contact_bias = jacobian_rate @ generalized_velocity
+        self._previous_wheel_contact_jacobian = wheel_contact_jacobian.clone()
+        return FullDynamicsState(
+            mass_matrix=mass_matrix,
+            bias=bias,
+            actuation_matrix=build_actuation_matrix(self.active_joint_ids),
+            wheel_contact_jacobian=wheel_contact_jacobian,
+            wheel_contact_bias=wheel_contact_bias,
+        )
 
     def _arm_state(self, side: str, joint_ids: tuple[int, ...], palm_id: int) -> SideArmState:
         data = self.robot.data
@@ -264,6 +332,7 @@ class M1DualPandaO6BimanualWrapper:
         self.adapter = M1DualPandaO6SnapshotAdapter(env)
         self.runtime = BimanualRuntime() if runtime is None else runtime
         self.last_snapshot: BimanualSnapshot | None = None
+        self.last_dynamics: FullDynamicsState | None = None
         self.last_command = None
         self.startup_complete = False
         self.base_reference_w: torch.Tensor | None = None
@@ -312,6 +381,7 @@ class M1DualPandaO6BimanualWrapper:
         self.runtime.reset()
         self.last_command = None
         self.last_snapshot = self.adapter.snapshot()
+        self.last_dynamics = self.adapter.dynamics()
         self.base_reference_w = _cpu64(
             raw.scene["robot"].data.default_root_state[0, :7]
         )
@@ -322,6 +392,7 @@ class M1DualPandaO6BimanualWrapper:
         if not self.startup_complete:
             raise RuntimeError("wrapper.reset(seed=...) must complete before step()")
         snapshot = self.adapter.snapshot()
+        self.last_dynamics = self.adapter.dynamics()
         command = self.runtime.compute(snapshot)
         action = command.effort.to(device=self.env.unwrapped.device, dtype=torch.float32)
         action = action.unsqueeze(0).repeat(self.env.unwrapped.num_envs, 1)

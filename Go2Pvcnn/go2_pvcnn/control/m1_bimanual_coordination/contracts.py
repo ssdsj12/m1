@@ -11,6 +11,8 @@ from go2_pvcnn.control.m1_panda_coordination.contracts import require_tensor
 
 
 ACTIVE_CONTROL_DOF = 43
+GENERALIZED_DOF = 59
+WHEEL_CONSTRAINT_DOF = 12
 
 
 def _timestamp(value: int) -> int:
@@ -136,6 +138,45 @@ class BimanualSnapshot:
         ):
             if not isinstance(getattr(self, name), expected_type):
                 raise TypeError(f"{name} must be {expected_type.__name__}")
+
+
+@dataclass(frozen=True)
+class FullDynamicsState:
+    """Full floating-base dynamics with a 43-column active selection map."""
+
+    mass_matrix: torch.Tensor
+    bias: torch.Tensor
+    actuation_matrix: torch.Tensor
+    wheel_contact_jacobian: torch.Tensor
+    wheel_contact_bias: torch.Tensor
+
+    def __post_init__(self) -> None:
+        for name, shape in (
+            ("mass_matrix", (GENERALIZED_DOF, GENERALIZED_DOF)),
+            ("bias", (GENERALIZED_DOF,)),
+            ("actuation_matrix", (GENERALIZED_DOF, ACTIVE_CONTROL_DOF)),
+            (
+                "wheel_contact_jacobian",
+                (WHEEL_CONSTRAINT_DOF, GENERALIZED_DOF),
+            ),
+            ("wheel_contact_bias", (WHEEL_CONSTRAINT_DOF,)),
+        ):
+            object.__setattr__(
+                self, name, _float64(name, getattr(self, name), shape)
+            )
+        if not torch.allclose(
+            self.mass_matrix,
+            self.mass_matrix.T,
+            atol=1.0e-10,
+            rtol=1.0e-10,
+        ):
+            raise ValueError("mass_matrix must be symmetric")
+        try:
+            torch.linalg.cholesky(self.mass_matrix)
+        except torch.linalg.LinAlgError as error:
+            raise ValueError("mass_matrix must be positive definite") from error
+        if torch.linalg.matrix_rank(self.actuation_matrix).item() != ACTIVE_CONTROL_DOF:
+            raise ValueError("actuation_matrix must have full active-column rank")
 
 
 @dataclass(frozen=True)
