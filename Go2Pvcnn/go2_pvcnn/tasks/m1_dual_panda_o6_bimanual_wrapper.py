@@ -30,6 +30,13 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     SideArmState,
     SideHandState,
 )
+from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
+    physx_jacobian_body_row,
+    pose_in_base,
+    spatial_jacobian_in_base,
+    twist_in_base,
+    vectors_in_base,
+)
 
 
 def _exact_body_id(names: Sequence[str], expected: str) -> int:
@@ -59,18 +66,6 @@ def _exact_sensor_body_id(names: Sequence[str], expected: str) -> int:
 
 def _cpu64(value: torch.Tensor) -> torch.Tensor:
     return value.detach().to(device="cpu", dtype=torch.float64).clone()
-
-
-def _quat_to_rotvec(quaternion_wxyz: torch.Tensor) -> torch.Tensor:
-    quat = _cpu64(quaternion_wxyz)
-    quat = quat / torch.linalg.vector_norm(quat).clamp_min(1.0e-12)
-    if quat[0] < 0.0:
-        quat = -quat
-    vector_norm = torch.linalg.vector_norm(quat[1:])
-    if vector_norm <= 1.0e-10:
-        return 2.0 * quat[1:]
-    angle = 2.0 * torch.atan2(vector_norm, quat[0].clamp_min(1.0e-12))
-    return angle * quat[1:] / vector_norm
 
 
 class M1DualPandaO6SnapshotAdapter:
@@ -110,10 +105,24 @@ class M1DualPandaO6SnapshotAdapter:
     def _arm_state(self, side: str, joint_ids: tuple[int, ...], palm_id: int) -> SideArmState:
         data = self.robot.data
         env = self.env_index
-        base_position = data.root_pos_w[env]
-        palm_position = data.body_pos_w[env, palm_id]
-        palm_pose = torch.cat((_cpu64(palm_position - base_position), _quat_to_rotvec(data.body_quat_w[env, palm_id])))
-        palm_twist = torch.cat((_cpu64(data.body_lin_vel_w[env, palm_id]), _cpu64(data.body_ang_vel_w[env, palm_id])))
+        base_position = _cpu64(data.root_pos_w[env])
+        base_quaternion = _cpu64(data.root_quat_w[env])
+        palm_position = _cpu64(data.body_pos_w[env, palm_id])
+        palm_pose = pose_in_base(
+            base_position,
+            base_quaternion,
+            palm_position,
+            _cpu64(data.body_quat_w[env, palm_id]),
+        )
+        palm_twist = twist_in_base(
+            base_position,
+            base_quaternion,
+            _cpu64(data.root_lin_vel_w[env]),
+            _cpu64(data.root_ang_vel_w[env]),
+            palm_position,
+            _cpu64(data.body_lin_vel_w[env, palm_id]),
+            _cpu64(data.body_ang_vel_w[env, palm_id]),
+        )
 
         jacobian = torch.zeros((6, 7), dtype=torch.float64)
         mass = torch.eye(7, dtype=torch.float64)
@@ -123,19 +132,15 @@ class M1DualPandaO6SnapshotAdapter:
             all_jacobians = self.robot.root_physx_view.get_jacobians()
             jacobian_body_count = all_jacobians.shape[1]
             body_count = len(self.robot.body_names)
-            if jacobian_body_count == body_count:
-                jacobian_body_id = palm_id
-            elif jacobian_body_count == body_count - 1:
-                if palm_id <= 0:
-                    raise RuntimeError("floating root body has no legacy Jacobian row")
-                jacobian_body_id = palm_id - 1
-            else:
-                raise RuntimeError(
-                    "PhysX Jacobian body count does not match articulation bodies"
-                )
+            jacobian_body_id = physx_jacobian_body_row(
+                palm_id, body_count, jacobian_body_count
+            )
             generalized_ids = tuple(joint_id + 6 for joint_id in joint_ids)
             full_body_jacobian = all_jacobians[env, jacobian_body_id]
-            jacobian = _cpu64(full_body_jacobian[:, list(generalized_ids)])
+            jacobian = spatial_jacobian_in_base(
+                base_quaternion,
+                _cpu64(full_body_jacobian[:, list(generalized_ids)]),
+            )
             all_mass = self.robot.root_physx_view.get_generalized_mass_matrices()
             index = torch.tensor(generalized_ids, device=all_mass.device)
             mass = _cpu64(all_mass[env].index_select(0, index).index_select(1, index))
@@ -179,9 +184,20 @@ class M1DualPandaO6SnapshotAdapter:
     ) -> SideHandState:
         data = self.robot.data
         env = self.env_index
-        base_position = data.root_pos_w[env]
-        positions = _cpu64(data.body_pos_w[env, list(fingertip_ids)] - base_position)
-        forces = _cpu64(self.env.scene[sensor_name].data.net_forces_w[env, list(sensor_ids)])
+        base_position = _cpu64(data.root_pos_w[env])
+        base_quaternion = _cpu64(data.root_quat_w[env])
+        positions = vectors_in_base(
+            base_quaternion,
+            _cpu64(data.body_pos_w[env, list(fingertip_ids)]) - base_position,
+        )
+        forces = vectors_in_base(
+            base_quaternion,
+            _cpu64(
+                self.env.scene[sensor_name].data.net_forces_w[
+                    env, list(sensor_ids)
+                ]
+            ),
+        )
         return SideHandState(
             q=_cpu64(data.joint_pos[env, list(joint_ids)]),
             qd=_cpu64(data.joint_vel[env, list(joint_ids)]),
@@ -198,18 +214,23 @@ class M1DualPandaO6SnapshotAdapter:
         base_state = _cpu64(data.root_state_w[env])
         joint_pos = data.joint_pos[env]
         joint_vel = data.joint_vel[env]
-        box_position = self.box.data.root_pos_w[env]
-        box_pose = torch.cat(
-            (
-                _cpu64(box_position - data.root_pos_w[env]),
-                _quat_to_rotvec(self.box.data.root_quat_w[env]),
-            )
+        base_position = _cpu64(data.root_pos_w[env])
+        base_quaternion = _cpu64(data.root_quat_w[env])
+        box_position = _cpu64(self.box.data.root_pos_w[env])
+        box_pose = pose_in_base(
+            base_position,
+            base_quaternion,
+            box_position,
+            _cpu64(self.box.data.root_quat_w[env]),
         )
-        box_twist = torch.cat(
-            (
-                _cpu64(self.box.data.root_lin_vel_w[env]),
-                _cpu64(self.box.data.root_ang_vel_w[env]),
-            )
+        box_twist = twist_in_base(
+            base_position,
+            base_quaternion,
+            _cpu64(data.root_lin_vel_w[env]),
+            _cpu64(data.root_ang_vel_w[env]),
+            box_position,
+            _cpu64(self.box.data.root_lin_vel_w[env]),
+            _cpu64(self.box.data.root_ang_vel_w[env]),
         )
         x, y, z = (float(value) for value in (0.12, 0.18, 0.10))
         inertia = (0.5 / 12.0) * torch.diag(
