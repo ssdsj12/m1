@@ -82,6 +82,7 @@ def test_probe_records_reproducibility_and_all_diagnostic_groups():
         "phase_dwell_times_s",
         "fallback_counts",
         "max_contact_forces_n",
+        "fingertip_jacobian_norms",
         "collision_count",
         "limit_violation_count",
         "reset_count",

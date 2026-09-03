@@ -287,6 +287,18 @@ def _run_trial(env, wrapper_type, *, seed: int, trial_index: int, steps: int) ->
         "final_base_state": previous.base_state.tolist(),
         "final_box_pose_b": previous.box.pose_b.tolist(),
         "max_contact_forces_n": max_forces,
+        "fingertip_jacobian_norms": {
+            "left_o6": float(
+                torch.linalg.vector_norm(
+                    previous.left_hand.fingertip_jacobian_b
+                ).item()
+            ),
+            "right_o6": float(
+                torch.linalg.vector_norm(
+                    previous.right_hand.fingertip_jacobian_b
+                ).item()
+            ),
+        },
         "max_abs_roll_rad": max_roll,
         "max_abs_pitch_rad": max_pitch,
         "collision_count": collision_count,

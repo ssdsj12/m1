@@ -17,6 +17,7 @@ from go2_pvcnn.assets.m1_dual_panda_o6 import (
     M1_BASE_ACTIVE_JOINT_NAMES,
     M1_DUAL_PANDA_O6_BASE_BODY_NAME,
     M1_DUAL_PANDA_O6_PLATFORM_JOINT_NAME,
+    O6_MIMIC_MAP,
     RIGHT_O6_ACTIVE_JOINT_NAMES,
     RIGHT_O6_FINGERTIP_BODY_NAMES,
     RIGHT_O6_PALM_BODY_NAME,
@@ -32,6 +33,7 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     SideArmState,
     SideHandState,
     build_actuation_matrix,
+    fold_o6_fingertip_jacobians,
     stack_stationary_wheel_jacobians,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
@@ -89,6 +91,24 @@ class M1DualPandaO6SnapshotAdapter:
         self.right_arm_ids = tuple(name_to_id[name] for name in RIGHT_PANDA_ACTIVE_JOINT_NAMES)
         self.left_hand_ids = tuple(name_to_id[name] for name in LEFT_O6_ACTIVE_JOINT_NAMES)
         self.right_hand_ids = tuple(name_to_id[name] for name in RIGHT_O6_ACTIVE_JOINT_NAMES)
+        self.left_hand_generalized_ids = tuple(index + 6 for index in self.left_hand_ids)
+        self.right_hand_generalized_ids = tuple(index + 6 for index in self.right_hand_ids)
+        self.left_mimic_specs = tuple(
+            (
+                name_to_id[f"left_{mimic_name}"] + 6,
+                LEFT_O6_ACTIVE_JOINT_NAMES.index(f"left_{master_name}"),
+                multiplier,
+            )
+            for mimic_name, (master_name, multiplier, _offset) in O6_MIMIC_MAP.items()
+        )
+        self.right_mimic_specs = tuple(
+            (
+                name_to_id[f"right_{mimic_name}"] + 6,
+                RIGHT_O6_ACTIVE_JOINT_NAMES.index(f"right_{master_name}"),
+                multiplier,
+            )
+            for mimic_name, (master_name, multiplier, _offset) in O6_MIMIC_MAP.items()
+        )
 
         body_names = tuple(self.robot.body_names)
         self.base_body_id = _exact_body_id(body_names, M1_DUAL_PANDA_O6_BASE_BODY_NAME)
@@ -249,6 +269,8 @@ class M1DualPandaO6SnapshotAdapter:
         fingertip_ids: tuple[int, ...],
         sensor_ids: tuple[int, ...],
         sensor_name: str,
+        active_generalized_ids: tuple[int, ...],
+        mimic_specs: tuple[tuple[int, int, float], ...],
     ) -> SideHandState:
         data = self.robot.data
         env = self.env_index
@@ -266,11 +288,35 @@ class M1DualPandaO6SnapshotAdapter:
                 ]
             ),
         )
+        all_jacobians = self.robot.root_physx_view.get_jacobians()
+        body_count = len(self.robot.body_names)
+        fingertip_spatial_jacobians = torch.stack(
+            tuple(
+                spatial_jacobian_in_base(
+                    base_quaternion,
+                    _cpu64(
+                        all_jacobians[
+                            env,
+                            physx_jacobian_body_row(
+                                body_id, body_count, all_jacobians.shape[1]
+                            ),
+                        ]
+                    ),
+                )
+                for body_id in fingertip_ids
+            )
+        )
+        fingertip_jacobian = fold_o6_fingertip_jacobians(
+            fingertip_spatial_jacobians,
+            active_generalized_ids,
+            mimic_specs,
+        )
         return SideHandState(
             q=_cpu64(data.joint_pos[env, list(joint_ids)]),
             qd=_cpu64(data.joint_vel[env, list(joint_ids)]),
             fingertip_forces_b=forces,
             fingertip_positions_b=positions,
+            fingertip_jacobian_b=fingertip_jacobian,
             contact_mask=torch.linalg.vector_norm(forces, dim=1) > 0.2,
         )
 
@@ -312,8 +358,22 @@ class M1DualPandaO6SnapshotAdapter:
             platform_q_qd=_cpu64(torch.stack((joint_pos[self.platform_id], joint_vel[self.platform_id]))),
             left_arm=self._arm_state("left", self.left_arm_ids, self.left_palm_id),
             right_arm=self._arm_state("right", self.right_arm_ids, self.right_palm_id),
-            left_hand=self._hand_state(self.left_hand_ids, self.left_tip_ids, self.left_tip_sensor_ids, "o6_contacts"),
-            right_hand=self._hand_state(self.right_hand_ids, self.right_tip_ids, self.right_tip_sensor_ids, "right_o6_contacts"),
+            left_hand=self._hand_state(
+                self.left_hand_ids,
+                self.left_tip_ids,
+                self.left_tip_sensor_ids,
+                "o6_contacts",
+                self.left_hand_generalized_ids,
+                self.left_mimic_specs,
+            ),
+            right_hand=self._hand_state(
+                self.right_hand_ids,
+                self.right_tip_ids,
+                self.right_tip_sensor_ids,
+                "right_o6_contacts",
+                self.right_hand_generalized_ids,
+                self.right_mimic_specs,
+            ),
             box=BoxState(
                 pose_b=box_pose,
                 twist_b=box_twist,

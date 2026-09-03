@@ -69,6 +69,7 @@ class SideHandState:
     qd: torch.Tensor
     fingertip_forces_b: torch.Tensor
     fingertip_positions_b: torch.Tensor
+    fingertip_jacobian_b: torch.Tensor
     contact_mask: torch.Tensor
 
     def __post_init__(self) -> None:
@@ -77,6 +78,7 @@ class SideHandState:
             ("qd", (6,)),
             ("fingertip_forces_b", (5, 3)),
             ("fingertip_positions_b", (5, 3)),
+            ("fingertip_jacobian_b", (15, 6)),
         ):
             object.__setattr__(self, name, _float64(name, getattr(self, name), shape))
         object.__setattr__(

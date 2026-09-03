@@ -17,6 +17,10 @@ from .reduced_dynamics import (
     condense_constrained_dynamics,
     stack_stationary_wheel_jacobians,
 )
+from .o6_contact_kinematics import (
+    PrecontactHandController,
+    fold_o6_fingertip_jacobians,
+)
 from .object_mpc import (
     BimanualObjectMpc,
     ObjectMpcCfg,
@@ -69,6 +73,8 @@ __all__ = [
     "build_actuation_matrix",
     "condense_constrained_dynamics",
     "stack_stationary_wheel_jacobians",
+    "PrecontactHandController",
+    "fold_o6_fingertip_jacobians",
     "BimanualObjectMpc",
     "ObjectMpcCfg",
     "ObjectMpcDiagnostics",

@@ -136,7 +136,13 @@ class BimanualMission:
     def _critical_reason(
         self, diagnostics: BimanualMissionDiagnostics
     ) -> str | None:
-        if diagnostics.relative_palm_slip_m > self.cfg.max_relative_palm_slip_m:
+        if (
+            diagnostics.relative_palm_slip_m > self.cfg.max_relative_palm_slip_m
+            and not (
+                self.phase in {BimanualPhase.APPROACH, BimanualPhase.PRELOAD}
+                and diagnostics.box_supported
+            )
+        ):
             return "palm_slip"
         if diagnostics.collision_margin_m < 0.0:
             return "collision_margin"
@@ -189,7 +195,13 @@ class BimanualMission:
                 if self._dwell_steps >= self.cfg.approach_dwell_steps:
                     self._transition(BimanualPhase.PRELOAD)
             elif self.phase is BimanualPhase.PRELOAD:
-                self._dwell_steps = self._dwell_steps + 1 if diagnostics.bilateral_contact else 0
+                contact_ready = (
+                    diagnostics.bilateral_contact
+                    and diagnostics.force_closure_margin > 0.0
+                    and diagnostics.relative_palm_slip_m
+                    <= self.cfg.max_relative_palm_slip_m
+                )
+                self._dwell_steps = self._dwell_steps + 1 if contact_ready else 0
                 if self._dwell_steps >= self.cfg.preload_dwell_steps:
                     self._transition(BimanualPhase.GRASP)
             elif self.phase is BimanualPhase.GRASP:

@@ -12,6 +12,8 @@ from go2_pvcnn.control.m1_panda_coordination.qp_backend import (
     DenseQpResult,
     solve_reference_qp,
 )
+from .contracts import BimanualPhase
+from .o6_contact_kinematics import PrecontactHandController
 
 
 HAND_ACTIVE_DOF = 6
@@ -130,6 +132,7 @@ class HandMpcInput:
     q_min: torch.Tensor
     q_max: torch.Tensor
     qd_max: torch.Tensor
+    phase: BimanualPhase = BimanualPhase.GRASP
 
     def __post_init__(self) -> None:
         for name, shape in (
@@ -145,6 +148,8 @@ class HandMpcInput:
         ):
             object.__setattr__(self, name, _float64(name, getattr(self, name), shape))
         object.__setattr__(self, "contact_mask", _mask(self.contact_mask))
+        if not isinstance(self.phase, BimanualPhase):
+            raise TypeError("phase must be BimanualPhase")
         if not torch.all(self.q_min < self.q_max).item():
             raise ValueError("q_min must be strictly below q_max")
         if not torch.all(self.qd_max > 0.0).item():
@@ -276,6 +281,7 @@ class O6HandMpc:
         if not isinstance(self.cfg, HandMpcCfg):
             raise TypeError("cfg must be HandMpcCfg")
         self._last_safe: HandMpcSolution | None = None
+        self.precontact = PrecontactHandController()
 
     @staticmethod
     def _clone(
@@ -356,6 +362,37 @@ class O6HandMpc:
     def plan(self, sample: HandMpcInput) -> HandMpcSolution:
         if not isinstance(sample, HandMpcInput):
             raise TypeError("sample must be HandMpcInput")
+        if sample.phase in {BimanualPhase.APPROACH, BimanualPhase.PRELOAD}:
+            q_ref, qd_ref = self.precontact.reference(
+                sample.q, sample.contact_mask, sample.phase
+            )
+            forces = sample.fingertip_forces_b.clone()
+            forces[~sample.contact_mask] = 0.0
+            wrench = sample.wrench_map @ forces.reshape(-1)
+            solution = HandMpcSolution(
+                q_ref=q_ref,
+                qd_ref=qd_ref,
+                predicted_forces_b=forces,
+                predicted_wrench_b=wrench,
+                diagnostics=HandMpcDiagnostics(
+                    feasible=True,
+                    fallback_used=False,
+                    fallback_reason=None,
+                    wrench_error_norm=float(
+                        torch.linalg.vector_norm(
+                            wrench - sample.target_wrench_b
+                        ).item()
+                    ),
+                    slip_margin=_slip_margin(
+                        forces,
+                        sample.contact_mask,
+                        self.cfg.friction_coefficient,
+                    ),
+                    iterations=0,
+                ),
+            )
+            self._last_safe = self._clone(solution)
+            return solution
         result = solve_reference_qp(
             build_hand_contact_qp(sample, self.cfg),
             tolerance=self.cfg.qp_tolerance,

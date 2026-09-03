@@ -42,6 +42,7 @@ def _hand() -> SideHandState:
         qd=torch.zeros(6, dtype=DTYPE),
         fingertip_forces_b=torch.zeros(5, 3, dtype=DTYPE),
         fingertip_positions_b=torch.zeros(5, 3, dtype=DTYPE),
+        fingertip_jacobian_b=torch.zeros(15, 6, dtype=DTYPE),
         contact_mask=torch.ones(5, dtype=torch.bool),
     )
 
