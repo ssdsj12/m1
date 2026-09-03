@@ -28,6 +28,7 @@ nohup.out
 # Model checkpoints and training outputs
 runs/
 checkpoints/
+outputs/
 *.pth
 *.ckpt
 

@@ -50,6 +50,7 @@ def test_latent_model_shapes_and_group_contract() -> None:
 
     assert z.shape == (2, 16)
     assert model.decode_trajectory(state, z).shape == (2, 25, 43)
+    assert model.decode_task_trajectory(state, z).shape == (2, 25, 50)
     assert model.body_action(
         state,
         z,
@@ -118,4 +119,3 @@ def test_fixed_seed_reproduces_model_initialization() -> None:
         torch.equal(left, right)
         for left, right in zip(first.state_dict().values(), second.state_dict().values())
     )
-

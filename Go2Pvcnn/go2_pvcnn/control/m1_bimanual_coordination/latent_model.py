@@ -35,6 +35,13 @@ class LatentActionModel(nn.Module):
             nn.SiLU(),
             nn.Linear(512, HORIZON * ACTION_DIM),
         )
+        self.task_decoder = nn.Sequential(
+            nn.Linear(STATE_DIM + LATENT_DIM, 256),
+            nn.SiLU(),
+            nn.Linear(256, 512),
+            nn.SiLU(),
+            nn.Linear(512, HORIZON * TASK_FEATURE_DIM),
+        )
         self.body = nn.Sequential(
             nn.Linear(STATE_DIM + LATENT_DIM + 1 + ACTION_DIM, 256),
             nn.SiLU(),
@@ -69,6 +76,12 @@ class LatentActionModel(nn.Module):
         last_effort: torch.Tensor,
     ) -> torch.Tensor:
         return self.body(torch.cat((state, latent, phase, last_effort), dim=1))
+
+    def decode_task_trajectory(
+        self, state: torch.Tensor, latent: torch.Tensor
+    ) -> torch.Tensor:
+        decoded = self.task_decoder(torch.cat((state, latent), dim=1))
+        return decoded.reshape(-1, HORIZON, TASK_FEATURE_DIM)
 
 
 __all__ = ["LatentActionModel"]

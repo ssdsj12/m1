@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "scripts/m1_dual_panda_o6_bimanual_probe.py"
 PLAY = ROOT / "scripts/m1_dual_panda_o6_bimanual_play.py"
 WRAPPER = ROOT / "go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_wrapper.py"
+COLLECT = ROOT / "scripts/m1_dual_panda_o6_collect_teacher.py"
+TRAIN_LATENT = ROOT / "scripts/m1_dual_panda_o6_train_latent.py"
 
 
 def _load_acceptance_functions():
@@ -111,3 +113,17 @@ def test_probe_and_play_delegate_physical_reset_to_common_wrapper():
     assert "def reset(self, *, seed: int) -> BimanualSnapshot:" in wrapper
     assert "self.startup_complete = True" in wrapper
     assert "raw.sim.step(render=False)" in wrapper
+
+
+def test_latent_data_entrypoints_separate_failures_and_freeze_training_split():
+    collector = COLLECT.read_text(encoding="utf-8")
+    trainer = TRAIN_LATENT.read_text(encoding="utf-8")
+
+    assert "teacher_success.npz" in collector
+    assert "teacher_failures.npz" in collector
+    assert "wrapper.reset(seed=" in collector
+    assert "last_teacher_solution" in collector
+    assert "deterministic_split" in trainer
+    assert "normalization.pt" in trainer
+    assert "latent_action_model.pt" in trainer
+    assert "metadata.json" in trainer
