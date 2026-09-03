@@ -21,6 +21,12 @@ from .o6_contact_kinematics import (
     PrecontactHandController,
     fold_o6_fingertip_jacobians,
 )
+from .full_action_teacher import (
+    FullActionTeacher,
+    TeacherDiagnostics,
+    TeacherInput,
+    TeacherSolution,
+)
 from .object_mpc import (
     BimanualObjectMpc,
     ObjectMpcCfg,
@@ -75,6 +81,10 @@ __all__ = [
     "stack_stationary_wheel_jacobians",
     "PrecontactHandController",
     "fold_o6_fingertip_jacobians",
+    "FullActionTeacher",
+    "TeacherDiagnostics",
+    "TeacherInput",
+    "TeacherSolution",
     "BimanualObjectMpc",
     "ObjectMpcCfg",
     "ObjectMpcDiagnostics",
