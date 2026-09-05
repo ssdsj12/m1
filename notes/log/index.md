@@ -6,6 +6,7 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 | Time | Topic | Stage | Result | Key Metrics | Todo | File |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-05 | M1 + right Panda + right O6 asset foundation | T600.1 implementation planning | five-task TDD plan written and self-reviewed; no runtime, asset, or training change | source closure; single articulation; 29 active/expected 34 physical; 2000-step GPU0 gate | [T600](../todo/T600-m1-single-panda-o6-multimodal-mpc-residual.md) | [2026-09-05-m1-single-panda-o6-asset-plan.md](2026-09-05-m1-single-panda-o6-asset-plan.md) |
 | 2026-09-05 | M1 + right Panda + right O6 multimodal MPC + Residual | T600 engineering roadmap design | approved interactive design written; no runtime, asset, or training change | 29 active channels; expected 34 physical DOF; truth baseline -> multimodal -> bounded 9D residual; fixed 30/30 gate | [T600](../todo/T600-m1-single-panda-o6-multimodal-mpc-residual.md) | [2026-09-05-m1-single-panda-o6-roadmap-design.md](2026-09-05-m1-single-panda-o6-roadmap-design.md) |
 | 2026-09-02 | M1 + dual Panda + dual O6 bimanual MPC plan | T500 implementation planning | 13-task TDD plan written and self-reviewed; execution choice pending; no runtime change | source closure → single articulation → physics → contracts → object/arm/hand MPC → WBC/runtime/env → 30-trial acceptance | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md) |
 | 2026-09-02 | M1 + dual Panda + dual O6 bimanual MPC design | T500 design | interactive and written design approved; no runtime change | 43 active channels; expected 53 runtime DOF; 25/50/100/200 Hz hierarchy; fixed 0.5 kg box; 30/30 acceptance | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md) |
@@ -427,6 +428,7 @@ This page indexes verification evidence. Keep it short enough to scan.
 ## Topic Log Index
 
 - T600 M1 + right Panda + right O6 multimodal MPC + Residual:
+  - [2026-09-05-m1-single-panda-o6-asset-plan.md](2026-09-05-m1-single-panda-o6-asset-plan.md)
   - [2026-09-05-m1-single-panda-o6-roadmap-design.md](2026-09-05-m1-single-panda-o6-roadmap-design.md)
 - T500 M1 + dual Panda + dual O6 bimanual MPC:
   - [2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md)
