@@ -44,7 +44,11 @@ PLATFORM_JOINT_PATH = f"{ROOT_PRIM}/joints/{PLATFORM_JOINT_NAME}"
 PLATFORM_YAW_LIMIT_RAD = (-1.5707963267948966, 1.5707963267948966)
 LEFT_ARM_MOUNT_XYZ = (0.0, 0.2, 0.0)
 RIGHT_ARM_MOUNT_XYZ = (0.0, -0.2, 0.0)
-MOUNT_QUATERNION_WXYZ = (1.0, 0.0, 0.0, 0.0)
+IDENTITY_QUATERNION_WXYZ = (1.0, 0.0, 0.0, 0.0)
+HAND_MOUNT_QUATERNION_WXYZ = {
+    "left": (1.0, 0.0, 0.0, 0.0),
+    "right": (0.0, 1.0, 0.0, 0.0),
+}
 PLATFORM_HALF_EXTENTS_M = (0.31, 0.29, 0.03)
 PANDA_ARM_URDF = "panda_arm.urdf"
 
@@ -296,13 +300,15 @@ def _set_joint_frames(
     body0: str,
     body1: str,
     local_pos0: tuple[float, float, float],
+    local_rot0: tuple[float, float, float, float] = IDENTITY_QUATERNION_WXYZ,
+    local_rot1: tuple[float, float, float, float] = IDENTITY_QUATERNION_WXYZ,
 ) -> None:
     joint.CreateBody0Rel().SetTargets([Sdf.Path(body0)])
     joint.CreateBody1Rel().SetTargets([Sdf.Path(body1)])
     joint.CreateLocalPos0Attr().Set(Gf.Vec3f(*local_pos0))
-    joint.CreateLocalRot0Attr().Set(Gf.Quatf(*MOUNT_QUATERNION_WXYZ))
+    joint.CreateLocalRot0Attr().Set(Gf.Quatf(*local_rot0))
     joint.CreateLocalPos1Attr().Set(Gf.Vec3f(0.0, 0.0, 0.0))
-    joint.CreateLocalRot1Attr().Set(Gf.Quatf(*MOUNT_QUATERNION_WXYZ))
+    joint.CreateLocalRot1Attr().Set(Gf.Quatf(*local_rot1))
     joint.CreateJointEnabledAttr().Set(True)
     joint.GetPrim().CreateAttribute(
         "physics:excludeFromArticulation", Sdf.ValueTypeNames.Bool
@@ -365,10 +371,19 @@ def assemble_o6(
     wrist = stage.GetPrimAtPath(wrist_body)
     _require(arm.IsValid() and wrist.IsValid(), f"missing {side} Panda wrist")
     relative, _ = UsdGeom.XformCache().ComputeRelativeTransform(wrist, arm)
-    _set_matrix(hand, relative)
+    mount_quaternion = HAND_MOUNT_QUATERNION_WXYZ[side]
+    mount_matrix = Gf.Matrix4d(1.0)
+    mount_matrix.SetRotate(
+        Gf.Quatd(mount_quaternion[0], Gf.Vec3d(*mount_quaternion[1:]))
+    )
+    _set_matrix(hand, mount_matrix * relative)
     joint = UsdPhysics.FixedJoint.Define(stage, f"{ROOT_PRIM}/joints/{side}_hand_mount_joint")
     _set_joint_frames(
-        joint, wrist_body, f"{hand_path}/{side}_hand_base_link", (0.0, 0.0, 0.0)
+        joint,
+        wrist_body,
+        f"{hand_path}/{side}_hand_base_link",
+        (0.0, 0.0, 0.0),
+        local_rot0=mount_quaternion,
     )
     return joint
 
@@ -449,6 +464,69 @@ def _active_dof_paths(stage: Usd.Stage) -> list[str]:
     return result
 
 
+def _quaternion_wxyz(quaternion: Any) -> tuple[float, float, float, float]:
+    imaginary = quaternion.GetImaginary()
+    values = (
+        float(quaternion.GetReal()),
+        float(imaginary[0]),
+        float(imaginary[1]),
+        float(imaginary[2]),
+    )
+    norm = math.sqrt(sum(value * value for value in values))
+    _require(math.isfinite(norm) and norm > 0.0, "invalid zero or non-finite quaternion")
+    return tuple(value / norm for value in values)
+
+
+def _quaternion_matches(
+    measured: tuple[float, float, float, float],
+    expected: tuple[float, float, float, float],
+    tolerance: float = 1.0e-7,
+) -> bool:
+    direct = max(abs(lhs - rhs) for lhs, rhs in zip(measured, expected, strict=True))
+    negated = max(abs(lhs + rhs) for lhs, rhs in zip(measured, expected, strict=True))
+    return min(direct, negated) <= tolerance
+
+
+def _hand_mount_contract(stage: Usd.Stage) -> dict[str, dict[str, Any]]:
+    cache = UsdGeom.XformCache()
+    report: dict[str, dict[str, Any]] = {}
+    for side in ("left", "right"):
+        arm = stage.GetPrimAtPath(_ARM_PRIMS[side])
+        wrist = stage.GetPrimAtPath(f"{_ARM_PRIMS[side]}/{side}_panda_link8")
+        hand = stage.GetPrimAtPath(_HAND_PRIMS[side])
+        joint_prim = stage.GetPrimAtPath(f"{ROOT_PRIM}/joints/{side}_hand_mount_joint")
+        _require(
+            arm.IsValid() and wrist.IsValid() and hand.IsValid() and joint_prim.IsValid(),
+            f"missing {side} hand mount prim",
+        )
+        wrist_matrix, _ = cache.ComputeRelativeTransform(wrist, arm)
+        hand_matrix, _ = cache.ComputeRelativeTransform(hand, arm)
+        measured_mount = hand_matrix * wrist_matrix.GetInverse()
+        translation = tuple(float(value) for value in measured_mount.ExtractTranslation())
+        measured = _quaternion_wxyz(measured_mount.ExtractRotationQuat())
+        joint = UsdPhysics.Joint(joint_prim)
+        joint_rot0 = _quaternion_wxyz(joint.GetLocalRot0Attr().Get())
+        joint_rot1 = _quaternion_wxyz(joint.GetLocalRot1Attr().Get())
+        expected = HAND_MOUNT_QUATERNION_WXYZ[side]
+        valid = (
+            max(abs(value) for value in translation) <= 1.0e-7
+            and _quaternion_matches(measured, expected)
+            and _quaternion_matches(joint_rot0, expected)
+            and _quaternion_matches(joint_rot1, IDENTITY_QUATERNION_WXYZ)
+            and _quaternion_matches(measured, joint_rot0)
+        )
+        report[side] = {
+            "expected_quaternion_wxyz": list(expected),
+            "measured_quaternion_wxyz": list(measured),
+            "joint_local_rot0_wxyz": list(joint_rot0),
+            "joint_local_rot1_wxyz": list(joint_rot1),
+            "measured_translation_m": list(translation),
+            "valid": valid,
+        }
+        _require(valid, f"serialized {side} hand mount calibration mismatch: {report[side]}")
+    return report
+
+
 def validate_stage_contract(stage: Usd.Stage, context: str = "stage") -> dict[str, Any]:
     articulation_roots = sorted(
         str(prim.GetPath())
@@ -485,11 +563,13 @@ def validate_stage_contract(stage: Usd.Stage, context: str = "stage") -> dict[st
         len(active) == EXPECTED_ACTIVE_DOF_COUNT,
         f"{context}: expected {EXPECTED_ACTIVE_DOF_COUNT} active DOF, found {len(active)}",
     )
+    hand_mounts = _hand_mount_contract(stage)
     return {
         "articulation_roots": articulation_roots,
         "assembly_joints": assembly_paths,
         "physical_dof_paths": physical,
         "active_dof_paths": active,
+        "hand_mounts": hand_mounts,
     }
 
 
@@ -521,10 +601,11 @@ def export_reopen_validate_and_manifest(
         "arm_mounts": {
             side: {
                 "translation": list(_ARM_MOUNTS[side]),
-                "quaternion_wxyz": list(MOUNT_QUATERNION_WXYZ),
+                "quaternion_wxyz": list(IDENTITY_QUATERNION_WXYZ),
             }
             for side in ("left", "right")
         },
+        "hand_mounts": contract["hand_mounts"],
         "o6_active_joint_order": list(_O6_ACTIVE_JOINTS),
         "o6_mimic_joints": list(_O6_MIMIC_JOINTS),
         "o6_collision_approximation": "convexHull",

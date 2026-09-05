@@ -51,6 +51,26 @@ def test_builder_freezes_symmetric_mount_transforms_and_platform_limit():
     assert assignments["RIGHT_ARM_MOUNT_XYZ"] == (0.0, -0.2, 0.0)
 
 
+def test_builder_freezes_chiral_o6_mount_calibration_and_serializes_measurement():
+    source = _source()
+    tree = ast.parse(source)
+    assignments = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "HAND_MOUNT_QUATERNION_WXYZ"
+    }
+    assert assignments["HAND_MOUNT_QUATERNION_WXYZ"] == {
+        "left": (1.0, 0.0, 0.0, 0.0),
+        "right": (0.0, 1.0, 0.0, 0.0),
+    }
+    assert "mount_matrix * relative" in source
+    assert "local_rot0=mount_quaternion" in source
+    assert '"hand_mounts"' in source
+
+
 def test_builder_never_writes_external_o6_sources():
     tree = ast.parse(_source())
     write_calls = {
