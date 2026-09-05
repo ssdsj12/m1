@@ -1,0 +1,138 @@
+{
+  "active_dof_count": 29,
+  "active_dof_paths": [
+    "/M1SinglePandaO6/Panda/joints/panda_joint1",
+    "/M1SinglePandaO6/Panda/joints/panda_joint2",
+    "/M1SinglePandaO6/Panda/joints/panda_joint3",
+    "/M1SinglePandaO6/Panda/joints/panda_joint4",
+    "/M1SinglePandaO6/Panda/joints/panda_joint5",
+    "/M1SinglePandaO6/Panda/joints/panda_joint6",
+    "/M1SinglePandaO6/Panda/joints/panda_joint7",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_index_mcp_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_middle_mcp_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_pinky_mcp_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_ring_mcp_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_thumb_cmc_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_thumb_cmc_yaw",
+    "/M1SinglePandaO6/joints/FAR_ABAD_JOINT",
+    "/M1SinglePandaO6/joints/FAR_FOOT_JOINT",
+    "/M1SinglePandaO6/joints/FAR_HIP_JOINT",
+    "/M1SinglePandaO6/joints/FAR_KNEE_JOINT",
+    "/M1SinglePandaO6/joints/FBL_ABAD_JOINT",
+    "/M1SinglePandaO6/joints/FBL_FOOT_JOINT",
+    "/M1SinglePandaO6/joints/FBL_HIP_JOINT",
+    "/M1SinglePandaO6/joints/FBL_KNEE_JOINT",
+    "/M1SinglePandaO6/joints/RAR_ABAD_JOINT",
+    "/M1SinglePandaO6/joints/RAR_FOOT_JOINT",
+    "/M1SinglePandaO6/joints/RAR_HIP_JOINT",
+    "/M1SinglePandaO6/joints/RAR_KNEE_JOINT",
+    "/M1SinglePandaO6/joints/RBL_ABAD_JOINT",
+    "/M1SinglePandaO6/joints/RBL_FOOT_JOINT",
+    "/M1SinglePandaO6/joints/RBL_HIP_JOINT",
+    "/M1SinglePandaO6/joints/RBL_KNEE_JOINT"
+  ],
+  "articulation_root": "/M1SinglePandaO6/BASE_LINK",
+  "assembly_joints": [
+    "/M1SinglePandaO6/joints/panda_mount_joint",
+    "/M1SinglePandaO6/joints/right_hand_mount_joint"
+  ],
+  "asset": "m1_single_panda_o6.usd",
+  "asset_sha256": "4c149d771ddf4caede277d94ae7a3349c43967c09ad7e813322fed8d37566705",
+  "mounts": {
+    "panda": {
+      "joint": "/M1SinglePandaO6/joints/panda_mount_joint",
+      "quaternion_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "right_o6": {
+      "joint": "/M1SinglePandaO6/joints/right_hand_mount_joint",
+      "quaternion_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "o6_collision_approximation": "convexHull",
+  "o6_convex_mesh_count": 12,
+  "physical_dof_count": 34,
+  "physical_dof_paths": [
+    "/M1SinglePandaO6/Panda/joints/panda_joint1",
+    "/M1SinglePandaO6/Panda/joints/panda_joint2",
+    "/M1SinglePandaO6/Panda/joints/panda_joint3",
+    "/M1SinglePandaO6/Panda/joints/panda_joint4",
+    "/M1SinglePandaO6/Panda/joints/panda_joint5",
+    "/M1SinglePandaO6/Panda/joints/panda_joint6",
+    "/M1SinglePandaO6/Panda/joints/panda_joint7",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_index_dip",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_index_mcp_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_middle_dip",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_middle_mcp_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_pinky_dip",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_pinky_mcp_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_ring_dip",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_ring_mcp_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_thumb_cmc_pitch",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_thumb_cmc_yaw",
+    "/M1SinglePandaO6/Panda/right_o6/joints/right_thumb_ip",
+    "/M1SinglePandaO6/joints/FAR_ABAD_JOINT",
+    "/M1SinglePandaO6/joints/FAR_FOOT_JOINT",
+    "/M1SinglePandaO6/joints/FAR_HIP_JOINT",
+    "/M1SinglePandaO6/joints/FAR_KNEE_JOINT",
+    "/M1SinglePandaO6/joints/FBL_ABAD_JOINT",
+    "/M1SinglePandaO6/joints/FBL_FOOT_JOINT",
+    "/M1SinglePandaO6/joints/FBL_HIP_JOINT",
+    "/M1SinglePandaO6/joints/FBL_KNEE_JOINT",
+    "/M1SinglePandaO6/joints/RAR_ABAD_JOINT",
+    "/M1SinglePandaO6/joints/RAR_FOOT_JOINT",
+    "/M1SinglePandaO6/joints/RAR_HIP_JOINT",
+    "/M1SinglePandaO6/joints/RAR_KNEE_JOINT",
+    "/M1SinglePandaO6/joints/RBL_ABAD_JOINT",
+    "/M1SinglePandaO6/joints/RBL_FOOT_JOINT",
+    "/M1SinglePandaO6/joints/RBL_HIP_JOINT",
+    "/M1SinglePandaO6/joints/RBL_KNEE_JOINT"
+  ],
+  "right_o6_active_joint_order": [
+    "right_thumb_cmc_pitch",
+    "right_thumb_cmc_yaw",
+    "right_index_mcp_pitch",
+    "right_middle_mcp_pitch",
+    "right_ring_mcp_pitch",
+    "right_pinky_mcp_pitch"
+  ],
+  "right_o6_mimic_map": {
+    "right_index_dip": [
+      "right_index_mcp_pitch",
+      0.89,
+      0.0
+    ],
+    "right_middle_dip": [
+      "right_middle_mcp_pitch",
+      0.89,
+      0.0
+    ],
+    "right_pinky_dip": [
+      "right_pinky_mcp_pitch",
+      0.89,
+      0.0
+    ],
+    "right_ring_dip": [
+      "right_ring_mcp_pitch",
+      0.89,
+      0.0
+    ],
+    "right_thumb_ip": [
+      "right_thumb_cmc_pitch",
+      1.86,
+      0.0
+    ]
+  },
+  "schema": 1,
+  "source_file_count": 35,
+  "source_manifest_sha256": "3ec630086d886739a2871ad6bad98dd009c9c31e8f27371682da741aa13c9227"
+}
