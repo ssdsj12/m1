@@ -24,6 +24,10 @@ from isaaclab.app import AppLauncher
 EXPECTED_ACTIVE_DOF_COUNT = 43
 EXPECTED_PHYSICS_STEPS = 2000
 EXPECTED_ARTICULATION_ROOT = "/M1DualPandaO6/BASE_LINK"
+EXPECTED_HAND_MOUNT_QUATERNION_WXYZ = {
+    "left": (1.0, 0.0, 0.0, 0.0),
+    "right": (0.0, 1.0, 0.0, 0.0),
+}
 MAX_MOUNT_POSITION_DRIFT_M = 1.0e-3
 MAX_MOUNT_ORIENTATION_DRIFT_RAD = 1.0e-3
 CONTACT_FORCE_THRESHOLD_N = 5.0
@@ -89,6 +93,76 @@ def _dependency_report(asset: Path, project_assets_root: Path, UsdUtils: Any) ->
     }
 
 
+def _quaternion_wxyz(quaternion: Any) -> tuple[float, float, float, float]:
+    imaginary = quaternion.GetImaginary()
+    values = (
+        float(quaternion.GetReal()),
+        float(imaginary[0]),
+        float(imaginary[1]),
+        float(imaginary[2]),
+    )
+    norm = math.sqrt(sum(value * value for value in values))
+    _require(math.isfinite(norm) and norm > 0.0, "invalid zero or non-finite quaternion")
+    return tuple(value / norm for value in values)
+
+
+def _quaternion_matches(
+    measured: tuple[float, float, float, float],
+    expected: tuple[float, float, float, float],
+    tolerance: float = 1.0e-7,
+) -> bool:
+    direct = max(abs(lhs - rhs) for lhs, rhs in zip(measured, expected, strict=True))
+    negated = max(abs(lhs + rhs) for lhs, rhs in zip(measured, expected, strict=True))
+    return min(direct, negated) <= tolerance
+
+
+def _hand_mount_report(stage: Any) -> dict[str, Any]:
+    from pxr import UsdGeom, UsdPhysics
+
+    cache = UsdGeom.XformCache()
+    measured_mounts: dict[str, list[float]] = {}
+    measured_joints: dict[str, list[float]] = {}
+    measured_translations: dict[str, list[float]] = {}
+    valid = True
+    for side in ("left", "right"):
+        arm_path = f"/M1DualPandaO6/{side}_arm"
+        arm = stage.GetPrimAtPath(arm_path)
+        wrist = stage.GetPrimAtPath(f"{arm_path}/{side}_panda_link8")
+        hand = stage.GetPrimAtPath(f"{arm_path}/{side}_o6")
+        joint_prim = stage.GetPrimAtPath(
+            f"/M1DualPandaO6/joints/{side}_hand_mount_joint"
+        )
+        if not all(prim.IsValid() for prim in (arm, wrist, hand, joint_prim)):
+            valid = False
+            continue
+        wrist_matrix, _ = cache.ComputeRelativeTransform(wrist, arm)
+        hand_matrix, _ = cache.ComputeRelativeTransform(hand, arm)
+        measured_matrix = hand_matrix * wrist_matrix.GetInverse()
+        mount_quaternion = _quaternion_wxyz(measured_matrix.ExtractRotationQuat())
+        joint = UsdPhysics.Joint(joint_prim)
+        joint_quaternion = _quaternion_wxyz(joint.GetLocalRot0Attr().Get())
+        joint_child_quaternion = _quaternion_wxyz(joint.GetLocalRot1Attr().Get())
+        translation = tuple(float(value) for value in measured_matrix.ExtractTranslation())
+        expected = EXPECTED_HAND_MOUNT_QUATERNION_WXYZ[side]
+        side_valid = (
+            max(abs(value) for value in translation) <= 1.0e-7
+            and _quaternion_matches(mount_quaternion, expected)
+            and _quaternion_matches(joint_quaternion, expected)
+            and _quaternion_matches(joint_child_quaternion, (1.0, 0.0, 0.0, 0.0))
+            and _quaternion_matches(mount_quaternion, joint_quaternion)
+        )
+        measured_mounts[side] = list(mount_quaternion)
+        measured_joints[side] = list(joint_quaternion)
+        measured_translations[side] = list(translation)
+        valid = valid and side_valid
+    return {
+        "hand_mount_quaternion_wxyz": measured_mounts,
+        "hand_mount_joint_quaternion_wxyz": measured_joints,
+        "hand_mount_translation_m": measured_translations,
+        "hand_mount_calibration_valid": valid,
+    }
+
+
 def _offline_report(asset: Path, asset_root: Path) -> dict[str, Any]:
     from pxr import Usd, UsdPhysics, UsdUtils
 
@@ -117,6 +191,7 @@ def _offline_report(asset: Path, asset_root: Path) -> dict[str, Any]:
     joint_counts = Counter(path.rsplit("/", 1)[-1] for path in joint_paths)
     duplicate_body_names = sorted(name for name, count in body_counts.items() if count > 1)
     duplicate_joint_names = sorted(name for name, count in joint_counts.items() if count > 1)
+    hand_mounts = _hand_mount_report(stage)
     errors = []
     if dependencies["unresolved_dependencies"]:
         errors.append(f"unresolved dependencies: {dependencies['unresolved_dependencies']}")
@@ -132,8 +207,11 @@ def _offline_report(asset: Path, asset_root: Path) -> dict[str, Any]:
         errors.append(f"duplicate body names: {duplicate_body_names}")
     if duplicate_joint_names:
         errors.append(f"duplicate joint names: {duplicate_joint_names}")
+    if not hand_mounts["hand_mount_calibration_valid"]:
+        errors.append("serialized hand mount calibration does not match the frozen contract")
     return {
         **dependencies,
+        **hand_mounts,
         "articulation_roots": articulation_roots,
         "physical_dof_paths": physical_dof_paths,
         "body_paths": body_paths,
@@ -428,6 +506,7 @@ def _verify(asset_root: Path, steps: int, device: str) -> dict[str, Any]:
     runtime = _runtime_report(asset, steps, device)
     hard_gates_passed = (
         not offline["offline_errors"]
+        and offline["hand_mount_calibration_valid"]
         and runtime["measured_physical_dof_count"] > 0
         and runtime["active_control_count"] == EXPECTED_ACTIVE_DOF_COUNT
         and runtime["physics_steps"] == EXPECTED_PHYSICS_STEPS

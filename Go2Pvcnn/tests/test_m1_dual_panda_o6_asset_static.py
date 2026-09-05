@@ -125,3 +125,11 @@ def test_verifier_reports_mount_drift_limits_contacts_and_resets():
         "unexpected_reset_count",
     ):
         assert f'"{field}"' in source
+
+
+def test_verifier_independently_gates_serialized_hand_mount_calibration():
+    source = VERIFIER.read_text(encoding="utf-8")
+    assert "EXPECTED_HAND_MOUNT_QUATERNION_WXYZ" in source
+    assert '"hand_mount_quaternion_wxyz"' in source
+    assert '"hand_mount_calibration_valid"' in source
+    assert 'offline["hand_mount_calibration_valid"]' in source
