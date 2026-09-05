@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 from pathlib import Path
 
 import pytest
 
-from scripts.normalize_o6_assets import normalize_o6_sources
+
+_NORMALIZER_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "normalize_o6_assets.py"
+)
+_NORMALIZER_SPEC = importlib.util.spec_from_file_location(
+    "m1_o6_normalizer", _NORMALIZER_PATH
+)
+assert _NORMALIZER_SPEC is not None and _NORMALIZER_SPEC.loader is not None
+_NORMALIZER_MODULE = importlib.util.module_from_spec(_NORMALIZER_SPEC)
+_NORMALIZER_SPEC.loader.exec_module(_NORMALIZER_MODULE)
+normalize_o6_sources = _NORMALIZER_MODULE.normalize_o6_sources
 
 
 _PACKAGE_NAMES = {
