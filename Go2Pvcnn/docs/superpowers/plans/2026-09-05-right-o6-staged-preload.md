@@ -331,3 +331,45 @@ Append a dated evidence section containing command exit codes, test counts, arti
 git add docs/superpowers/plans/2026-09-05-right-o6-staged-preload.md
 git commit -m "docs: record staged O6 verification"
 ```
+
+## 2026-09-05 execution evidence
+
+Task 1 and Task 2 completed RED-GREEN verification:
+
+- pre-change baseline: `tests/test_m1_bimanual_object_mpc.py` — 12 passed;
+- RED: 3 expected right-X staging failures, 11 passed;
+- GREEN: object MPC — 14 passed;
+- CPU verification layer — 75 passed;
+- pure QP verification layer — 44 passed.
+
+The 200-step GPU0 smoke completed with zero hard failures, resets, nonfinite
+values, limit violations, and startup terminal events. Object, both arm, both
+hand, and WBC feasibility rates were all `1.0`.
+
+The fixed-seed physical gate did not pass. Report:
+`tests/artifacts/m1_dual_panda_o6_right_staged_contact_diag_1600.json`.
+
+- source Git ref: `0b7ece8ca0f75fe66b282ff7b3afaa62a8062506`;
+- source SHA256: `0e5c195a035dd89789d47d3770b54a68cb71502a70d178e741c537b49129c3c7`;
+- asset SHA256: `69545272c2c1c6e8447d31eb2c81dea4970b16558165df9156f546928935f9c6`;
+- hard failures, resets, nonfinite values, limit violations, startup terminal
+  events, and collision-count contract events: all zero;
+- left selected contact: 36 steps, first 264, last 442;
+- right selected fingertip contact: 0 steps;
+- bilateral and maximum consecutive bilateral contact: 0 steps;
+- minimum right fingertip-to-box distance: `0.009544932842808523 m`;
+- first right raw O6-body contact: step 994, `right_hand_base_link`,
+  `4.847426891326904 N`;
+- maximum right raw O6-body contact: step 1536,
+  `right_hand_base_link`, `5.670395851135254 N`;
+- selected right fingertip forces at both events: all zero;
+- WBC feasibility: `0.9775`, with 36 `qp_infeasible` fallbacks;
+- teacher feasibility: `0.955`, with 72 `source_plan_infeasible` command
+  reasons;
+- object, both arm, and both hand MPC feasibility rates: all `1.0`.
+
+Compared with the simultaneous diagonal path, staging delayed the first right
+palm-base contact from step 670 to step 994 but did not change the contact link
+or close the remaining fingertip gap. Per Task 3 Step 3, formal 30-trial GPU0
+verification is not authorized. No further mount rotation, collision filtering,
+or trajectory-constant tuning is performed under this plan.
