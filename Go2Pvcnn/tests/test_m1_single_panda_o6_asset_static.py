@@ -61,3 +61,33 @@ def test_builder_has_explicit_reopen_and_manifest_phases():
         "build_asset",
     ):
         assert f"def {name}(" in source
+
+
+def test_verifier_freezes_runtime_gate_and_reports_required_metrics():
+    assert VERIFIER.is_file()
+    source = VERIFIER.read_text(encoding="utf-8")
+    for token in (
+        "EXPECTED_ACTIVE_DOF_COUNT = 29",
+        "EXPECTED_PHYSICS_STEPS = 2000",
+        'EXPECTED_ARTICULATION_ROOT = "/M1SinglePandaO6/BASE_LINK"',
+        '"measured_physical_dof_count"',
+        '"four_wheel_contact_ratio"',
+        '"max_mount_position_drift_m"',
+        '"max_mount_orientation_drift_rad"',
+        '"nonfinite_count"',
+        '"hard_joint_limit_count"',
+        '"unexpected_contact_count"',
+        '"unexpected_reset_count"',
+        '"base_instability_count"',
+        '"hard_gates_passed"',
+    ):
+        assert token in source
+
+
+def test_runtime_physical_count_is_compared_to_manifest_not_magic_34():
+    source = VERIFIER.read_text(encoding="utf-8")
+    assert (
+        'runtime["measured_physical_dof_count"] == manifest["physical_dof_count"]'
+        in source
+    )
+    assert 'runtime["measured_physical_dof_count"] == 34' not in source
