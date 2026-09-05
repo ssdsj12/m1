@@ -4,11 +4,10 @@
 
 工程路线图的交互设计和书面规格已由用户批准。首条纵向闭环固定为 M1 原地 + 右 Panda + 右 O6，在 Isaac Lab 中完成固定 `0.5 kg` 箱体的抓取、抬升、保持、下降和释放；先建立真值 nominal MPC 基线，再替换为 RGB-D + LiDAR 状态估计，最后训练受限 9D Residual。
 
-正式路线图见[设计文档](../../docs/superpowers/specs/2026-09-05-m1-single-panda-o6-multimodal-mpc-residual-roadmap-design.md)。T600.1 的五任务 TDD [实施计划](../../docs/superpowers/plans/2026-09-05-m1-single-panda-o6-asset-foundation.md)已完成并自检，尚未修改运行代码、资产或训练状态。
+正式路线图见[设计文档](../../docs/superpowers/specs/2026-09-05-m1-single-panda-o6-multimodal-mpc-residual-roadmap-design.md)。T600.1 已按五任务 TDD [实施计划](../../docs/superpowers/plans/2026-09-05-m1-single-panda-o6-asset-foundation.md)完成：项目自有单 articulation、34 物理 DOF、29 主动通道和 GPU0 2000 步物理硬门均已验收。当前进入 T600.2 真值自由空间控制的独立设计/计划周期。
 
 ## Open Children
 
-- T600.1：M1 + 右 Panda + 右 O6 单 articulation 和 29 通道接口基座；实施计划已就绪。
 - T600.2：Isaac 真值自由空间 Arm/O6 控制。
 - T600.3：真值 Contact-aware MPC 和固定任务 30/30 基线。
 - T600.4：仿真 RGB-D + LiDAR 融合及 ObjectState 替换。
@@ -17,19 +16,21 @@
 
 ## Closed Children Archive
 
+- T600.1：M1 + 右 Panda + 右 O6 单 articulation 和 29 通道接口基座已完成；运行时测得 34 物理 DOF，GPU0 2000 步硬门通过。
 - 首个本体、任务、仿真边界、推进方式、系统架构、阶段划分、验收门、9D Residual 和代码边界已完成交互确认。
 
 ## Related Logs
 
 - [2026-09-05 工程路线图设计](../log/2026-09-05-m1-single-panda-o6-roadmap-design.md)
 - [2026-09-05 T600.1 实施计划](../log/2026-09-05-m1-single-panda-o6-asset-plan.md)
+- [2026-09-05 T600.1 资产基座验收](../log/2026-09-05-m1-single-panda-o6-asset-foundation.md)
 
 ## Git Refs
 
-- Last Feature Commit: none
-- Last Verified Commit: design-only
-- Current Work Ref: `main`
-- Baseline Ref: `72dd8df`
+- Last Feature Commit: `b673ad96f8b535b4f1c69cfada663b027f0a36a1`
+- Last Verified Commit: `8215b1b376286823725145df9a280a15a6bd9308`
+- Current Work Ref: `o6_400`
+- Baseline Ref: `c8bb5e8`
 - Key Files:
   - [工程路线图设计](../../docs/superpowers/specs/2026-09-05-m1-single-panda-o6-multimodal-mpc-residual-roadmap-design.md)
   - [T500 双手路线](T500-m1-dual-panda-o6-bimanual-mpc.md)
@@ -37,7 +38,7 @@
 
 ## Next Step
 
-等待用户选择 Subagent-Driven 或 Inline Execution。执行时先为 `o6_400` 创建隔离 worktree，再从 Task 1 的 O6 source closure RED 和 `ac95a9b` 精确导入开始。
+为 T600.2 单独完成交互设计和逐文件 TDD 实施计划。下一阶段只建立 Isaac 真值自由空间 Arm/O6 控制，不提前实现接触 MPC、多模态感知或 Residual 训练。
 
 ## Node Details
 
