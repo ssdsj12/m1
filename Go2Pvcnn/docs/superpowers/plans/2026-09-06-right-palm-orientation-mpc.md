@@ -338,6 +338,7 @@ H = 2.0 * (
 g = (
     -2.0 * cfg.tracking_weight * target_angle * torch.ones(horizon, dtype=DTYPE)
     -2.0 * cfg.slew_weight * D1.T @ b
+    -2.0 * cfg.smoothness_weight * D2.T @ (b[1:] - b[:-1])
 )
 delta = cfg.angular_rate_max_rad_s * cfg.dt
 A = torch.cat((D1, -D1), dim=0)
@@ -777,3 +778,50 @@ pins.aggregate_report.sha256 matches formal_report.json
 Append exact artifact paths, trial counts, source Git SHA, source SHA256, asset
 SHA256, and aggregate status to this plan. Do not claim completion from console
 output without reading the artifacts.
+
+## Inline execution evidence — 2026-09-06
+
+- Baseline: 49 focused tests passed before production changes.
+- Asset RED: 2 expected missing-contract failures; GREEN: 12 static tests passed.
+- Rebuild completed and the independent GPU0 2000-step verifier exited 0.
+  Manifest records 53 measured physical DOFs, 43 active controls and 2000 steps.
+  Asset SHA remains `69545272c2c1c6e8447d31eb2c81dea4970b16558165df9156f546928935f9c6`.
+- Implemented pure SO(3), oriented-box geometry, canonical-axis selection,
+  25-node scalar QP, reset, measured-contact hold and last-safe rejection.
+  Orientation module tests: 29 passed, including forced QP rejection.
+- Corrected the QP linear term for second differences: the boundary offset
+  must be `b[1:] - b[:-1]`. A constant-angle gradient regression verifies this.
+- Object integration restores PRELOAD translation state on orientation failure.
+  Nonzero orientation forwarding is tested in APPROACH, supported PRELOAD and
+  the normal HOLD object QP. Combined object/orientation tests: 48 passed.
+- CPU layer: 77 passed; QP layer: 69 passed at its first run (before adding
+  six orientation checks and three object forwarding cases).
+- GPU0 geometry: 3 steps, exit 0; local X selected, candidate 0.35 rad,
+  first committed angle 0.014 rad, candidate lead margin 0.00088238 m.
+- GPU0 200-step smoke: exit 0, report `passed=true`, zero hard failures,
+  nonfinite values and resets; Object feasible rate 1.0, WBC rate 0.99.
+- Final scoped regression: 184 passed; final QP layer: 78 passed.
+- New standalone module/tests committed as `e6a012c`; integration and asset changes
+  remain in the pre-existing dirty worktree.
+- Physical 1600-step gate **FAILED**. Probe exit code was 0 (smoke runner completion),
+  but the stricter physical acceptance predicates below failed. Formal 30 trials
+  were not run.
+  - Artifact: `tests/artifacts/m1_dual_panda_o6_right_orientation_contact_1600.json`.
+  - Right selected fingertip contacts: 0; maximum consecutive bilateral steps: 0.
+  - First right body contact: step 940, `right_hand_base_link`, 37.50675 N.
+  - Maximum right contact link also `right_hand_base_link`.
+  - First arm infeasibility: step 184 (right arm).
+  - First limit event: step 270, `left_pinky_mcp_pitch`, position 0.066318 rad
+    below minimum 0.080000 rad by 0.013682 rad.
+  - First safety rejection: step 329, `safety_qp_infeasible`.
+  - Hard failure count 1126; limit event count 1125; reset/nonfinite counts 0.
+  - WBC feasible rate 0.8575; teacher feasible rate 0.41.
+  - Final right palm orientation error 1.781095 rad.
+  - At first right housing contact: local X axis; target -0.35 rad, committed
+    0.021973 rad; candidate lead margin -0.021690 m.
+  - Interpretation: the scalar QP remains feasible, but geometric candidate
+    optimization alone has not ensured arm tracking or safe physical contact.
+    The report does not establish a unique root cause. Stop at this physical
+    gate as specified in Task 7; do not silently tune limits or add another axis.
+- Existing overlapping files include earlier uncommitted work. Their combined
+  diffs remain unstaged to preserve ownership; no broad staging was performed.
