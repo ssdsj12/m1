@@ -191,7 +191,11 @@ CUDA_VISIBLE_DEVICES=0 /home/xk/miniconda3/envs/go2/bin/python \
   --device cuda:0 --headless
 ~~~
 
-Expected: status=safe_complete, completed_iterations=100, accepted=false, promotion_required=true, accepted pilot path/hash preserved, and exactly five candidate checkpoints containing actor and critic normalizer state dictionaries. A safety stop or non-finite diagnostic blocks promotion.
+Expected: status=safe_complete, completed_iterations=100, accepted=false,
+promotion_required=true, accepted pilot path/hash preserved, and exactly five
+candidate checkpoints at completed updates 0/25/50/75/100.  Every checkpoint
+must contain non-empty obs_norm_state_dict and critic_obs_norm_state_dict
+mappings. A safety stop or non-finite diagnostic blocks promotion.
 
 - [ ] **Step 2: Run all 24 process-isolated fixed-condition workers**
 
