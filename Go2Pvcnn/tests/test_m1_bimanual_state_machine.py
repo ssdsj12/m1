@@ -70,6 +70,8 @@ def test_normal_phase_sequence_requires_contact_lift_hold_and_support():
 def test_default_hold_is_exactly_three_seconds_at_200_hz():
     cfg = BimanualMissionCfg()
     assert cfg.physics_dt == 0.005
+    assert cfg.approach_dwell_steps == 4
+    assert cfg.palm_position_tolerance_m == 0.03
     assert cfg.hold_steps == 600
     assert cfg.lift_height_m == 0.10
 

@@ -15,6 +15,25 @@ FINGERTIP_COUNT = 5
 FINGER_ACTIVE_COLUMNS = ((0, 1), (2,), (3,), (4,), (5,))
 
 
+def latch_contact_joint_targets(
+    q: torch.Tensor,
+    contact_mask: torch.Tensor,
+    latched_q: torch.Tensor,
+    target: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Capture first-contact joint angles and impose them on a position target."""
+
+    updated_latch = latched_q.clone()
+    updated_target = target.clone()
+    for finger, active_columns in enumerate(FINGER_ACTIVE_COLUMNS):
+        for column in active_columns:
+            if bool(contact_mask[finger]) and torch.isnan(updated_latch[column]):
+                updated_latch[column] = q[column]
+            if torch.isfinite(updated_latch[column]):
+                updated_target[column] = updated_latch[column]
+    return updated_latch, updated_target
+
+
 def fold_o6_fingertip_jacobians(
     full_spatial_jacobians: torch.Tensor,
     active_generalized_ids: tuple[int, ...],
@@ -65,17 +84,20 @@ class PrecontactHandController:
         self.close_rate = float(close_rate)
         self.preload_dt = float(preload_dt)
         self.open_q = (
-            torch.tensor([0.10, 0.15, 0.10, 0.10, 0.10, 0.10], dtype=torch.float64)
+            torch.tensor([0.25, 0.25, 0.25, 0.25, 0.25, 0.25], dtype=torch.float64)
             if open_q is None
             else open_q.detach().to(device="cpu", dtype=torch.float64).clone()
         )
         self.preload_q = (
-            torch.tensor([0.42, 0.55, 0.90, 0.90, 0.90, 0.90], dtype=torch.float64)
+            torch.tensor([0.42, 0.55, 1.20, 1.20, 1.20, 1.20], dtype=torch.float64)
             if preload_q is None
             else preload_q.detach().to(device="cpu", dtype=torch.float64).clone()
         )
         if self.open_q.shape != (6,) or self.preload_q.shape != (6,):
             raise ValueError("open_q and preload_q must have shape (6,)")
+        self._latched_contact_q = torch.full(
+            (6,), torch.nan, dtype=torch.float64
+        )
 
     def reference(
         self,
@@ -88,6 +110,7 @@ class PrecontactHandController:
         if contact_mask.dtype != torch.bool or contact_mask.device.type != "cpu" or contact_mask.shape != (5,):
             raise ValueError("contact_mask must be a CPU bool tensor with shape (5,)")
         if phase is BimanualPhase.APPROACH:
+            self._latched_contact_q.fill_(torch.nan)
             return self.open_q.clone(), torch.zeros(6, dtype=torch.float64)
         if phase is not BimanualPhase.PRELOAD:
             return q.clone(), torch.zeros(6, dtype=torch.float64)
@@ -97,12 +120,15 @@ class PrecontactHandController:
             min=-self.close_rate,
             max=self.close_rate,
         )
-        for finger, active_columns in enumerate(FINGER_ACTIVE_COLUMNS):
-            if bool(contact_mask[finger]):
-                for column in active_columns:
-                    target[column] = q[column]
-                    rate[column] = 0.0
+        self._latched_contact_q, target = latch_contact_joint_targets(
+            q, contact_mask, self._latched_contact_q, target
+        )
+        rate[torch.isfinite(self._latched_contact_q)] = 0.0
         return target, rate
 
 
-__all__ = ["PrecontactHandController", "fold_o6_fingertip_jacobians"]
+__all__ = [
+    "PrecontactHandController",
+    "fold_o6_fingertip_jacobians",
+    "latch_contact_joint_targets",
+]

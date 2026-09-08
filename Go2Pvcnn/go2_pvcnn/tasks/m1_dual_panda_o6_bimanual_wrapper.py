@@ -29,6 +29,7 @@ from go2_pvcnn.assets.m1_dual_panda_o6 import (
     resolve_active_joint_ids,
 )
 from go2_pvcnn.control.m1_bimanual_coordination import (
+    BimanualPhase,
     BimanualRuntime,
     BimanualCommand,
     BimanualSnapshot,
@@ -43,10 +44,15 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     build_actuation_matrix,
     build_teacher_input,
     fold_o6_fingertip_jacobians,
+    latch_contact_joint_targets,
     stack_stationary_wheel_jacobians,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
 from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
+    damped_cartesian_joint_delta,
+    embed_fixed_base_jacobian,
+    embed_fixed_base_mass_matrix,
+    embed_fixed_base_vector,
     physx_jacobian_body_row,
     pose_in_base,
     spatial_jacobian_in_base,
@@ -82,6 +88,16 @@ def _exact_sensor_body_id(names: Sequence[str], expected: str) -> int:
 
 def _cpu64(value: torch.Tensor) -> torch.Tensor:
     return value.detach().to(device="cpu", dtype=torch.float64).clone()
+
+
+def _o6_contact_body_candidates(side: str) -> tuple[tuple[str, ...], ...]:
+    return (
+        (f"{side}_thumb_distal",),
+        (f"{side}_index_proximal", f"{side}_index_distal"),
+        (f"{side}_middle_proximal", f"{side}_middle_distal"),
+        (f"{side}_ring_proximal", f"{side}_ring_distal"),
+        (f"{side}_pinky_proximal", f"{side}_pinky_distal"),
+    )
 
 
 class M1DualPandaO6SnapshotAdapter:
@@ -128,6 +144,14 @@ class M1DualPandaO6SnapshotAdapter:
         self.right_wrist_id = _exact_body_id(body_names, RIGHT_PANDA_WRIST_BODY_NAME)
         self.left_tip_ids = tuple(_exact_body_id(body_names, name) for name in LEFT_O6_FINGERTIP_BODY_NAMES)
         self.right_tip_ids = tuple(_exact_body_id(body_names, name) for name in RIGHT_O6_FINGERTIP_BODY_NAMES)
+        self.left_contact_body_id_candidates = tuple(
+            tuple(_exact_body_id(body_names, name) for name in candidates)
+            for candidates in _o6_contact_body_candidates("left")
+        )
+        self.right_contact_body_id_candidates = tuple(
+            tuple(_exact_body_id(body_names, name) for name in candidates)
+            for candidates in _o6_contact_body_candidates("right")
+        )
         self.wheel_body_ids = tuple(
             _exact_body_id(body_names, name) for name in M1_FOOT_BODY_NAMES
         )
@@ -136,6 +160,14 @@ class M1DualPandaO6SnapshotAdapter:
         right_sensor_names = tuple(self.env.scene["right_o6_contacts"].body_names)
         self.left_tip_sensor_ids = tuple(_exact_sensor_body_id(left_sensor_names, name) for name in LEFT_O6_FINGERTIP_BODY_NAMES)
         self.right_tip_sensor_ids = tuple(_exact_sensor_body_id(right_sensor_names, name) for name in RIGHT_O6_FINGERTIP_BODY_NAMES)
+        self.left_contact_sensor_id_candidates = tuple(
+            tuple(_exact_sensor_body_id(left_sensor_names, name) for name in candidates)
+            for candidates in _o6_contact_body_candidates("left")
+        )
+        self.right_contact_sensor_id_candidates = tuple(
+            tuple(_exact_sensor_body_id(right_sensor_names, name) for name in candidates)
+            for candidates in _o6_contact_body_candidates("right")
+        )
         self._sequence = 0
         self._previous_wheel_contact_jacobian: torch.Tensor | None = None
         self.arm_dynamics_diagnostics: dict[str, dict[str, object]] = {}
@@ -146,11 +178,15 @@ class M1DualPandaO6SnapshotAdapter:
         env = self.env_index
         base_quaternion = _cpu64(self.robot.data.root_quat_w[env])
         physx = self.robot.root_physx_view
-        mass_matrix = _cpu64(physx.get_generalized_mass_matrices()[env])
+        mass_matrix = _cpu64(
+            embed_fixed_base_mass_matrix(
+                physx.get_generalized_mass_matrices()[env]
+            )
+        )
         gravity = physx.get_gravity_compensation_forces()[env]
         coriolis = physx.get_coriolis_and_centrifugal_compensation_forces()[env]
-        bias = _cpu64(gravity + coriolis)
-        all_jacobians = physx.get_jacobians()
+        bias = _cpu64(embed_fixed_base_vector(gravity + coriolis))
+        all_jacobians = embed_fixed_base_jacobian(physx.get_jacobians())
         body_count = len(self.robot.body_names)
         wheel_jacobians = torch.stack(
             tuple(
@@ -205,7 +241,9 @@ class M1DualPandaO6SnapshotAdapter:
 
         env = self.env_index
         base_quaternion = _cpu64(self.robot.data.root_quat_w[env])
-        all_jacobians = self.robot.root_physx_view.get_jacobians()
+        all_jacobians = embed_fixed_base_jacobian(
+            self.robot.root_physx_view.get_jacobians()
+        )
         body_count = len(self.robot.body_names)
         result = torch.zeros((18, 59), dtype=torch.float64)
         result[:6, :6] = torch.eye(6, dtype=torch.float64)
@@ -253,7 +291,9 @@ class M1DualPandaO6SnapshotAdapter:
         bias = torch.zeros(7, dtype=torch.float64)
         diagnostics: dict[str, object] = {"physx_used": False, "fallback_reason": None}
         try:
-            all_jacobians = self.robot.root_physx_view.get_jacobians()
+            all_jacobians = embed_fixed_base_jacobian(
+                self.robot.root_physx_view.get_jacobians()
+            )
             jacobian_body_count = all_jacobians.shape[1]
             body_count = len(self.robot.body_names)
             jacobian_body_id = physx_jacobian_body_row(
@@ -265,11 +305,17 @@ class M1DualPandaO6SnapshotAdapter:
                 base_quaternion,
                 _cpu64(full_body_jacobian[:, list(generalized_ids)]),
             )
-            all_mass = self.robot.root_physx_view.get_generalized_mass_matrices()
+            all_mass = embed_fixed_base_mass_matrix(
+                self.robot.root_physx_view.get_generalized_mass_matrices()
+            )
             index = torch.tensor(generalized_ids, device=all_mass.device)
             mass = _cpu64(all_mass[env].index_select(0, index).index_select(1, index))
-            gravity = self.robot.root_physx_view.get_gravity_compensation_forces()[env]
-            coriolis = self.robot.root_physx_view.get_coriolis_and_centrifugal_compensation_forces()[env]
+            gravity = embed_fixed_base_vector(
+                self.robot.root_physx_view.get_gravity_compensation_forces()[env]
+            )
+            coriolis = embed_fixed_base_vector(
+                self.robot.root_physx_view.get_coriolis_and_centrifugal_compensation_forces()[env]
+            )
             bias = _cpu64((gravity + coriolis)[list(generalized_ids)])
             diagnostics.update(
                 physx_used=True,
@@ -280,7 +326,7 @@ class M1DualPandaO6SnapshotAdapter:
                 jacobian_body_id=jacobian_body_id,
                 full_body_jacobian_norm=float(torch.linalg.vector_norm(full_body_jacobian)),
                 joint_id_columns_norm=float(
-                    torch.linalg.vector_norm(full_body_jacobian[:, list(joint_ids)])
+                    torch.linalg.vector_norm(full_body_jacobian[:, list(generalized_ids)])
                 ),
                 generalized_id_columns=list(generalized_ids),
                 jacobian_norm=float(torch.linalg.vector_norm(jacobian)),
@@ -302,8 +348,8 @@ class M1DualPandaO6SnapshotAdapter:
     def _hand_state(
         self,
         joint_ids: tuple[int, ...],
-        fingertip_ids: tuple[int, ...],
-        sensor_ids: tuple[int, ...],
+        contact_body_id_candidates: tuple[tuple[int, ...], ...],
+        contact_sensor_id_candidates: tuple[tuple[int, ...], ...],
         sensor_name: str,
         active_generalized_ids: tuple[int, ...],
         mimic_specs: tuple[tuple[int, int, float], ...],
@@ -312,19 +358,32 @@ class M1DualPandaO6SnapshotAdapter:
         env = self.env_index
         base_position = _cpu64(data.root_pos_w[env])
         base_quaternion = _cpu64(data.root_quat_w[env])
+        force_matrix_w = self.env.scene[sensor_name].data.force_matrix_w
+        if force_matrix_w is None:
+            raise RuntimeError(f"{sensor_name} must filter contacts against the box")
+        sensor_forces_w = force_matrix_w[env, :, 0]
+        selected_body_ids: list[int] = []
+        selected_sensor_ids: list[int] = []
+        for body_candidates, sensor_candidates in zip(
+            contact_body_id_candidates, contact_sensor_id_candidates, strict=True
+        ):
+            candidate_forces = sensor_forces_w[list(sensor_candidates)]
+            selected = int(torch.argmax(torch.linalg.vector_norm(candidate_forces, dim=1)).item())
+            selected_body_ids.append(body_candidates[selected])
+            selected_sensor_ids.append(sensor_candidates[selected])
         positions = vectors_in_base(
             base_quaternion,
-            _cpu64(data.body_pos_w[env, list(fingertip_ids)]) - base_position,
+            _cpu64(data.body_pos_w[env, selected_body_ids]) - base_position,
         )
         forces = vectors_in_base(
             base_quaternion,
             _cpu64(
-                self.env.scene[sensor_name].data.net_forces_w[
-                    env, list(sensor_ids)
-                ]
+                sensor_forces_w[selected_sensor_ids]
             ),
         )
-        all_jacobians = self.robot.root_physx_view.get_jacobians()
+        all_jacobians = embed_fixed_base_jacobian(
+            self.robot.root_physx_view.get_jacobians()
+        )
         body_count = len(self.robot.body_names)
         fingertip_spatial_jacobians = torch.stack(
             tuple(
@@ -339,7 +398,7 @@ class M1DualPandaO6SnapshotAdapter:
                         ]
                     ),
                 )
-                for body_id in fingertip_ids
+                for body_id in selected_body_ids
             )
         )
         fingertip_jacobian = fold_o6_fingertip_jacobians(
@@ -382,7 +441,7 @@ class M1DualPandaO6SnapshotAdapter:
             _cpu64(self.box.data.root_lin_vel_w[env]),
             _cpu64(self.box.data.root_ang_vel_w[env]),
         )
-        x, y, z = (float(value) for value in (0.12, 0.18, 0.10))
+        x, y, z = (float(value) for value in (0.20, 0.18, 0.10))
         inertia = (0.5 / 12.0) * torch.diag(
             torch.tensor((y * y + z * z, x * x + z * z, x * x + y * y), dtype=torch.float64)
         )
@@ -396,16 +455,16 @@ class M1DualPandaO6SnapshotAdapter:
             right_arm=self._arm_state("right", self.right_arm_ids, self.right_palm_id),
             left_hand=self._hand_state(
                 self.left_hand_ids,
-                self.left_tip_ids,
-                self.left_tip_sensor_ids,
+                self.left_contact_body_id_candidates,
+                self.left_contact_sensor_id_candidates,
                 "o6_contacts",
                 self.left_hand_generalized_ids,
                 self.left_mimic_specs,
             ),
             right_hand=self._hand_state(
                 self.right_hand_ids,
-                self.right_tip_ids,
-                self.right_tip_sensor_ids,
+                self.right_contact_body_id_candidates,
+                self.right_contact_sensor_id_candidates,
                 "right_o6_contacts",
                 self.right_hand_generalized_ids,
                 self.right_mimic_specs,
@@ -415,7 +474,7 @@ class M1DualPandaO6SnapshotAdapter:
                 twist_b=box_twist,
                 mass=torch.tensor(0.5, dtype=torch.float64),
                 inertia_b=inertia,
-                supported=bool(box_position[2] <= 1.005),
+                supported=bool(box_position[2] <= 1.205),
             ),
         )
 
@@ -437,8 +496,12 @@ class M1DualPandaO6BimanualWrapper:
         self.adapter = M1DualPandaO6SnapshotAdapter(env)
         self.runtime = BimanualRuntime() if runtime is None else runtime
         self.mode = mode
-        self.teacher = FullActionTeacher()
-        self.safety = SafetyProjection()
+        self.teacher = FullActionTeacher(fixed_base=True)
+        self.safety = SafetyProjection(
+            joint_position_margin_rad=0.02,
+            joint_velocity_margin_fraction=0.1,
+            externally_servoed_hand=True,
+        )
         self._effort_limits = effort_limits()
         self._baseline_command: BimanualCommand | None = None
         self.latent_runtime: LatentRuntime | None = None
@@ -461,10 +524,55 @@ class M1DualPandaO6BimanualWrapper:
         self.last_snapshot: BimanualSnapshot | None = None
         self.last_dynamics: FullDynamicsState | None = None
         self.last_teacher_solution = None
+        self.last_safety_result = None
         self.last_command = None
         self.startup_complete = False
         self.base_reference_w: torch.Tensor | None = None
+        self._preload_arm_q: torch.Tensor | None = None
+        self._left_hand_contact_q = torch.full((6,), torch.nan, dtype=torch.float64)
+        self._right_hand_contact_q = torch.full((6,), torch.nan, dtype=torch.float64)
         self._step = 0
+
+    def _stabilize_preload_arms(
+        self, snapshot: BimanualSnapshot, command: BimanualCommand
+    ) -> BimanualCommand:
+        if self.runtime.mission.phase is not BimanualPhase.PRELOAD:
+            self._preload_arm_q = None
+            return command
+        if self._preload_arm_q is None:
+            self._preload_arm_q = torch.cat(
+                (snapshot.left_arm.q, snapshot.right_arm.q)
+            )
+        object_solution = self.runtime.latest_solutions["object"]
+        if object_solution is None:
+            return command
+        effort = command.effort.clone()
+        for output, target_slice, state, hand, palm_target in (
+            (slice(17, 24), slice(0, 7), snapshot.left_arm, snapshot.left_hand, object_solution.left_palm_pose[-1]),
+            (slice(24, 31), slice(7, 14), snapshot.right_arm, snapshot.right_hand, object_solution.right_palm_pose[-1]),
+        ):
+            target = self._preload_arm_q[target_slice]
+            if not bool(hand.contact_mask.any()):
+                cartesian_error = palm_target - state.palm_pose_b
+                target = state.q + damped_cartesian_joint_delta(
+                    state.jacobian_b,
+                    cartesian_error,
+                    damping=0.05,
+                    max_abs_joint_delta=0.12,
+                )
+                self._preload_arm_q[target_slice] = target
+            elif bool(hand.contact_mask.any()):
+                target = state.q.clone()
+                self._preload_arm_q[target_slice] = target
+            effort[output] = (
+                state.bias + 20.0 * (target - state.q) - 8.0 * state.qd
+            )
+        return BimanualCommand(
+            timestamp_ns=command.timestamp_ns,
+            effort=effort,
+            feasible=command.feasible,
+            fallback_reasons=command.fallback_reasons,
+        )
 
     def _active_q_qd(self) -> tuple[torch.Tensor, torch.Tensor]:
         data = self.adapter.robot.data
@@ -564,11 +672,15 @@ class M1DualPandaO6BimanualWrapper:
             self.latent_runtime.reset()
         self.last_command = None
         self.last_teacher_solution = None
+        self.last_safety_result = None
         self.last_snapshot = self.adapter.snapshot()
         self.last_dynamics = self.adapter.dynamics()
         self.base_reference_w = _cpu64(
             raw.scene["robot"].data.default_root_state[0, :7]
         )
+        self._preload_arm_q = None
+        self._left_hand_contact_q.fill_(torch.nan)
+        self._right_hand_contact_q.fill_(torch.nan)
         self.startup_complete = True
         self._step = 0
         return self.last_snapshot
@@ -578,7 +690,9 @@ class M1DualPandaO6BimanualWrapper:
             raise RuntimeError("wrapper.reset(seed=...) must complete before step()")
         snapshot = self.adapter.snapshot()
         self.last_dynamics = self.adapter.dynamics()
-        self._baseline_command = self.runtime.compute(snapshot)
+        self._baseline_command = self._stabilize_preload_arms(
+            snapshot, self.runtime.compute(snapshot)
+        )
         teacher_input = build_teacher_input(
             snapshot=snapshot,
             dynamics=self.last_dynamics,
@@ -591,23 +705,39 @@ class M1DualPandaO6BimanualWrapper:
             if self._step % 8 == 0 or self.last_teacher_solution is None:
                 self.last_teacher_solution = self.teacher.plan(teacher_input)
             teacher_solution = self.last_teacher_solution
-            if teacher_solution.diagnostics.feasible:
-                command = BimanualCommand(
-                    timestamp_ns=snapshot.timestamp_ns,
-                    effort=teacher_solution.action_trajectory[0],
-                    feasible=True,
-                    fallback_reasons=(),
-                )
+            if self.teacher.fixed_base:
+                candidate = self._baseline_command.effort
             else:
-                command = BimanualCommand(
-                    timestamp_ns=snapshot.timestamp_ns,
-                    effort=self._baseline_command.effort,
-                    feasible=False,
-                    fallback_reasons=(
-                        teacher_solution.diagnostics.fallback_reason
-                        or "teacher_infeasible",
-                    ),
+                candidate = (
+                    teacher_solution.action_trajectory[0]
+                    if teacher_solution.diagnostics.feasible
+                    else self._baseline_command.effort
                 )
+            self.last_safety_result = self.safety.project(self._safety_input(
+                snapshot, self.last_dynamics, candidate
+            ))
+            fallback_reasons = []
+            if not teacher_solution.diagnostics.feasible:
+                fallback_reasons.append(
+                    teacher_solution.diagnostics.fallback_reason
+                    or "teacher_infeasible"
+                )
+            if not self.last_safety_result.feasible:
+                fallback_reasons.append(
+                    self.last_safety_result.fallback_reason
+                    or "safety_infeasible"
+                )
+            projected_effort = self.last_safety_result.effort.clone()
+            projected_effort[31:43] = 0.0
+            command = BimanualCommand(
+                timestamp_ns=snapshot.timestamp_ns,
+                effort=projected_effort,
+                feasible=bool(
+                    teacher_solution.diagnostics.feasible
+                    and self.last_safety_result.feasible
+                ),
+                fallback_reasons=tuple(fallback_reasons),
+            )
         else:
             if self.latent_runtime is None:
                 raise RuntimeError("latent runtime was not initialized")
@@ -615,8 +745,41 @@ class M1DualPandaO6BimanualWrapper:
                 snapshot, self.last_dynamics, teacher_input
             )
             self.last_teacher_solution = self.latent_runtime.last_teacher_solution
+            self.last_safety_result = self.latent_runtime.last_safety_result
         action = command.effort.to(device=self.env.unwrapped.device, dtype=torch.float32)
         action = action.unsqueeze(0).repeat(self.env.unwrapped.num_envs, 1)
+        left_hand_solution = self.runtime.latest_solutions["left_hand"]
+        right_hand_solution = self.runtime.latest_solutions["right_hand"]
+        left_hand_target = left_hand_solution.q_ref
+        right_hand_target = right_hand_solution.q_ref
+        if self.runtime.mission.phase is BimanualPhase.APPROACH:
+            self._left_hand_contact_q.fill_(torch.nan)
+            self._right_hand_contact_q.fill_(torch.nan)
+        elif self.runtime.mission.phase is BimanualPhase.PRELOAD:
+            self._left_hand_contact_q, left_hand_target = latch_contact_joint_targets(
+                snapshot.left_hand.q,
+                snapshot.left_hand.contact_mask,
+                self._left_hand_contact_q,
+                left_hand_target,
+            )
+            self._right_hand_contact_q, right_hand_target = latch_contact_joint_targets(
+                snapshot.right_hand.q,
+                snapshot.right_hand.contact_mask,
+                self._right_hand_contact_q,
+                right_hand_target,
+            )
+        self.adapter.robot.set_joint_position_target(
+            left_hand_target.to(
+                device=self.env.unwrapped.device, dtype=torch.float32
+            ).unsqueeze(0).repeat(self.env.unwrapped.num_envs, 1),
+            joint_ids=list(self.adapter.left_hand_ids),
+        )
+        self.adapter.robot.set_joint_position_target(
+            right_hand_target.to(
+                device=self.env.unwrapped.device, dtype=torch.float32
+            ).unsqueeze(0).repeat(self.env.unwrapped.num_envs, 1),
+            joint_ids=list(self.adapter.right_hand_ids),
+        )
         self.last_snapshot = snapshot
         self.last_command = command
         self._step += 1

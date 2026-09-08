@@ -116,6 +116,9 @@ class SafetyProjection:
         *,
         dt: float = 0.005,
         collision_margin_m: float = 0.02,
+        joint_position_margin_rad: float = 0.0,
+        joint_velocity_margin_fraction: float = 0.0,
+        externally_servoed_hand: bool = False,
         wheel_contact_acceleration_tolerance: float = 1.0e-6,
         base_acceleration_tolerance: float = 5.0,
         base_kp: float = 20.0,
@@ -123,6 +126,25 @@ class SafetyProjection:
     ) -> None:
         self.dt = float(dt)
         self.collision_margin_m = float(collision_margin_m)
+        self.joint_position_margin_rad = float(joint_position_margin_rad)
+        if (
+            not math.isfinite(self.joint_position_margin_rad)
+            or self.joint_position_margin_rad < 0.0
+        ):
+            raise ValueError("joint_position_margin_rad must be finite and non-negative")
+        self.joint_velocity_margin_fraction = float(
+            joint_velocity_margin_fraction
+        )
+        if (
+            not math.isfinite(self.joint_velocity_margin_fraction)
+            or not 0.0 <= self.joint_velocity_margin_fraction < 1.0
+        ):
+            raise ValueError(
+                "joint_velocity_margin_fraction must be in [0, 1)"
+            )
+        if not isinstance(externally_servoed_hand, bool):
+            raise TypeError("externally_servoed_hand must be bool")
+        self.externally_servoed_hand = externally_servoed_hand
         self.wheel_contact_acceleration_tolerance = float(
             wheel_contact_acceleration_tolerance
         )
@@ -159,26 +181,40 @@ class SafetyProjection:
         qdd_map = reduced.qdd_from_effort[ids]
         position_offset = sample.active_q + self.dt * sample.active_qd + 0.5 * self.dt**2 * qdd_offset
         position_map = 0.5 * self.dt**2 * qdd_map
+        joint_margin = torch.minimum(
+            self.joint_position_margin_rad * torch.ones(43, dtype=torch.float64),
+            0.25 * (sample.q_max - sample.q_min),
+        )
+        safe_q_min = sample.q_min + joint_margin
+        safe_q_max = sample.q_max - joint_margin
         velocity_offset = sample.active_qd + self.dt * qdd_offset
         velocity_map = self.dt * qdd_map
+        safe_qd_max = (
+            1.0 - self.joint_velocity_margin_fraction
+        ) * sample.qd_max
         inequality_rows = [position_map, -position_map, velocity_map, -velocity_map]
         inequality_upper = [
-            sample.q_max - position_offset,
-            -(sample.q_min - position_offset),
-            sample.qd_max - velocity_offset,
-            sample.qd_max + velocity_offset,
+            safe_q_max - position_offset,
+            -(safe_q_min - position_offset),
+            safe_qd_max - velocity_offset,
+            safe_qd_max + velocity_offset,
         ]
+        if self.externally_servoed_hand:
+            for upper_vector in inequality_upper:
+                upper_vector[31:43] = 1.0e12
         contact_offset = (
             sample.dynamics.wheel_contact_jacobian @ reduced.qdd_offset
             + sample.dynamics.wheel_contact_bias
         )
         contact_map = sample.dynamics.wheel_contact_jacobian @ reduced.qdd_from_effort
+        contact_map[:, 31:43] = 0.0
         contact_tolerance = self.wheel_contact_acceleration_tolerance * torch.ones(12, dtype=torch.float64)
         inequality_rows.extend((contact_map, -contact_map))
         inequality_upper.extend((contact_tolerance - contact_offset, contact_tolerance + contact_offset))
         base_target = -self.base_kp * sample.base_error
         base_offset = reduced.qdd_offset[:6]
-        base_map = reduced.qdd_from_effort[:6]
+        base_map = reduced.qdd_from_effort[:6].clone()
+        base_map[:, 31:43] = 0.0
         base_tolerance = self.base_acceleration_tolerance * torch.ones(6, dtype=torch.float64)
         inequality_rows.extend((base_map, -base_map))
         inequality_upper.extend((base_target + base_tolerance - base_offset, -base_target + base_tolerance + base_offset))
@@ -189,14 +225,55 @@ class SafetyProjection:
         upper = sample.effort_limits.clone()
         lower[12:16] = 0.0
         upper[12:16] = 0.0
+        inequality_matrix = torch.cat(inequality_rows)
+        inequality_upper_vector = torch.cat(inequality_upper)
+        locked_candidate = sample.candidate_effort.clone()
+        locked_candidate[12:16] = 0.0
+        candidate_is_feasible = bool(
+            torch.all(locked_candidate >= lower - self.qp_tolerance).item()
+            and torch.all(locked_candidate <= upper + self.qp_tolerance).item()
+            and torch.all(
+                inequality_matrix @ locked_candidate
+                <= inequality_upper_vector + self.qp_tolerance
+            ).item()
+        )
+        if candidate_is_feasible:
+            qdd = reduced.qdd_offset + reduced.qdd_from_effort @ locked_candidate
+            contact_force = (
+                reduced.contact_offset
+                + reduced.contact_from_effort @ locked_candidate
+            )
+            residual = (
+                sample.dynamics.mass_matrix @ qdd
+                + sample.dynamics.bias
+                - sample.dynamics.actuation_matrix @ locked_candidate
+                - sample.dynamics.wheel_contact_jacobian.T @ contact_force
+            )
+            residual_norm = float(torch.max(torch.abs(residual)).item())
+            if residual_norm <= 1.0e-6:
+                return SafetyResult(
+                    effort=locked_candidate,
+                    feasible=True,
+                    active_constraints=(
+                        "effort_limits",
+                        "wheel_lock",
+                        "joint_position",
+                        "joint_velocity",
+                        "wheel_contact",
+                        "base_reference",
+                        "collision",
+                    ),
+                    fallback_reason=None,
+                    dynamics_residual=residual_norm,
+                )
         result = solve_reference_qp(
             DenseQpProblem(
                 hessian=2.0 * torch.eye(ACTIVE_DOF, dtype=torch.float64),
                 gradient=-2.0 * sample.candidate_effort,
                 equality_matrix=torch.empty((0, ACTIVE_DOF), dtype=torch.float64),
                 equality_rhs=torch.empty(0, dtype=torch.float64),
-                inequality_matrix=torch.cat(inequality_rows),
-                inequality_upper=torch.cat(inequality_upper),
+                inequality_matrix=inequality_matrix,
+                inequality_upper=inequality_upper_vector,
                 lower_bound=lower,
                 upper_bound=upper,
             ),

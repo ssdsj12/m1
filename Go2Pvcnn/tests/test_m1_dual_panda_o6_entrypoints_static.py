@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+
+def test_probe_exposes_orientation_contact_order():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / 'scripts/m1_dual_panda_o6_bimanual_probe.py').read_text()
+    for key in ('right_palm_orientation_mpc', 'first_right_palm_base_contact_orientation',
+                'first_right_selected_fingertip_contact_orientation', 'qp_feasible', 'qp_iterations'):
+        assert key in source
+
 import ast
 from pathlib import Path
 
@@ -81,23 +89,59 @@ def test_probe_records_reproducibility_and_all_diagnostic_groups():
         "--seeds",
         "--trials-per-seed",
         "--report",
+        "--jsonl",
+        "--manifest",
         "phase_dwell_times_s",
         "fallback_counts",
         "max_contact_forces_n",
+        "max_o6_body_contact_forces_n",
+        "max_o6_body_contact_links",
+        "contact_timing_steps",
+        "max_consecutive_bilateral_contact_steps",
+        "final_contact_latched_hand_q",
         "fingertip_jacobian_norms",
+        "teacher_feasible_rate",
+        "teacher_dynamics_residual_max",
+        "teacher_contact_residual_max",
+        "teacher_fallback_reason_counts",
+        "command_fallback_reason_counts",
+        "safety_feasible_rate",
+        "teacher_action_max_abs",
+        "first_limit_violation",
+        "first_arm_mpc_failure",
+        "first_object_mpc_failure",
+        "first_safety_failure",
+        "max_joint_limit_violation_rad",
+        "min_palm_target_rotation_errors_rad",
+        "final_palm_target_rotation_errors_rad",
+        "min_fingertip_box_distances_m",
+        "final_fingertip_box_distances_m",
+        "final_fingertip_box_offsets_m",
+        "final_left_hand_q",
+        "final_right_hand_q",
         "collision_count",
         "limit_violation_count",
         "reset_count",
         "nonfinite_count",
         "initial_velocity_max",
+        "initial_fingertip_palm_offsets_m",
+        "initial_fingertip_box_ray_projections_m",
+        "first_o6_body_contact_events",
+        "max_o6_body_contact_events",
         "startup_terminal_count",
         "asset_sha256",
         "source_sha256",
         "git_ref",
         "isaac_version",
         "command",
+        "_atomic_jsonl",
+        "_artifact_manifest",
+        "trials_jsonl",
+        "aggregate_report",
     ):
         assert token in source
+
+
 
 
 def test_probe_and_play_delegate_physical_reset_to_common_wrapper():
@@ -138,6 +182,11 @@ def test_wrapper_integrates_full_teacher_and_latent_modes_without_59_actions():
     assert "self.last_teacher_solution" in wrapper
     assert "LatentRuntime.from_artifact(" in wrapper
     assert "teacher_solution.action_trajectory[0]" in wrapper
+    assert "self.safety.project(self._safety_input(" in wrapper
+    assert "self.last_safety_result" in wrapper
+    assert "projected_effort[31:43] = 0.0" in wrapper
+    assert "if self.teacher.fixed_base" in wrapper
+    assert "candidate = self._baseline_command.effort" in wrapper
     assert "torch.zeros(59" not in wrapper
 
 

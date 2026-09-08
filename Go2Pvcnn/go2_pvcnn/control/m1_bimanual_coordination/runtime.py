@@ -167,7 +167,10 @@ class BimanualRuntime:
         return dict(self._latest_solutions)
 
     def reset(self) -> None:
-        """Clear every temporal cache while preserving controllers and configuration."""
+        """Clear temporal caches and object-planner state for deterministic replay."""
+        reset_object = getattr(self.object_mpc, 'reset', None)
+        if callable(reset_object):
+            reset_object()
 
         self.mission = BimanualMission(cfg=self.mission.cfg)
         self._step = 0
@@ -249,10 +252,10 @@ class BimanualRuntime:
     ) -> BimanualMissionDiagnostics:
         palm_errors = (
             torch.linalg.vector_norm(
-                snapshot.left_arm.palm_pose_b[:3] - object_solution.left_palm_pose[0, :3]
+                snapshot.left_arm.palm_pose_b[:3] - object_solution.left_palm_pose[-1, :3]
             ),
             torch.linalg.vector_norm(
-                snapshot.right_arm.palm_pose_b[:3] - object_solution.right_palm_pose[0, :3]
+                snapshot.right_arm.palm_pose_b[:3] - object_solution.right_palm_pose[-1, :3]
             ),
         )
         bilateral_contact = bool(
@@ -273,7 +276,10 @@ class BimanualRuntime:
         reason = wbc_solution.diagnostics.fallback_reason
         return BimanualMissionDiagnostics(
             command_accepted=wbc_solution.feasible,
-            palms_reached=bool(max(float(value) for value in palm_errors) <= 0.02),
+            palms_reached=bool(
+                max(float(value) for value in palm_errors)
+                <= self.mission.cfg.palm_position_tolerance_m
+            ),
             bilateral_contact=bilateral_contact,
             force_closure_margin=wbc_solution.diagnostics.force_closure_margin,
             relative_palm_slip_m=slip,

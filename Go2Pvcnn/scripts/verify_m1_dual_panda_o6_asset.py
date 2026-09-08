@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import hashlib
 import json
 import math
 import os
@@ -26,8 +27,14 @@ EXPECTED_PHYSICS_STEPS = 2000
 EXPECTED_ARTICULATION_ROOT = "/M1DualPandaO6/BASE_LINK"
 EXPECTED_HAND_MOUNT_QUATERNION_WXYZ = {
     "left": (1.0, 0.0, 0.0, 0.0),
-    "right": (0.0, 1.0, 0.0, 0.0),
+    "right": (0.0, 0.0, 0.0, 1.0),
 }
+RIGHT_PALM_HOUSING_MESH_SHA256 = (
+    "f7fc8dae5d375e5a33251593c46f8b882c3a1aaafe89fa9544f0ef57d657f5de"
+)
+RIGHT_PALM_HOUSING_BOUNDS_MIN_M = (-0.0200, -0.0392, 0.0)
+RIGHT_PALM_HOUSING_BOUNDS_MAX_M = (0.0200, 0.0376, 0.1128)
+RIGHT_PALM_HOUSING_MESH_RELATIVE = "o6_right/meshes/hand_base_link.STL"
 MAX_MOUNT_POSITION_DRIFT_M = 1.0e-3
 MAX_MOUNT_ORIENTATION_DRIFT_RAD = 1.0e-3
 CONTACT_FORCE_THRESHOLD_N = 5.0
@@ -53,6 +60,97 @@ def _build_parser() -> argparse.ArgumentParser:
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _aabb_corners(
+    minimum: tuple[float, float, float],
+    maximum: tuple[float, float, float],
+) -> list[list[float]]:
+    return [
+        [x, y, z]
+        for x in (minimum[0], maximum[0])
+        for y in (minimum[1], maximum[1])
+        for z in (minimum[2], maximum[2])
+    ]
+
+
+def _right_palm_housing_support_report(asset_root: Path) -> dict[str, Any]:
+    import trimesh
+
+    mesh_path = asset_root / RIGHT_PALM_HOUSING_MESH_RELATIVE
+    manifest_path = asset_root / "asset_manifest.json"
+    measured_sha = _sha256(mesh_path) if mesh_path.is_file() else ""
+    expected_points = _aabb_corners(
+        RIGHT_PALM_HOUSING_BOUNDS_MIN_M,
+        RIGHT_PALM_HOUSING_BOUNDS_MAX_M,
+    )
+    measured_min: list[float] = []
+    measured_max: list[float] = []
+    mesh_valid = False
+    if mesh_path.is_file():
+        mesh = trimesh.load_mesh(mesh_path, process=False)
+        if isinstance(mesh, trimesh.Trimesh) and not mesh.is_empty:
+            bounds = mesh.bounds
+            if bounds.shape == (2, 3):
+                measured_min = [float(value) for value in bounds[0]]
+                measured_max = [float(value) for value in bounds[1]]
+                tolerance = 1.0e-9
+                mesh_valid = (
+                    all(
+                        math.isfinite(value)
+                        for value in (*measured_min, *measured_max)
+                    )
+                    and all(
+                        raw >= expected - tolerance
+                        for raw, expected in zip(
+                            measured_min,
+                            RIGHT_PALM_HOUSING_BOUNDS_MIN_M,
+                            strict=True,
+                        )
+                    )
+                    and all(
+                        raw <= expected + tolerance
+                        for raw, expected in zip(
+                            measured_max,
+                            RIGHT_PALM_HOUSING_BOUNDS_MAX_M,
+                            strict=True,
+                        )
+                    )
+                )
+    manifest = (
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_path.is_file()
+        else {}
+    )
+    serialized = manifest.get("right_palm_housing_support", {})
+    valid = (
+        measured_sha == RIGHT_PALM_HOUSING_MESH_SHA256
+        and mesh_valid
+        and serialized.get("mesh_sha256") == measured_sha
+        and serialized.get("bounds_min_m")
+        == list(RIGHT_PALM_HOUSING_BOUNDS_MIN_M)
+        and serialized.get("bounds_max_m")
+        == list(RIGHT_PALM_HOUSING_BOUNDS_MAX_M)
+        and serialized.get("support_points_local_m") == expected_points
+        and serialized.get("valid") is True
+    )
+    return {
+        "right_palm_housing_support_valid": valid,
+        "right_palm_housing_support": {
+            "mesh_sha256": measured_sha,
+            "bounds_min_m": measured_min,
+            "bounds_max_m": measured_max,
+            "support_points_local_m": expected_points,
+        },
+    }
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -192,6 +290,7 @@ def _offline_report(asset: Path, asset_root: Path) -> dict[str, Any]:
     duplicate_body_names = sorted(name for name, count in body_counts.items() if count > 1)
     duplicate_joint_names = sorted(name for name, count in joint_counts.items() if count > 1)
     hand_mounts = _hand_mount_report(stage)
+    right_palm_housing = _right_palm_housing_support_report(asset_root)
     errors = []
     if dependencies["unresolved_dependencies"]:
         errors.append(f"unresolved dependencies: {dependencies['unresolved_dependencies']}")
@@ -209,9 +308,12 @@ def _offline_report(asset: Path, asset_root: Path) -> dict[str, Any]:
         errors.append(f"duplicate joint names: {duplicate_joint_names}")
     if not hand_mounts["hand_mount_calibration_valid"]:
         errors.append("serialized hand mount calibration does not match the frozen contract")
+    if not right_palm_housing["right_palm_housing_support_valid"]:
+        errors.append("right palm housing support does not match the frozen mesh contract")
     return {
         **dependencies,
         **hand_mounts,
+        **right_palm_housing,
         "articulation_roots": articulation_roots,
         "physical_dof_paths": physical_dof_paths,
         "body_paths": body_paths,
@@ -507,6 +609,7 @@ def _verify(asset_root: Path, steps: int, device: str) -> dict[str, Any]:
     hard_gates_passed = (
         not offline["offline_errors"]
         and offline["hand_mount_calibration_valid"]
+        and offline["right_palm_housing_support_valid"]
         and runtime["measured_physical_dof_count"] > 0
         and runtime["active_control_count"] == EXPECTED_ACTIVE_DOF_COUNT
         and runtime["physics_steps"] == EXPECTED_PHYSICS_STEPS

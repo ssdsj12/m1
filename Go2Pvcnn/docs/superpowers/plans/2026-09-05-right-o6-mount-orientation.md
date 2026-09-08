@@ -1,5 +1,34 @@
 # Right O6 Mount Orientation Implementation Plan
 
+## 2026-09-05 GPU0 evidence revision
+
+Task 1 and Task 2 proved that the requested local-X half-turn could be authored and
+verified consistently, but the Task 3 geometry gate disproved the physical
+hypothesis. With the original identity mount, four right digits projected toward
+the box by `+0.060` to `+0.103 m`; after the half-turn they projected away from the
+box by `-0.041` to `-0.079 m`. The maximum base-Y offset was only `+0.016 m`, below
+the planned `0.05 m` gate. Startup/reset/non-finite/hard-failure counts remained
+zero, isolating the failure to the mount-orientation hypothesis.
+
+The partner approved continuing with this revision:
+
+- restore both hand mounts to identity and retain independent serialized mount
+  validation;
+- replace the invalid `+Y >= 0.05 m` criterion with projection along each
+  palm-to-box ray;
+- add read-only contact-event evidence for the first and maximum O6 body contact;
+- rerun asset verification, geometry smoke, and the fixed-seed PRELOAD diagnostic;
+- do not change control targets, box geometry, collision filters, or MPC parameters
+  until the contact evidence identifies the actual source.
+
+The identity PRELOAD diagnostic then isolated the ordering failure: at step 1207
+the right palm base carried `7.879 N` while the nearest fingertip reference was
+still `13.2 mm` outside the box AABB. Mesh-axis analysis showed that hand-local Z
+is the longitudinal reach axis. The partner approved a single-variable follow-up
+using a right local-Z half-turn `(0, 0, 0, 1)` WXYZ: it preserves forward reach
+while moving the right digit fan inward. The same build, offline, smoke, and
+PRELOAD hard gates remain mandatory.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rotate the right O6 hand by 180 degrees about the Panda wrist's local X axis, preserve the composite articulation contracts, and prove that the right digits—not the palm base—make the intended box contact.

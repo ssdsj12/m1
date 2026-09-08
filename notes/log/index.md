@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-06：[T500 右掌姿态边界诊断](2026-09-06-right-palm-orientation-boundary-diagnosis.md)：350 步精确复现；首目标跟踪隐含校正率 7.29 rad/s，空间误差与坐标差不一致；控制行为未改。
+
 | Time | Topic | Stage | Result | Key Metrics | Todo | File |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-09-02 | M1 + dual Panda + dual O6 combined asset | T500 Tasks 1–3 | pass; normalized sources and relocatable single articulation committed | 53 physical DOF; 43 active; 2000 steps; zero hard-limit/contact/reset/nonfinite failures; mount drift `2.38e-7 m` / `4.81e-7 rad` | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md](2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md) |

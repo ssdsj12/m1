@@ -43,6 +43,10 @@ def test_mimic_columns_fold_into_six_active_columns() -> None:
 
 def test_preload_closes_uncontacted_fingers_and_freezes_contacted_digits() -> None:
     controller = PrecontactHandController()
+    assert torch.allclose(
+        controller.preload_q[2:],
+        1.20 * torch.ones(4, dtype=DTYPE),
+    )
     q = torch.zeros(6, dtype=DTYPE)
     contact_mask = torch.tensor([True, True, False, False, False])
 
@@ -54,8 +58,30 @@ def test_preload_closes_uncontacted_fingers_and_freezes_contacted_digits() -> No
     assert torch.all(qd_ref[3:] > 0.0)
 
 
+def test_preload_latches_first_contact_joint_position_after_contact_loss() -> None:
+    controller = PrecontactHandController()
+    contact_q = 0.85 * torch.ones(6, dtype=DTYPE)
+    pinky_contact = torch.tensor([False, False, False, False, True])
+    controller.reference(contact_q, pinky_contact, BimanualPhase.PRELOAD)
+
+    drifted_q = contact_q.clone()
+    drifted_q[5] = 1.10
+    q_ref, qd_ref = controller.reference(
+        drifted_q,
+        torch.zeros(5, dtype=torch.bool),
+        BimanualPhase.PRELOAD,
+    )
+
+    assert q_ref[5].item() == contact_q[5].item()
+    assert qd_ref[5].item() == 0.0
+
+
 def test_approach_holds_the_open_pregrasp_reference() -> None:
     controller = PrecontactHandController()
+    assert torch.allclose(
+        controller.open_q,
+        0.25 * torch.ones(6, dtype=DTYPE),
+    )
     q_ref, qd_ref = controller.reference(
         torch.ones(6, dtype=DTYPE),
         torch.zeros(5, dtype=torch.bool),

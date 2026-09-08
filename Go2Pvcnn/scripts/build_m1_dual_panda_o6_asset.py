@@ -47,10 +47,16 @@ RIGHT_ARM_MOUNT_XYZ = (0.0, -0.2, 0.0)
 IDENTITY_QUATERNION_WXYZ = (1.0, 0.0, 0.0, 0.0)
 HAND_MOUNT_QUATERNION_WXYZ = {
     "left": (1.0, 0.0, 0.0, 0.0),
-    "right": (0.0, 1.0, 0.0, 0.0),
+    "right": (0.0, 0.0, 0.0, 1.0),
 }
 PLATFORM_HALF_EXTENTS_M = (0.31, 0.29, 0.03)
 PANDA_ARM_URDF = "panda_arm.urdf"
+RIGHT_PALM_HOUSING_MESH_SHA256 = (
+    "f7fc8dae5d375e5a33251593c46f8b882c3a1aaafe89fa9544f0ef57d657f5de"
+)
+RIGHT_PALM_HOUSING_BOUNDS_MIN_M = (-0.0200, -0.0392, 0.0)
+RIGHT_PALM_HOUSING_BOUNDS_MAX_M = (0.0200, 0.0376, 0.1128)
+RIGHT_PALM_HOUSING_MESH_RELATIVE = "o6_right/meshes/hand_base_link.STL"
 
 EXPECTED_ACTIVE_DOF_COUNT = 43
 EXPECTED_PHYSICAL_DOF_COUNT = 53
@@ -127,6 +133,74 @@ def validate_source_manifests(asset_root: Path) -> dict[str, Any]:
             f"unexpected {side} O6 entry in source manifest",
         )
     return manifest
+
+
+def _aabb_corners(
+    minimum: tuple[float, float, float],
+    maximum: tuple[float, float, float],
+) -> list[list[float]]:
+    return [
+        [x, y, z]
+        for x in (minimum[0], maximum[0])
+        for y in (minimum[1], maximum[1])
+        for z in (minimum[2], maximum[2])
+    ]
+
+
+def _right_palm_housing_support(
+    asset_root: Path, source_manifest: dict[str, Any]
+) -> dict[str, Any]:
+    import trimesh
+
+    mesh_path = asset_root / RIGHT_PALM_HOUSING_MESH_RELATIVE
+    expected_source_hash = source_manifest["sha256"].get(
+        RIGHT_PALM_HOUSING_MESH_RELATIVE
+    )
+    _require(
+        expected_source_hash == RIGHT_PALM_HOUSING_MESH_SHA256,
+        "right palm housing source hash does not match the frozen calibration",
+    )
+    _require(
+        _sha256(mesh_path) == RIGHT_PALM_HOUSING_MESH_SHA256,
+        "right palm housing mesh hash mismatch",
+    )
+    mesh = trimesh.load_mesh(mesh_path, process=False)
+    _require(isinstance(mesh, trimesh.Trimesh), "right palm housing is not one mesh")
+    _require(not mesh.is_empty, "right palm housing mesh is empty")
+    raw_bounds = mesh.bounds
+    _require(raw_bounds.shape == (2, 3), "right palm housing bounds have wrong shape")
+    raw_min = tuple(float(value) for value in raw_bounds[0])
+    raw_max = tuple(float(value) for value in raw_bounds[1])
+    _require(
+        all(math.isfinite(value) for value in (*raw_min, *raw_max)),
+        "right palm housing bounds are non-finite",
+    )
+    tolerance = 1.0e-9
+    _require(
+        all(
+            raw >= expected - tolerance
+            for raw, expected in zip(
+                raw_min, RIGHT_PALM_HOUSING_BOUNDS_MIN_M, strict=True
+            )
+        )
+        and all(
+            raw <= expected + tolerance
+            for raw, expected in zip(
+                raw_max, RIGHT_PALM_HOUSING_BOUNDS_MAX_M, strict=True
+            )
+        ),
+        "right palm housing mesh lies outside the frozen support bounds",
+    )
+    return {
+        "mesh_sha256": RIGHT_PALM_HOUSING_MESH_SHA256,
+        "bounds_min_m": list(RIGHT_PALM_HOUSING_BOUNDS_MIN_M),
+        "bounds_max_m": list(RIGHT_PALM_HOUSING_BOUNDS_MAX_M),
+        "support_points_local_m": _aabb_corners(
+            RIGHT_PALM_HOUSING_BOUNDS_MIN_M,
+            RIGHT_PALM_HOUSING_BOUNDS_MAX_M,
+        ),
+        "valid": True,
+    }
 
 
 def ensure_arm_only_panda(asset_root: Path, force: bool = False) -> Path:
@@ -610,6 +684,9 @@ def export_reopen_validate_and_manifest(
         "o6_mimic_joints": list(_O6_MIMIC_JOINTS),
         "o6_collision_approximation": "convexHull",
         "o6_convex_mesh_count": convex_mesh_count,
+        "right_palm_housing_support": _right_palm_housing_support(
+            asset_root, source_manifest
+        ),
     }
     _atomic_json(asset_root / "asset_manifest.json", manifest)
     return output

@@ -82,7 +82,7 @@
     "/M1DualPandaO6/joints/right_hand_mount_joint"
   ],
   "asset": "m1_dual_panda_o6.usd",
-  "asset_sha256": "579521079bc7ec22cd2d9a357bbce1668b3edc93361445b05083dfc644cfa142",
+  "asset_sha256": "69545272c2c1c6e8447d31eb2c81dea4970b16558165df9156f546928935f9c6",
   "hand_mounts": {
     "left": {
       "expected_quaternion_wxyz": [
@@ -119,15 +119,15 @@
     "right": {
       "expected_quaternion_wxyz": [
         0.0,
-        1.0,
         0.0,
-        0.0
+        0.0,
+        1.0
       ],
       "joint_local_rot0_wxyz": [
         0.0,
-        1.0,
         0.0,
-        0.0
+        0.0,
+        1.0
       ],
       "joint_local_rot1_wxyz": [
         1.0,
@@ -137,9 +137,9 @@
       ],
       "measured_quaternion_wxyz": [
         0.0,
-        1.0,
         0.0,
-        0.0
+        0.0,
+        1.0
       ],
       "measured_translation_m": [
         0.0,
@@ -173,6 +173,62 @@
     -1.5707963267948966,
     1.5707963267948966
   ],
+  "right_palm_housing_support": {
+    "bounds_max_m": [
+      0.02,
+      0.0376,
+      0.1128
+    ],
+    "bounds_min_m": [
+      -0.02,
+      -0.0392,
+      0.0
+    ],
+    "mesh_sha256": "f7fc8dae5d375e5a33251593c46f8b882c3a1aaafe89fa9544f0ef57d657f5de",
+    "support_points_local_m": [
+      [
+        -0.02,
+        -0.0392,
+        0.0
+      ],
+      [
+        -0.02,
+        -0.0392,
+        0.1128
+      ],
+      [
+        -0.02,
+        0.0376,
+        0.0
+      ],
+      [
+        -0.02,
+        0.0376,
+        0.1128
+      ],
+      [
+        0.02,
+        -0.0392,
+        0.0
+      ],
+      [
+        0.02,
+        -0.0392,
+        0.1128
+      ],
+      [
+        0.02,
+        0.0376,
+        0.0
+      ],
+      [
+        0.02,
+        0.0376,
+        0.1128
+      ]
+    ],
+    "valid": true
+  },
   "runtime_body_names": [
     "BASE_LINK",
     "FAR_ABAD_LINK",

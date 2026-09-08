@@ -1,5 +1,12 @@
 """Deterministic bimanual object, arm, hand, and whole-body control."""
 
+from .palm_orientation_mpc import (
+    PalmOrientationMpcCfg,
+    PalmOrientationInput,
+    PalmOrientationSolution,
+    RightPalmOrientationMpc,
+)
+
 from .contracts import (
     ACTIVE_CONTROL_DOF,
     BimanualCommand,
@@ -20,6 +27,7 @@ from .reduced_dynamics import (
 from .o6_contact_kinematics import (
     PrecontactHandController,
     fold_o6_fingertip_jacobians,
+    latch_contact_joint_targets,
 )
 from .full_action_teacher import (
     FullActionTeacher,
@@ -76,6 +84,10 @@ from .state_machine import (
 from .runtime import BimanualRuntime
 
 __all__ = [
+    "PalmOrientationMpcCfg",
+    "PalmOrientationInput",
+    "PalmOrientationSolution",
+    "RightPalmOrientationMpc",
     "ACTIVE_CONTROL_DOF",
     "BimanualCommand",
     "BimanualPhase",
@@ -91,6 +103,7 @@ __all__ = [
     "stack_stationary_wheel_jacobians",
     "PrecontactHandController",
     "fold_o6_fingertip_jacobians",
+    "latch_contact_joint_targets",
     "FullActionTeacher",
     "TeacherDiagnostics",
     "TeacherInput",

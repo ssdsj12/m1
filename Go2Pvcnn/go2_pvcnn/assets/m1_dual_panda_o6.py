@@ -123,8 +123,8 @@ M1_DUAL_PANDA_O6_CFG.init_state.joint_pos.update(
         "right_panda_joint5": 0.0,
         "right_panda_joint6": 3.037,
         "right_panda_joint7": 0.741,
-        "left_(thumb|index|middle|ring|pinky)_.*": 0.1,
-        "right_(thumb|index|middle|ring|pinky)_.*": 0.1,
+        "left_(thumb|index|middle|ring|pinky)_.*": 0.25,
+        "right_(thumb|index|middle|ring|pinky)_.*": 0.25,
     }
 )
 

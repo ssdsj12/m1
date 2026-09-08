@@ -1,0 +1,2768 @@
+{
+  "acceptance_mode": "smoke",
+  "action_dim": 43,
+  "aggregate": {
+    "accepted": false,
+    "exact_trial_matrix": true,
+    "expected_trial_count": 1,
+    "observed_trial_count": 1,
+    "passing_trial_count": 0,
+    "seeds": [
+      0
+    ],
+    "trials_per_seed": 1
+  },
+  "finite_snapshot": true,
+  "metadata": {
+    "asset_sha256": "69545272c2c1c6e8447d31eb2c81dea4970b16558165df9156f546928935f9c6",
+    "command": "scripts/m1_dual_panda_o6_bimanual_probe.py --headless --device cuda:0 --steps 350 --seed 0 --report tests/artifacts/m1_dual_panda_o6_orientation_boundary_350.json",
+    "git_ref": "80954d2c5b3ffbc347a0bb18101da2e37665167d",
+    "isaac_version": "5.1.0.0",
+    "source_sha256": "3fe5b56e2b7e974d7d20590832ee2885a747781b3e8319538a29a68b5488edc7"
+  },
+  "mode": "teacher",
+  "passed": true,
+  "schema_version": 1,
+  "trials": [
+    {
+      "arm_dynamics_diagnostics": {
+        "left": {
+          "body_count": 60,
+          "fallback_reason": null,
+          "full_body_jacobian_norm": 3.101058006286621,
+          "generalized_id_columns": [
+            19,
+            25,
+            27,
+            29,
+            31,
+            33,
+            35
+          ],
+          "jacobian_body_id": 35,
+          "jacobian_norm": 2.866552851334632,
+          "jacobian_shape": [
+            1,
+            59,
+            6,
+            59
+          ],
+          "joint_id_columns_norm": 2.8665528297424316,
+          "mass_condition": 2207.179638884185,
+          "mass_matrix_shape": [
+            1,
+            59,
+            59
+          ],
+          "palm_body_id": 36,
+          "physx_used": true
+        },
+        "right": {
+          "body_count": 60,
+          "fallback_reason": null,
+          "full_body_jacobian_norm": 3.034942150115967,
+          "generalized_id_columns": [
+            20,
+            26,
+            28,
+            30,
+            32,
+            34,
+            36
+          ],
+          "jacobian_body_id": 36,
+          "jacobian_norm": 2.820206964039446,
+          "jacobian_shape": [
+            1,
+            59,
+            6,
+            59
+          ],
+          "joint_id_columns_norm": 2.820206880569458,
+          "mass_condition": 1178.5077258319236,
+          "mass_matrix_shape": [
+            1,
+            59,
+            59
+          ],
+          "palm_body_id": 37,
+          "physx_used": true
+        }
+      },
+      "arm_mpc_feasible_rates": [
+        0.96,
+        0.96
+      ],
+      "bilateral_contact_steps": 0,
+      "box_dropped": false,
+      "collision_count": 0,
+      "command_fallback_reason_counts": {
+        "safety_qp_infeasible": 20,
+        "source_plan_infeasible": 56
+      },
+      "contact_timing_steps": {
+        "left_o6": {
+          "count": 5,
+          "first": 238,
+          "last": 249
+        },
+        "right_o6": {
+          "count": 0,
+          "first": null,
+          "last": null
+        }
+      },
+      "fallback_counts": {
+        "arm_mpc": 14,
+        "left_hand_mpc": 0,
+        "object_mpc": 0,
+        "right_hand_mpc": 0,
+        "wbc_qp": 15
+      },
+      "fallback_reason_counts": {
+        "dual_arm_mpc_infeasible": 14,
+        "qp_infeasible": 1,
+        "right_arm_mpc_infeasible": 14
+      },
+      "final_base_state": [
+        2.3283064365386963e-10,
+        1.862645149230957e-09,
+        0.6200000047683716,
+        0.9999999403953552,
+        1.446668479454516e-10,
+        -7.382506064801397e-12,
+        -4.489082716663262e-13,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_box_pose_b": [
+        0.6653984782837423,
+        -0.015213949437411625,
+        0.579999923700632,
+        -6.931890119268812e-08,
+        2.413102891358354e-07,
+        0.1311931520635717
+      ],
+      "final_contact_latched_hand_q": {
+        "left_o6": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "right_o6": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      "final_fingertip_box_distances_m": {
+        "left_o6": [
+          0.14813613875754414,
+          0.16450048252292562,
+          0.1587825793570827,
+          0.15002913202433182,
+          0.14070639966291829
+        ],
+        "right_o6": [
+          0.23111704803600244,
+          0.24196674439566168,
+          0.2568009618471659,
+          0.27011733127977167,
+          0.28351350200960623
+        ]
+      },
+      "final_fingertip_box_offsets_m": {
+        "left_o6": [
+          [
+            -0.022079229355553953,
+            0.23813613875754414,
+            -0.032626867362886336
+          ],
+          [
+            -0.024941384793982557,
+            0.24764002484254316,
+            -0.09701097018694399
+          ],
+          [
+            -0.030333638193071,
+            0.23669801276695118,
+            -0.11075854308256328
+          ],
+          [
+            -0.04035758972362291,
+            0.22373188656130888,
+            -0.11800384527898111
+          ],
+          [
+            -0.051411688329798255,
+            0.2101144007981282,
+            -0.12328588968558346
+          ]
+        ],
+        "right_o6": [
+          [
+            -0.19960376620659276,
+            -0.12366632007031432,
+            -0.2558172940820606
+          ],
+          [
+            -0.16085398197554712,
+            -0.17450507365497053,
+            -0.26841151709038436
+          ],
+          [
+            -0.16375041008388636,
+            -0.19006978355948384,
+            -0.2777469157598494
+          ],
+          [
+            -0.17386355996532432,
+            -0.20363025748011782,
+            -0.28365725272705955
+          ],
+          [
+            -0.1859882772009538,
+            -0.2163681425991424,
+            -0.288782358104207
+          ]
+        ]
+      },
+      "final_left_hand_q": [
+        0.2501406967639923,
+        0.24991877377033234,
+        0.24834783375263214,
+        0.24836717545986176,
+        0.24079692363739014,
+        0.23344843089580536
+      ],
+      "final_palm_target_errors": [
+        0.12587677735082753,
+        0.24065167242894456
+      ],
+      "final_palm_target_rotation_errors_rad": [
+        0.06493234420085317,
+        0.2193103734001898
+      ],
+      "final_phase": "APPROACH",
+      "final_right_hand_q": [
+        0.24999186396598816,
+        0.2499675303697586,
+        0.25002339482307434,
+        0.249948188662529,
+        0.2498060017824173,
+        0.24991562962532043
+      ],
+      "fingertip_jacobian_norms": {
+        "left_o6": 0.11190235539821534,
+        "right_o6": 0.13412781676265706
+      },
+      "first_arm_mpc_failure": {
+        "left_min_joint_margin": 0.501077347900746,
+        "left_qd_max": 2.293351888656616,
+        "left_reason": "right_arm_mpc_infeasible",
+        "right_min_joint_margin": 0.6510835463577886,
+        "right_qd_max": 2.2767224311828613,
+        "right_reason": "right_arm_mpc_infeasible",
+        "step": 184
+      },
+      "first_limit_violation": {
+        "joint": "left_pinky_mcp_pitch",
+        "maximum": 1.5199998617172241,
+        "minimum": 0.08000004291534424,
+        "position": 0.06631787866353989,
+        "step": 270,
+        "violation": 0.013682164251804352
+      },
+      "first_o6_body_contact_events": {
+        "left_o6": {
+          "body_contact_forces_n": {
+            "left_hand_base_link": 0.0,
+            "left_index_distal": 0.0,
+            "left_index_proximal": 0.0,
+            "left_middle_distal": 0.0,
+            "left_middle_proximal": 0.0,
+            "left_pinky_distal": 0.0,
+            "left_pinky_proximal": 0.0,
+            "left_ring_distal": 0.0,
+            "left_ring_proximal": 0.0,
+            "left_thumb_distal": 21.778038024902344,
+            "left_thumb_metacarpals": 0.0,
+            "left_thumb_metacarpals_base2": 0.0
+          },
+          "box_pose_b": [
+            0.6499999163292304,
+            -3.620907458934233e-08,
+            0.5799999236964575,
+            -1.8939907197398151e-07,
+            -8.994073365553429e-07,
+            -5.3937075801274946e-08
+          ],
+          "fingertip_positions_b": [
+            [
+              0.5474770662922769,
+              0.10325620153515795,
+              0.5637637376405689
+            ],
+            [
+              0.5487753150591773,
+              0.11668340690051057,
+              0.5000789165078195
+            ],
+            [
+              0.543511867297434,
+              0.10692921108689954,
+              0.4854177236167375
+            ],
+            [
+              0.533148467314866,
+              0.09506972706752213,
+              0.47687113281526816
+            ],
+            [
+              0.5216097829466451,
+              0.08251128918172393,
+              0.4701870679539598
+            ]
+          ],
+          "force_n": 21.778038024902344,
+          "hand_q": [
+            0.25120416283607483,
+            0.25005340576171875,
+            0.2373269647359848,
+            0.2382732778787613,
+            0.23850788176059723,
+            0.2380998432636261
+          ],
+          "link": "left_thumb_distal",
+          "palm_pose_b": [
+            0.4583199021951328,
+            0.0970253182285542,
+            0.5422685145983389,
+            -2.26274153044177,
+            1.010631193371529,
+            -1.0978394101164455
+          ],
+          "phase": "APPROACH",
+          "selected_fingertip_forces_n": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "step": 237
+        },
+        "right_o6": null
+      },
+      "first_object_mpc_failure": null,
+      "first_right_palm_base_contact_orientation": null,
+      "first_right_selected_fingertip_contact_orientation": null,
+      "first_safety_failure": {
+        "base_state": [
+          2.3283064365386963e-10,
+          1.862645149230957e-09,
+          0.6200000047683716,
+          0.9999999403953552,
+          1.446668479454516e-10,
+          -7.382506064801397e-12,
+          -4.489082716663262e-13,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "fastest_joint": "left_index_mcp_pitch",
+        "max_velocity_fraction": 1.0000091791152954,
+        "minimum_position_margin_rad": 0.01999640464782715,
+        "reason": "safety_qp_infeasible",
+        "step": 329,
+        "tightest_joint": "right_panda_joint6"
+      },
+      "hand_mpc_feasible_rates": [
+        1.0,
+        1.0
+      ],
+      "hard_failure_count": 57,
+      "hold_duration_s": 0.0,
+      "hold_orientation_error_rad": 1000000000.0,
+      "hold_position_error_m": 1000000000.0,
+      "initial_box_pose_b": [
+        0.6499999761581421,
+        0.0,
+        0.5800000429153442,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "initial_fingertip_box_ray_projections_m": {
+        "left_o6": [
+          0.06073634550933239,
+          0.05763828877430549,
+          0.061276407039079904,
+          0.0620423918398673,
+          0.06225388253567892
+        ],
+        "right_o6": [
+          0.08341226255754337,
+          0.0789083146062342,
+          0.06693678929074705,
+          0.050745093925847404,
+          0.03356418654865356
+        ]
+      },
+      "initial_fingertip_palm_offsets_m": {
+        "left_o6": [
+          [
+            0.08827805519104004,
+            0.011744365096092224,
+            0.022792577743530273
+          ],
+          [
+            0.09116363525390625,
+            0.0161760151386261,
+            -0.042143940925598145
+          ],
+          [
+            0.08658692240715027,
+            0.004322722554206848,
+            -0.055423855781555176
+          ],
+          [
+            0.0767829418182373,
+            -0.008907780051231384,
+            -0.062489986419677734
+          ],
+          [
+            0.06576624512672424,
+            -0.022603943943977356,
+            -0.06764519214630127
+          ]
+        ],
+        "right_o6": [
+          [
+            0.05136001110076904,
+            0.07030466198921204,
+            -0.029492974281311035
+          ],
+          [
+            0.08905637264251709,
+            0.019518479704856873,
+            -0.0451282262802124
+          ],
+          [
+            0.08613941073417664,
+            0.005032524466514587,
+            -0.05605733394622803
+          ],
+          [
+            0.07590988278388977,
+            -0.007522881031036377,
+            -0.06372642517089844
+          ],
+          [
+            0.06365901231765747,
+            -0.019261449575424194,
+            -0.07062935829162598
+          ]
+        ]
+      },
+      "initial_left_palm_pose_b": [
+        0.4127938151359558,
+        0.2000000923871994,
+        0.5682953596115112,
+        -2.3561066916760125,
+        0.9152017157775988,
+        -1.2206307303716641
+      ],
+      "initial_right_palm_pose_b": [
+        0.4127938151359558,
+        -0.19999991357326508,
+        0.5682953596115112,
+        0.8025975331660854,
+        2.066216890465081,
+        0.4158026735843467
+      ],
+      "initial_velocity_max": 0.0,
+      "lift_height_m": 0.0004987716620427074,
+      "limit_violation_count": 57,
+      "max_abs_pitch_rad": 1.4765011249409608e-11,
+      "max_abs_roll_rad": 2.8933367864527764e-10,
+      "max_consecutive_bilateral_contact_steps": 0,
+      "max_contact_forces_n": {
+        "left_o6": 21.778038024902898,
+        "right_o6": 0.0
+      },
+      "max_joint_limit_violation_rad": 0.13316500186920166,
+      "max_o6_body_contact_events": {
+        "left_o6": {
+          "body_contact_forces_n": {
+            "left_hand_base_link": 0.0,
+            "left_index_distal": 0.0,
+            "left_index_proximal": 0.0,
+            "left_middle_distal": 0.0,
+            "left_middle_proximal": 0.0,
+            "left_pinky_distal": 0.0,
+            "left_pinky_proximal": 0.0,
+            "left_ring_distal": 0.0,
+            "left_ring_proximal": 0.0,
+            "left_thumb_distal": 21.778038024902344,
+            "left_thumb_metacarpals": 0.0,
+            "left_thumb_metacarpals_base2": 0.0
+          },
+          "box_pose_b": [
+            0.6499999163292304,
+            -3.620907458934233e-08,
+            0.5799999236964575,
+            -1.8939907197398151e-07,
+            -8.994073365553429e-07,
+            -5.3937075801274946e-08
+          ],
+          "fingertip_positions_b": [
+            [
+              0.5474770662922769,
+              0.10325620153515795,
+              0.5637637376405689
+            ],
+            [
+              0.5487753150591773,
+              0.11668340690051057,
+              0.5000789165078195
+            ],
+            [
+              0.543511867297434,
+              0.10692921108689954,
+              0.4854177236167375
+            ],
+            [
+              0.533148467314866,
+              0.09506972706752213,
+              0.47687113281526816
+            ],
+            [
+              0.5216097829466451,
+              0.08251128918172393,
+              0.4701870679539598
+            ]
+          ],
+          "force_n": 21.778038024902344,
+          "hand_q": [
+            0.25120416283607483,
+            0.25005340576171875,
+            0.2373269647359848,
+            0.2382732778787613,
+            0.23850788176059723,
+            0.2380998432636261
+          ],
+          "link": "left_thumb_distal",
+          "palm_pose_b": [
+            0.4583199021951328,
+            0.0970253182285542,
+            0.5422685145983389,
+            -2.26274153044177,
+            1.010631193371529,
+            -1.0978394101164455
+          ],
+          "phase": "APPROACH",
+          "selected_fingertip_forces_n": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "step": 237
+        },
+        "right_o6": null
+      },
+      "max_o6_body_contact_forces_n": {
+        "left_o6": 21.778038024902344,
+        "right_o6": 0.0
+      },
+      "max_o6_body_contact_links": {
+        "left_o6": "left_thumb_distal",
+        "right_o6": null
+      },
+      "min_fingertip_box_distances_m": {
+        "left_o6": 0.0005437152798472011,
+        "right_o6": 0.03875166354563516
+      },
+      "min_palm_target_errors": [
+        0.032142607102663874,
+        0.04776082284621126
+      ],
+      "min_palm_target_rotation_errors_rad": [
+        0.0,
+        0.07239774733055458
+      ],
+      "nonfinite_count": 0,
+      "object_mpc_feasible_rate": 1.0,
+      "orientation_boundary_trace": [
+        {
+          "current_rotvec_b": [
+            0.8025975331660854,
+            2.066216890465081,
+            0.4158026735843467
+          ],
+          "first_target_rotvec_b": [
+            0.8109076091187364,
+            2.071213881232616,
+            0.4017435936403459
+          ],
+          "first_tracking_geometric_rate_rad_s": 0.3499999999999956,
+          "geometric_first_delta_b": [
+            -0.0059577603302040675,
+            0.00945035951512814,
+            -0.008437760181628109
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000002696,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.013999999999999995,
+            "contact_latched": false,
+            "digit_support_m": 0.07586836620337445,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.0749859865474283,
+            "iterations": 25,
+            "lead_margin_m": 0.0008823796559461472,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 25,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.008310075952650986,
+            0.0049969907675349035,
+            -0.014059079944000796
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.01596880963839312,
+          "right_qd_max": 0.0,
+          "step": 0
+        },
+        {
+          "current_rotvec_b": [
+            0.7957288916486399,
+            2.070744868676579,
+            0.40553277767326473
+          ],
+          "first_target_rotvec_b": [
+            0.8192033058334944,
+            2.0761404241197443,
+            0.3876396225871922
+          ],
+          "first_tracking_geometric_rate_rad_s": 0.6195046408757782,
+          "geometric_first_delta_b": [
+            -0.002154362220174005,
+            0.01561146515272847,
+            -0.019123244476710394
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000347,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.027999999999999987,
+            "contact_latched": false,
+            "digit_support_m": 0.07597596171184366,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.07419504125053529,
+            "iterations": 25,
+            "lead_margin_m": 0.0017809204613083718,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 25,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.02347441418485452,
+            0.005395555443165279,
+            -0.017893155086072532
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.027617243003635505,
+          "right_qd_max": 1.051307201385498,
+          "step": 8
+        },
+        {
+          "current_rotvec_b": [
+            0.8082647236848236,
+            2.0695102630607862,
+            0.39737371613403183
+          ],
+          "first_target_rotvec_b": [
+            0.8274844318026562,
+            2.080996233552638,
+            0.3734908935513872
+          ],
+          "first_tracking_geometric_rate_rad_s": 0.684773190205089,
+          "geometric_first_delta_b": [
+            -0.007536256153248619,
+            0.02063381174514868,
+            -0.01636195499615601
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000003206,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.042000000000000204,
+            "contact_latched": false,
+            "digit_support_m": 0.07616416263653285,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.07177744785567887,
+            "iterations": 25,
+            "lead_margin_m": 0.004386714780853979,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 25,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.01921970811783258,
+            0.011485970491851738,
+            -0.023882822582644625
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.02925966631601239,
+          "right_qd_max": 1.7187336683273315,
+          "step": 16
+        },
+        {
+          "current_rotvec_b": [
+            0.8830203040957856,
+            2.0534859516423785,
+            0.4275921099580012
+          ],
+          "first_target_rotvec_b": [
+            0.8357507942579502,
+            2.085781021985956,
+            0.3592975404329342
+          ],
+          "first_tracking_geometric_rate_rad_s": 1.7774259918436113,
+          "geometric_first_delta_b": [
+            -0.06492873104037686,
+            0.023398821929922195,
+            0.01707466158224479
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000004844,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.05600000000000008,
+            "contact_latched": false,
+            "digit_support_m": 0.07618295139048875,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06992275478271782,
+            "iterations": 24,
+            "lead_margin_m": 0.0062601966077709265,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 24,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.0472695098378354,
+            0.03229507034357759,
+            -0.06829456952506696
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.08762931558086802,
+          "right_qd_max": 2.2529819011688232,
+          "step": 24
+        },
+        {
+          "current_rotvec_b": [
+            0.9339442722521527,
+            2.0542932580628337,
+            0.4421733296508802
+          ],
+          "first_target_rotvec_b": [
+            0.8440021991527779,
+            2.0904944998888184,
+            0.34505969793163244
+          ],
+          "first_tracking_geometric_rate_rad_s": 2.743850294383662,
+          "geometric_first_delta_b": [
+            -0.10267088000812767,
+            0.01655577381363871,
+            0.03507905147764371
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000299,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.07000000000000019,
+            "contact_latched": false,
+            "digit_support_m": 0.07617702314628225,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.0696046095187431,
+            "iterations": 23,
+            "lead_margin_m": 0.006572413627539145,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 23,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.08994207309937485,
+            0.03620124182598472,
+            -0.09711363171924775
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.1342492921006965,
+          "right_qd_max": 2.2697174549102783,
+          "step": 32
+        },
+        {
+          "current_rotvec_b": [
+            0.962194886317453,
+            2.0628128315364567,
+            0.427725104570519
+          ],
+          "first_target_rotvec_b": [
+            0.8522384511443147,
+            2.0951363757307977,
+            0.3307775015737229
+          ],
+          "first_tracking_geometric_rate_rad_s": 3.0135331332416344,
+          "geometric_first_delta_b": [
+            -0.11101900930093236,
+            0.006625562122385512,
+            0.046487553308752795
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000204,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.08400000000000045,
+            "contact_latched": false,
+            "digit_support_m": 0.07617352556985538,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06945311384992137,
+            "iterations": 22,
+            "lead_margin_m": 0.006720411719934011,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 22,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.10995643517313824,
+            0.032323544194341025,
+            -0.09694760299679611
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.14572288567944586,
+          "right_qd_max": 2.2688021659851074,
+          "step": 40
+        },
+        {
+          "current_rotvec_b": [
+            0.9597096920363006,
+            2.078650932127743,
+            0.3823711272252184
+          ],
+          "first_target_rotvec_b": [
+            0.8604593535754707,
+            2.099706355967922,
+            0.316451087738882
+          ],
+          "first_tracking_geometric_rate_rad_s": 2.441354504341553,
+          "geometric_first_delta_b": [
+            -0.08557616252831432,
+            -0.0037663159080013045,
+            0.04689215474680956
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000206,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.09800000000000049,
+            "contact_latched": false,
+            "digit_support_m": 0.0761748082253548,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06946211201014775,
+            "iterations": 21,
+            "lead_margin_m": 0.006712696215207051,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 21,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.09925033846082998,
+            0.021055423840179,
+            -0.0659200394863364
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.11631720861186806,
+          "right_qd_max": 2.336338996887207,
+          "step": 48
+        },
+        {
+          "current_rotvec_b": [
+            0.9238268639014386,
+            2.0969122084731087,
+            0.31413228913859126
+          ],
+          "first_target_rotvec_b": [
+            0.8686647084567084,
+            2.1042041450287003,
+            0.30208059368757517
+          ],
+          "first_tracking_geometric_rate_rad_s": 1.1559824473368603,
+          "geometric_first_delta_b": [
+            -0.030768986371914768,
+            -0.00974027890735586,
+            0.03311297501181838
+          ],
+          "max_future_geometric_rate_rad_s": 0.350000000000021,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.1120000000000004,
+            "contact_latched": false,
+            "digit_support_m": 0.0761319385467573,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06837399364126531,
+            "iterations": 20,
+            "lead_margin_m": 0.00775794490549199,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 20,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.05516215544473024,
+            0.007291936555591683,
+            -0.012051695451016087
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.054082996579402506,
+          "right_qd_max": 2.361074924468994,
+          "step": 56
+        },
+        {
+          "current_rotvec_b": [
+            0.9023306803989681,
+            2.100778371255119,
+            0.25537090679795993
+          ],
+          "first_target_rotvec_b": [
+            0.876854316447714,
+            2.108629445300164,
+            0.2876661575887737
+          ],
+          "first_tracking_geometric_rate_rad_s": 0.8309377261453521,
+          "geometric_first_delta_b": [
+            0.012780690249071379,
+            -0.007974841731235676,
+            0.029627484936956883
+          ],
+          "max_future_geometric_rate_rad_s": 0.350000000000018,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.12600000000000014,
+            "contact_latched": false,
+            "digit_support_m": 0.07595572886151325,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06612793561730165,
+            "iterations": 19,
+            "lead_margin_m": 0.009827793244211597,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 19,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.025476363951254077,
+            0.007851074045044815,
+            0.032295250790813745
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.04148709173822103,
+          "right_qd_max": 2.34090518951416,
+          "step": 64
+        },
+        {
+          "current_rotvec_b": [
+            0.8813174355506403,
+            2.1065160359340656,
+            0.21163715657381793
+          ],
+          "first_target_rotvec_b": [
+            0.8850279768389291,
+            2.112981957113939,
+            0.273207918548044
+          ],
+          "first_tracking_geometric_rate_rad_s": 1.2485237580213302,
+          "geometric_first_delta_b": [
+            0.04521982141941066,
+            -0.00616615645713178,
+            0.020279171193436616
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000002185,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.14000000000000032,
+            "contact_latched": false,
+            "digit_support_m": 0.07568348862924651,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06394177388352638,
+            "iterations": 18,
+            "lead_margin_m": 0.011741714745720125,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 18,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.003710541288288738,
+            0.006465921179873657,
+            0.06157076197422606
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.05989645391539855,
+          "right_qd_max": 2.325302839279175,
+          "step": 72
+        },
+        {
+          "current_rotvec_b": [
+            0.8775424903688263,
+            2.109244705066112,
+            0.19360558340862813
+          ],
+          "first_target_rotvec_b": [
+            0.8931854875329265,
+            2.117261378732338,
+            0.2587060166360147
+          ],
+          "first_tracking_geometric_rate_rad_s": 1.3707618793989116,
+          "geometric_first_delta_b": [
+            0.05292100761601117,
+            -0.002152516135269693,
+            0.014181489174789426
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000127,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.15400000000000028,
+            "contact_latched": false,
+            "digit_support_m": 0.07533220031936735,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.061804146648487865,
+            "iterations": 17,
+            "lead_margin_m": 0.013528053670879489,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 17,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.015642997164100225,
+            0.008016673666225937,
+            0.0651004332273866
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.06392027337162401,
+          "right_qd_max": 2.2553420066833496,
+          "step": 80
+        },
+        {
+          "current_rotvec_b": [
+            0.9017785860784084,
+            2.1086235211907196,
+            0.2008423480656371
+          ],
+          "first_target_rotvec_b": [
+            0.901326645025646,
+            2.1214674063344807,
+            0.24416059291722303
+          ],
+          "first_tracking_geometric_rate_rad_s": 0.926447237669036,
+          "geometric_first_delta_b": [
+            0.031879697263351686,
+            0.001639066057335535,
+            0.018822474320664577
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000001685,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.16800000000000068,
+            "contact_latched": false,
+            "digit_support_m": 0.07535215782179312,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06191985476649803,
+            "iterations": 16,
+            "lead_margin_m": 0.013432303055295094,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 16,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.0004519410527624723,
+            0.012843885143761113,
+            0.04331824485158592
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.04208236662626168,
+          "right_qd_max": 2.3084471225738525,
+          "step": 88
+        },
+        {
+          "current_rotvec_b": [
+            0.8912458666961017,
+            2.124008670035695,
+            0.19644052434963546
+          ],
+          "first_target_rotvec_b": [
+            0.9094512443874743,
+            2.125599734002457,
+            0.22957178947935844
+          ],
+          "first_tracking_geometric_rate_rad_s": 0.768698474794789,
+          "geometric_first_delta_b": [
+            0.03074288445260892,
+            -0.0003573586321149881,
+            -0.00042790487789410805
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000001663,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.18200000000000083,
+            "contact_latched": false,
+            "digit_support_m": 0.075841612190004,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06514153507792603,
+            "iterations": 15,
+            "lead_margin_m": 0.010700077112077974,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 15,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.018205377691372537,
+            0.0015910639667620075,
+            0.033131265129722975
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.035877615835113806,
+          "right_qd_max": 2.3113999366760254,
+          "step": 96
+        },
+        {
+          "current_rotvec_b": [
+            0.8755591874601633,
+            2.1350088141628163,
+            0.19374594337581977
+          ],
+          "first_target_rotvec_b": [
+            0.917559079244179,
+            2.129658053707512,
+            0.21493974946289757
+          ],
+          "first_tracking_geometric_rate_rad_s": 0.9566203902132822,
+          "geometric_first_delta_b": [
+            0.031142525915695916,
+            0.003351490385745124,
+            -0.02197968847230019
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000095,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.19600000000000095,
+            "contact_latched": false,
+            "digit_support_m": 0.07617133627282645,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.0693787461313966,
+            "iterations": 14,
+            "lead_margin_m": 0.006792590141429855,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 14,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.04199989178401575,
+            -0.005350760455304471,
+            0.0211938060870778
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.04536035929936783,
+          "right_qd_max": 2.2931904792785645,
+          "step": 104
+        },
+        {
+          "current_rotvec_b": [
+            0.8469837474085858,
+            2.1473252464434016,
+            0.19037232494647535
+          ],
+          "first_target_rotvec_b": [
+            0.9256499417576844,
+            2.1336420552962787,
+            0.20026461709114604
+          ],
+          "first_tracking_geometric_rate_rad_s": 1.612438374671081,
+          "geometric_first_delta_b": [
+            0.036855469877742755,
+            0.009286422282391115,
+            -0.0521091999618395
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000001996,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.21000000000000105,
+            "contact_latched": false,
+            "digit_support_m": 0.07604016815995879,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.07361176523549354,
+            "iterations": 13,
+            "lead_margin_m": 0.0024284029244652505,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 13,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.0786661943490986,
+            -0.013683191147122908,
+            0.009892292144670689
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.07822994851944229,
+          "right_qd_max": 2.3416671752929688,
+          "step": 112
+        },
+        {
+          "current_rotvec_b": [
+            0.7963575222704486,
+            2.1587470054684594,
+            0.18081485591305355
+          ],
+          "first_target_rotvec_b": [
+            0.9337236226066987,
+            2.1375514264770494,
+            0.1855465377006916
+          ],
+          "first_tracking_geometric_rate_rad_s": 2.7891515353159706,
+          "geometric_first_delta_b": [
+            0.05567263080922706,
+            0.020164673442002706,
+            -0.09455649201871646
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000097,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.2240000000000009,
+            "contact_latched": false,
+            "digit_support_m": 0.07592756904496734,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.07458365976395123,
+            "iterations": 12,
+            "lead_margin_m": 0.0013439092810161035,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 12,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.13736610033625007,
+            -0.021195578991410002,
+            0.0047316817876380535
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.13506529866149602,
+          "right_qd_max": 2.3407227993011475,
+          "step": 120
+        },
+        {
+          "current_rotvec_b": [
+            0.7760785843942162,
+            2.1537481942535948,
+            0.18116115509855202
+          ],
+          "first_target_rotvec_b": [
+            0.941779910967183,
+            2.141385852806095,
+            0.170785657772273
+          ],
+          "first_tracking_geometric_rate_rad_s": 3.3742860489216855,
+          "geometric_first_delta_b": [
+            0.05842281771879244,
+            0.039126611379142355,
+            -0.11520925655388264
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000003273,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.23800000000000004,
+            "contact_latched": false,
+            "digit_support_m": 0.07619001997400535,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.07063676312046158,
+            "iterations": 11,
+            "lead_margin_m": 0.00555325685354377,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 11,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.16570132657296688,
+            -0.012362341447499592,
+            -0.010375497326279015
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.158587224576731,
+          "right_qd_max": 1.4185230731964111,
+          "step": 128
+        },
+        {
+          "current_rotvec_b": [
+            0.7885882102173134,
+            2.1469923789048835,
+            0.19642539823699565
+          ],
+          "first_target_rotvec_b": [
+            0.949818594492665,
+            2.1451450176740274,
+            0.1559821249620739
+          ],
+          "first_tracking_geometric_rate_rad_s": 3.391428321548936,
+          "geometric_first_delta_b": [
+            0.037949380903742246,
+            0.054468345824224225,
+            -0.11830427502217397
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000129,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.25200000000000017,
+            "contact_latched": false,
+            "digit_support_m": 0.0754470820456776,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06243410070477601,
+            "iterations": 10,
+            "lead_margin_m": 0.013012981340901592,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 10,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.16123038427535163,
+            -0.0018473612308560483,
+            -0.040443273274921754
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.15630739024918175,
+          "right_qd_max": 2.3503074645996094,
+          "step": 136
+        },
+        {
+          "current_rotvec_b": [
+            0.8032275097174321,
+            2.151750530060399,
+            0.20805991470886245
+          ],
+          "first_target_rotvec_b": [
+            0.9578394592943931,
+            2.1488286022922227,
+            0.14113608813345457
+          ],
+          "first_tracking_geometric_rate_rad_s": 3.411927647748502,
+          "geometric_first_delta_b": [
+            0.016665532282398688,
+            0.05806124113227342,
+            -0.12238117808501979
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000414,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.2659999999999999,
+            "contact_latched": false,
+            "digit_support_m": 0.07205501438033138,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04952079574748271,
+            "iterations": 9,
+            "lead_margin_m": 0.02253421863284867,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 9,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.154611949576961,
+            -0.0029219277681762357,
+            -0.06692382657540788
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.1606974759291724,
+          "right_qd_max": 2.5881059169769287,
+          "step": 144
+        },
+        {
+          "current_rotvec_b": [
+            0.874642516195927,
+            2.140333031842021,
+            0.24226197522357582
+          ],
+          "first_target_rotvec_b": [
+            0.9658422899213346,
+            2.1524362856792956,
+            0.12624769738911337
+          ],
+          "first_tracking_geometric_rate_rad_s": 2.969000571577801,
+          "geometric_first_delta_b": [
+            -0.03954105123964084,
+            0.0659616155417489,
+            -0.09049593124794893
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000001025,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.3,
+            "committed_angle_rad": 0.28,
+            "contact_latched": false,
+            "digit_support_m": 0.06950522061679358,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.042524761974157735,
+            "iterations": 3,
+            "lead_margin_m": 0.026980458642635846,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 3,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.09119977372540755,
+            0.012103253837274508,
+            -0.11601427783446244
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.1436839324717306,
+          "right_qd_max": 2.1995809078216553,
+          "step": 152
+        },
+        {
+          "current_rotvec_b": [
+            0.9648039362221094,
+            2.1205181309456367,
+            0.2665795681888112
+          ],
+          "first_target_rotvec_b": [
+            0.9578394592943932,
+            2.1488286022922227,
+            0.14113608813345402
+          ],
+          "first_tracking_geometric_rate_rad_s": 2.5348867107320294,
+          "geometric_first_delta_b": [
+            -0.08303349219918854,
+            0.05290171046220306,
+            -0.024246426981596434
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000425,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.19999999999999998,
+            "committed_angle_rad": 0.26600000000000024,
+            "contact_latched": false,
+            "digit_support_m": 0.0704099762593075,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.0422463558518877,
+            "iterations": 6,
+            "lead_margin_m": 0.028163620407419807,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 6,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.006964476927716179,
+            0.02831047134658604,
+            -0.12544348005535716
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.12896537394365393,
+          "right_qd_max": 2.191962480545044,
+          "step": 160
+        },
+        {
+          "current_rotvec_b": [
+            1.087659071725507,
+            2.0763928663670637,
+            0.3045338435186969
+          ],
+          "first_target_rotvec_b": [
+            0.9498185944926651,
+            2.1451450176740274,
+            0.15598212496207392
+          ],
+          "first_tracking_geometric_rate_rad_s": 4.200041381564626,
+          "geometric_first_delta_b": [
+            -0.14648211461041244,
+            0.0495587341219193,
+            0.06566184693155813
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000925,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.15,
+            "committed_angle_rad": 0.2520000000000002,
+            "contact_latched": false,
+            "digit_support_m": 0.0705025111724179,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04202889054025869,
+            "iterations": 8,
+            "lead_margin_m": 0.028473620632159212,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 8,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.13784047723284187,
+            0.06875215130696377,
+            -0.14855171855662297
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.21524524802876333,
+          "right_qd_max": 2.2546298503875732,
+          "step": 168
+        },
+        {
+          "current_rotvec_b": [
+            1.1827406255791706,
+            2.0262499973827355,
+            0.3303507523195729
+          ],
+          "first_target_rotvec_b": [
+            0.941779910967183,
+            2.1413858528060947,
+            0.17078565777227267
+          ],
+          "first_tracking_geometric_rate_rad_s": 6.11234356685037,
+          "geometric_first_delta_b": [
+            -0.19120958930224413,
+            0.053445392698794614,
+            0.14268732657417807
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000001663,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.125,
+            "committed_angle_rad": 0.23800000000000035,
+            "contact_latched": false,
+            "digit_support_m": 0.07069764686130607,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04226904406247981,
+            "iterations": 9,
+            "lead_margin_m": 0.02842860279882626,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 9,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.24096071461198754,
+            0.11513585542335925,
+            -0.15956509454730022
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.31246986052186243,
+          "right_qd_max": 2.2949299812316895,
+          "step": 176
+        },
+        {
+          "current_rotvec_b": [
+            1.2378893186150675,
+            1.98352226697549,
+            0.3310561527008251
+          ],
+          "first_target_rotvec_b": [
+            0.9337236226066987,
+            2.13755142647705,
+            0.18554653770069232
+          ],
+          "first_tracking_geometric_rate_rad_s": 7.290281832710119,
+          "geometric_first_delta_b": [
+            -0.20431185427199014,
+            0.05814607994129791,
+            0.19978196693383116
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000653,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.125,
+            "committed_angle_rad": 0.2240000000000003,
+            "contact_latched": false,
+            "digit_support_m": 0.07056027061298745,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04199264781258949,
+            "iterations": 8,
+            "lead_margin_m": 0.028567622800397957,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 8,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.30416569600836874,
+            0.15402915950155993,
+            -0.1455096150001328
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.3720089128098043,
+          "right_qd_max": 2.2767224311828613,
+          "step": 184
+        },
+        {
+          "current_rotvec_b": [
+            1.2765802906546933,
+            1.9423620336119791,
+            0.30829258638973306
+          ],
+          "first_target_rotvec_b": [
+            0.9256499417576838,
+            2.133642055296278,
+            0.20026461709114698
+          ],
+          "first_tracking_geometric_rate_rad_s": 8.156840700845088,
+          "geometric_first_delta_b": [
+            -0.19528831722736217,
+            0.06204189705923513,
+            0.25390501474791155
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000653,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.125,
+            "committed_angle_rad": 0.21000000000000024,
+            "contact_latched": false,
+            "digit_support_m": 0.07086190149943675,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04259901767507088,
+            "iterations": 7,
+            "lead_margin_m": 0.02826288382436587,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 7,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.35093034889700947,
+            0.1912800216842987,
+            -0.10802796929858607
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.4146352853046413,
+          "right_qd_max": 2.278878927230835,
+          "step": 192
+        },
+        {
+          "current_rotvec_b": [
+            1.3208965650469522,
+            1.9055366390352189,
+            0.28283000194445135
+          ],
+          "first_target_rotvec_b": [
+            0.9175590792441782,
+            2.129658053707512,
+            0.21493974946289818
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.204635947876723,
+          "geometric_first_delta_b": [
+            -0.18840591564687922,
+            0.05817126316611911,
+            0.3109338061125393
+          ],
+          "max_future_geometric_rate_rad_s": 0.34999999999999937,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.15,
+            "committed_angle_rad": 0.19600000000000026,
+            "contact_latched": false,
+            "digit_support_m": 0.07036471380242584,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.042014754830815994,
+            "iterations": 4,
+            "lead_margin_m": 0.02834995897160985,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 4,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.40333748580277395,
+            0.22412141467229296,
+            -0.06789025248155317
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.4660930164723569,
+          "right_qd_max": 2.3061885833740234,
+          "step": 200
+        },
+        {
+          "current_rotvec_b": [
+            1.3369192191781867,
+            1.8895434958082533,
+            0.23644511169765609
+          ],
+          "first_target_rotvec_b": [
+            0.9094512443874742,
+            2.125599734002457,
+            0.22957178947935894
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.654167758587446,
+          "geometric_first_delta_b": [
+            -0.15752687993669603,
+            0.0436315412113071,
+            0.3498661156591972
+          ],
+          "max_future_geometric_rate_rad_s": 0.34999999999999465,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.15,
+            "committed_angle_rad": 0.18200000000000033,
+            "contact_latched": false,
+            "digit_support_m": 0.07075354368303717,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.042723857126753924,
+            "iterations": 3,
+            "lead_margin_m": 0.028029686556283247,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 3,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.4274679747907125,
+            0.23605623819420352,
+            -0.006873322218297145
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.48698920443588406,
+          "right_qd_max": 2.307528018951416,
+          "step": 208
+        },
+        {
+          "current_rotvec_b": [
+            1.3208254059719349,
+            1.9051413411975477,
+            0.16068730074898183
+          ],
+          "first_target_rotvec_b": [
+            0.9013266450256456,
+            2.1214674063344807,
+            0.2441605929172233
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.483600798446467,
+          "geometric_first_delta_b": [
+            -0.09595648088770092,
+            0.009287218289430563,
+            0.3668896236185536
+          ],
+          "max_future_geometric_rate_rad_s": 0.3402468310259838,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.15,
+            "committed_angle_rad": 0.1680000000000003,
+            "contact_latched": false,
+            "digit_support_m": 0.07027763293374283,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04252355317383474,
+            "iterations": 2,
+            "lead_margin_m": 0.02775407975990809,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 2,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.41949876094628924,
+            0.21632606513693298,
+            0.08347329216824148
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.4773567932083996,
+          "right_qd_max": 2.3076558113098145,
+          "step": 216
+        },
+        {
+          "current_rotvec_b": [
+            1.3206202433766696,
+            1.9121072970014898,
+            0.09114952000182465
+          ],
+          "first_target_rotvec_b": [
+            0.8934411879840424,
+            2.1173944711733585,
+            0.2582502752045768
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.949771294311983,
+          "geometric_first_delta_b": [
+            -0.045538656015490536,
+            -0.02411839271682848,
+            0.3946406619136493
+          ],
+          "max_future_geometric_rate_rad_s": 0.1121938234958513,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.15,
+            "committed_angle_rad": 0.15443928792735165,
+            "contact_latched": false,
+            "digit_support_m": 0.06903735530256737,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.042583213993600974,
+            "iterations": 1,
+            "lead_margin_m": 0.026454141308966395,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 1,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.42717905539262724,
+            0.2052871741718687,
+            0.16710075520275214
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.5000507151302442,
+          "right_qd_max": 2.3437340259552,
+          "step": 224
+        },
+        {
+          "current_rotvec_b": [
+            1.2597064748396158,
+            1.958357638511891,
+            0.003279226786794707
+          ],
+          "first_target_rotvec_b": [
+            0.885284187316074,
+            2.1131173478630947,
+            0.2727535448801657
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.638861964961027,
+          "geometric_first_delta_b": [
+            0.03981788346116859,
+            -0.07072714562121055,
+            0.3769143974382839
+          ],
+          "max_future_geometric_rate_rad_s": 0.29741494289394543,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.125,
+            "committed_angle_rad": 0.1404392879273517,
+            "contact_latched": false,
+            "digit_support_m": 0.0682367264433908,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.042503580015154405,
+            "iterations": 2,
+            "lead_margin_m": 0.02573314642823639,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 2,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.3744222875235419,
+            0.15475970935120364,
+            0.26947431809337097
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.4837174915923901,
+          "right_qd_max": 2.308492422103882,
+          "step": 232
+        },
+        {
+          "current_rotvec_b": [
+            1.1727440747590996,
+            1.9798815707014228,
+            -0.06023045332598172
+          ],
+          "first_target_rotvec_b": [
+            0.8934411879840424,
+            2.1173944711733585,
+            0.2582502752045768
+          ],
+          "first_tracking_geometric_rate_rad_s": 8.836631512877405,
+          "geometric_first_delta_b": [
+            0.11477738384524205,
+            -0.06171598200657976,
+            0.32856503178763613
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000786,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.175,
+            "committed_angle_rad": 0.15443928792735173,
+            "contact_latched": false,
+            "digit_support_m": 0.06474079619204172,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04154681364897238,
+            "iterations": 3,
+            "lead_margin_m": 0.02319398254306934,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 3,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.2793028867750572,
+            0.13751290047193576,
+            0.3184807285305585
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.44169344627013335,
+          "right_qd_max": 2.530045509338379,
+          "step": 240
+        },
+        {
+          "current_rotvec_b": [
+            0.9758365533280747,
+            2.0039924649980727,
+            -0.12676905005219682
+          ],
+          "first_target_rotvec_b": [
+            0.9015818290422739,
+            2.1215981909003037,
+            0.24370348816490964
+          ],
+          "first_tracking_geometric_rate_rad_s": 8.005190405322994,
+          "geometric_first_delta_b": [
+            0.24062298498548504,
+            -0.02122065255165411,
+            0.21019795546750097
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000002296,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.32499999999999996,
+            "committed_angle_rad": 0.1684392879273519,
+            "contact_latched": false,
+            "digit_support_m": 0.056584240036031276,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.03891461999326202,
+            "iterations": 12,
+            "lead_margin_m": 0.017669620042769257,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 12,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            -0.07425472428580082,
+            0.11760572590223095,
+            0.37047253821710646
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.3796164867680458,
+          "right_qd_max": 2.3824684619903564,
+          "step": 248
+        },
+        {
+          "current_rotvec_b": [
+            0.7903028921243046,
+            2.030465718328183,
+            -0.183983411029934
+          ],
+          "first_target_rotvec_b": [
+            0.9097059055161167,
+            2.125728201059995,
+            0.22911332588143524
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.066541301919706,
+          "geometric_first_delta_b": [
+            0.35143345170700724,
+            0.003725313546456571,
+            0.0894657752849916
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000002357,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.18243928792735198,
+            "contact_latched": false,
+            "digit_support_m": 0.05466122943989779,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.047850373801425206,
+            "iterations": 15,
+            "lead_margin_m": 0.006810855638472585,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 15,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.11940301339181214,
+            0.09526248273181182,
+            0.4130967369113693
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.40860026550459294,
+          "right_qd_max": 1.622147560119629,
+          "step": 256
+        },
+        {
+          "current_rotvec_b": [
+            0.7043675293764753,
+            2.043630606658056,
+            -0.19943168492550745
+          ],
+          "first_target_rotvec_b": [
+            0.9178132109856996,
+            2.129784193557221,
+            0.21447993152814807
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.79817824436333,
+          "geometric_first_delta_b": [
+            0.39084019926688873,
+            0.01842515601369228,
+            0.022612547759896424
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000129,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.196439287927352,
+            "contact_latched": false,
+            "digit_support_m": 0.05407992722619304,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.049822715211377384,
+            "iterations": 14,
+            "lead_margin_m": 0.004257212014815659,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 14,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.21344568160922428,
+            0.08615358689916475,
+            0.4139116164536555
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.43493783050662177,
+          "right_qd_max": 0.5761213302612305,
+          "step": 264
+        },
+        {
+          "current_rotvec_b": [
+            0.6714131319759055,
+            2.0417677284288644,
+            -0.17783234380721363
+          ],
+          "first_target_rotvec_b": [
+            0.9259035375667017,
+            2.133765858171728,
+            0.1998034493628212
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.704548693804457,
+          "geometric_first_delta_b": [
+            0.38537003262135827,
+            0.04380893094181864,
+            -0.015998127634914934
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000001563,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.210439287927352,
+            "contact_latched": false,
+            "digit_support_m": 0.05318046154373763,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.05216235811970901,
+            "iterations": 13,
+            "lead_margin_m": 0.0010181034240286171,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 13,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.2544904055907963,
+            0.09199812974286337,
+            0.3776357931700348
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.417611469264223,
+          "right_qd_max": 1.3247532844543457,
+          "step": 272
+        },
+        {
+          "current_rotvec_b": [
+            0.6294708871439324,
+            2.0488602207740136,
+            -0.1286611220464866
+          ],
+          "first_target_rotvec_b": [
+            0.9339766758909772,
+            2.1376728825444906,
+            0.18508402475747185
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.416151007400844,
+          "geometric_first_delta_b": [
+            0.3624122370001623,
+            0.07221420654771457,
+            -0.07283349858343839
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000847,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.2244392879273519,
+            "contact_latched": false,
+            "digit_support_m": 0.05001485778538842,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.056463819844665857,
+            "iterations": 12,
+            "lead_margin_m": -0.00644896205927744,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 12,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.3045057887470448,
+            0.08881266177047697,
+            0.3137451468039585
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.3912438044680424,
+          "right_qd_max": 2.211822509765625,
+          "step": 280
+        },
+        {
+          "current_rotvec_b": [
+            0.5860136472497255,
+            2.0785588029576787,
+            -0.06141475203273698
+          ],
+          "first_target_rotvec_b": [
+            0.942032415087015,
+            2.1415049521640306,
+            0.17032180422924362
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.047989690363586,
+          "geometric_first_delta_b": [
+            0.3209690292828591,
+            0.08516787114724052,
+            -0.14391352912269006
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000002596,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.23843928792735106,
+            "contact_latched": false,
+            "digit_support_m": 0.04197927983142182,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06000122884872346,
+            "iterations": 11,
+            "lead_margin_m": -0.01802194901730164,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 11,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.3560187678372895,
+            0.06294614920635189,
+            0.2317365562619806
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.3779355444361676,
+          "right_qd_max": 2.348794460296631,
+          "step": 288
+        },
+        {
+          "current_rotvec_b": [
+            0.5107278884689167,
+            2.1059376046804426,
+            -0.03701072969896881
+          ],
+          "first_target_rotvec_b": [
+            0.9500705427602536,
+            2.14526175035279,
+            0.15551693547171408
+          ],
+          "first_tracking_geometric_rate_rad_s": 10.030966143954627,
+          "geometric_first_delta_b": [
+            0.32121934275180913,
+            0.09126700121387922,
+            -0.222443069528776
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000001147,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.25243928792735126,
+            "contact_latched": false,
+            "digit_support_m": 0.036943181905050304,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06113575175134826,
+            "iterations": 10,
+            "lead_margin_m": -0.02419256984629796,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 10,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.4393426542913369,
+            0.039324145672347655,
+            0.1925276651706829
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.4345709235877171,
+          "right_qd_max": 2.3637290000915527,
+          "step": 296
+        },
+        {
+          "current_rotvec_b": [
+            0.43820209824892153,
+            2.117770996271237,
+            0.00036103292951138074
+          ],
+          "first_target_rotvec_b": [
+            0.9580908449732242,
+            2.1489429582535444,
+            0.14066956738664044
+          ],
+          "first_tracking_geometric_rate_rad_s": 11.197321648263433,
+          "geometric_first_delta_b": [
+            0.3141581825543801,
+            0.11271882398270808,
+            -0.2986756140121826
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000575,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.2664392879273509,
+            "contact_latched": false,
+            "digit_support_m": 0.03622690862142462,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06151484210625058,
+            "iterations": 9,
+            "lead_margin_m": -0.025287933484825956,
+            "leading_digit_index": 1,
+            "qp_feasible": true,
+            "qp_iterations": 9,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.5198887467243026,
+            0.031171961982307206,
+            0.14030853445712907
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.4916116743356627,
+          "right_qd_max": 2.3288519382476807,
+          "step": 304
+        },
+        {
+          "current_rotvec_b": [
+            0.3999999408898961,
+            2.1175762994068807,
+            0.06400895935714247
+          ],
+          "first_target_rotvec_b": [
+            0.9660931062255488,
+            2.1525482548158865,
+            0.12577985011613355
+          ],
+          "first_tracking_geometric_rate_rad_s": 11.851299493242852,
+          "geometric_first_delta_b": [
+            0.2775436745525847,
+            0.14549642929261425,
+            -0.35570433967637993
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000886,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.2804392879273511,
+            "contact_latched": false,
+            "digit_support_m": 0.03481067434602558,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.06018743842637199,
+            "iterations": 8,
+            "lead_margin_m": -0.025376764080346406,
+            "leading_digit_index": 1,
+            "qp_feasible": true,
+            "qp_iterations": 8,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.5660931653356527,
+            0.03497195540900577,
+            0.06177089075899107
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.5193862108156919,
+          "right_qd_max": 2.30385422706604,
+          "step": 312
+        },
+        {
+          "current_rotvec_b": [
+            0.4037652281898576,
+            2.1188886156065476,
+            0.12893086373343418
+          ],
+          "first_target_rotvec_b": [
+            0.9740771094337689,
+            2.1560773167827643,
+            0.11084793507529127
+          ],
+          "first_tracking_geometric_rate_rad_s": 11.86893559639099,
+          "geometric_first_delta_b": [
+            0.22282387120634592,
+            0.16933417191263553,
+            -0.3834971605492318
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000104,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.29443928792735125,
+            "contact_latched": false,
+            "digit_support_m": 0.02975638157673227,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.05416043534133427,
+            "iterations": 7,
+            "lead_margin_m": -0.024404053764602,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 7,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.5703118812439113,
+            0.03718870117621664,
+            -0.018082928658142913
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.5212848582345082,
+          "right_qd_max": 2.264956474304199,
+          "step": 320
+        },
+        {
+          "current_rotvec_b": [
+            0.45784550853981004,
+            2.133890529819072,
+            0.18400088941136844
+          ],
+          "first_target_rotvec_b": [
+            0.9820426359110143,
+            2.159529818677081,
+            0.09587397498527718
+          ],
+          "first_tracking_geometric_rate_rad_s": 10.975168714572106,
+          "geometric_first_delta_b": [
+            0.1522794390310951,
+            0.1688309974720209,
+            -0.37554492679610685
+          ],
+          "max_future_geometric_rate_rad_s": 0.35000000000000353,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.35,
+            "committed_angle_rad": 0.30843928792735115,
+            "contact_latched": false,
+            "digit_support_m": 0.026106558070311037,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04380475522408345,
+            "iterations": 6,
+            "lead_margin_m": -0.01769819715377241,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 6,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.5241971273712043,
+            0.025639288858009035,
+            -0.08812691442609126
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.4913611158310974,
+          "right_qd_max": 2.1826953887939453,
+          "step": 328
+        },
+        {
+          "current_rotvec_b": [
+            0.5452339882301259,
+            2.1472804261539706,
+            0.24255419181106036
+          ],
+          "first_target_rotvec_b": [
+            0.9740771094337689,
+            2.1560773167827643,
+            0.11084793507529127
+          ],
+          "first_tracking_geometric_rate_rad_s": 9.166615081856788,
+          "geometric_first_delta_b": [
+            0.08092212815724151,
+            0.1474184110040141,
+            -0.32582564749545656
+          ],
+          "max_future_geometric_rate_rad_s": 0.3499999999999956,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.27499999999999997,
+            "committed_angle_rad": 0.29443928792735125,
+            "contact_latched": false,
+            "digit_support_m": 0.02730950734479443,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.042815788605914576,
+            "iterations": 3,
+            "lead_margin_m": -0.015506281261120147,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 3,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.428843121203643,
+            0.00879689062879363,
+            -0.13170625673576908
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.4218379797771225,
+          "right_qd_max": 2.2674622535705566,
+          "step": 336
+        },
+        {
+          "current_rotvec_b": [
+            0.6681248207866234,
+            2.1398999230775697,
+            0.3056222342643556
+          ],
+          "first_target_rotvec_b": [
+            0.9660931062255491,
+            2.152548254815887,
+            0.1257798501161336
+          ],
+          "first_tracking_geometric_rate_rad_s": 7.0650476894016085,
+          "geometric_first_delta_b": [
+            -0.002744177646288993,
+            0.1339968114399588,
+            -0.24879944167662466
+          ],
+          "max_future_geometric_rate_rad_s": 0.3500000000000137,
+          "orientation_plan": {
+            "basis_dimension": 1,
+            "candidate_angle_rad": 0.19999999999999998,
+            "committed_angle_rad": 0.28043928792735123,
+            "contact_latched": false,
+            "digit_support_m": 0.028888726678059577,
+            "fallback_reason": null,
+            "feasible": true,
+            "housing_support_m": 0.04258760187040158,
+            "iterations": 7,
+            "lead_margin_m": -0.013698875192342003,
+            "leading_digit_index": 0,
+            "qp_feasible": true,
+            "qp_iterations": 7,
+            "selected_axis_local": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "phase": "APPROACH",
+          "raw_first_delta": [
+            0.29796828543892573,
+            0.012648331738317253,
+            -0.17984238414822198
+          ],
+          "raw_geometric_first_delta_difference_rad": 0.3315245311642138,
+          "right_qd_max": 1.8053749799728394,
+          "step": 344
+        }
+      ],
+      "passed": false,
+      "phase_dwell_times_s": {
+        "APPROACH": 1.75
+      },
+      "relative_palm_slip_m": 0.007029203342893041,
+      "released_supported": false,
+      "reset_count": 0,
+      "right_palm_orientation_mpc": {
+        "basis_dimension": 1,
+        "candidate_angle_rad": 0.19999999999999998,
+        "committed_angle_rad": 0.28043928792735123,
+        "contact_latched": false,
+        "digit_support_m": 0.028888726678059577,
+        "fallback_reason": null,
+        "feasible": true,
+        "housing_support_m": 0.04258760187040158,
+        "iterations": 7,
+        "lead_margin_m": -0.013698875192342003,
+        "leading_digit_index": 0,
+        "qp_feasible": true,
+        "qp_iterations": 7,
+        "selected_axis_local": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "safety_feasible_rate": 0.9428571428571428,
+      "seed": 0,
+      "startup_terminal_count": 0,
+      "steps": 350,
+      "teacher_action_max_abs": 36.48686927897209,
+      "teacher_contact_residual_max": 1.860599348202374e-15,
+      "teacher_dynamics_residual_max": 2.4868995751603507e-13,
+      "teacher_fallback_reason_counts": {
+        "source_plan_infeasible": 56
+      },
+      "teacher_feasible_rate": 0.84,
+      "trial_index": 0,
+      "wbc_qp_feasible_rate": 0.9571428571428572
+    }
+  ],
+  "unexpected_reset_count": 0
+}

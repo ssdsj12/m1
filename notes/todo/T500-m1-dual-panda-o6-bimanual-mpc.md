@@ -2,11 +2,19 @@
 
 ## Current State
 
+2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
+350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
+确认姿态坐标差与空间角位移存在不一致，且首目标相对实测姿态的误差增长。
+见[诊断日志](../log/2026-09-06-right-palm-orientation-boundary-diagnosis.md)。
+以下资产 Tasks 1–3 描述保留为历史基线。
+
 交互设计和书面规格均已由用户确认。首版使用 M1、公共单轴回转平台、左右两条 Panda 和左右 O6，完成固定 `0.5 kg` 箱体的确定性双手夹持、抬升 `0.10 m`、保持 `3 s`、下降和释放。采用 object MPC、双 Arm MPC、双 Hand MPC 和 200 Hz WBC/QP；第一阶段不训练 RL。
 
 规格已写入 [设计文档](../../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)，13 任务 TDD [实施计划](../../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md)正在以 Inline Execution 执行。Tasks 1–3 已完成：左右 O6 资产规范化入库，组合 articulation 已生成并通过最终 Isaac 2000 步硬门。
 
 ## Open Children
+
+- T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
 - T500.1：书面规格已确认。
 - T500.2：逐文件 TDD 实施计划正在 Inline Execution 执行，Task 4 进行中。
@@ -35,7 +43,8 @@
 
 ## Next Step
 
-执行 Task 4，冻结 43 通道主动关节顺序、左右 body 名称及 IsaacLab actuator 配置。
+先修正 T500 姿态适配中的 SO(3) 插值、空间误差和角速度，保持公共合同；
+以相同 350 步样本做单变量对照，再评估实测姿态到首目标的跟踪约束。
 
 ## Node Details
 

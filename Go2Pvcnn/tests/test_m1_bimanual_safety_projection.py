@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
+import pytest
 import torch
 
 from go2_pvcnn.control.m1_bimanual_coordination import BimanualPhase
 from go2_pvcnn.control.m1_bimanual_coordination.safety_projection import (
     SafetyInput,
     SafetyProjection,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.reduced_dynamics import (
+    condense_constrained_dynamics,
 )
 from tests.test_m1_bimanual_full_action_teacher import _dynamics
 
@@ -77,6 +82,53 @@ def test_projection_enforces_one_step_joint_position_barrier() -> None:
     assert result.effort[6] < candidate[6]
 
 
+def test_projection_keeps_a_predictive_joint_limit_margin() -> None:
+    sample = _input()
+    q = sample.active_q.clone()
+    q[6] = sample.q_min[6] + 0.025
+    candidate = sample.candidate_effort.clone()
+    candidate[6] = -100.0
+    projection = SafetyProjection(joint_position_margin_rad=0.02)
+
+    result = projection.project(
+        replace(sample, active_q=q, candidate_effort=candidate)
+    )
+
+    reduced = condense_constrained_dynamics(sample.dynamics)
+    ids = sample.active_generalized_ids
+    predicted_q = (
+        q
+        + projection.dt * sample.active_qd
+        + 0.5
+        * projection.dt**2
+        * (reduced.qdd_offset[ids] + reduced.qdd_from_effort[ids] @ result.effort)
+    )
+
+    assert result.feasible
+    assert predicted_q[6] >= sample.q_min[6] + 0.02 - 1.0e-9
+
+
+def test_projection_keeps_a_predictive_velocity_margin() -> None:
+    sample = _input()
+    qd = sample.active_qd.clone()
+    qd[6] = 4.49
+    candidate = sample.candidate_effort.clone()
+    candidate[6] = 100.0
+    projection = SafetyProjection(joint_velocity_margin_fraction=0.1)
+
+    result = projection.project(
+        replace(sample, active_qd=qd, candidate_effort=candidate)
+    )
+
+    reduced = condense_constrained_dynamics(sample.dynamics)
+    ids = sample.active_generalized_ids
+    predicted_qd = qd + projection.dt * (
+        reduced.qdd_offset[ids] + reduced.qdd_from_effort[ids] @ result.effort
+    )
+    assert result.feasible
+    assert predicted_qd[6] <= 0.9 * sample.qd_max[6] + 1.0e-9
+
+
 def test_force_closure_is_hard_only_after_grasp() -> None:
     lost = replace(_input(), force_closure_margin=-0.1)
 
@@ -86,3 +138,45 @@ def test_force_closure_is_hard_only_after_grasp() -> None:
     assert approach.feasible
     assert not grasp.feasible
     assert grasp.fallback_reason == "force_closure_lost"
+
+
+def test_base_and_wheel_safety_constraints_cannot_use_o6_reaction_motion() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "go2_pvcnn/control/m1_bimanual_coordination/safety_projection.py"
+    ).read_text(encoding="utf-8")
+
+    assert "contact_map[:, 31:43] = 0.0" in source
+    assert "base_map[:, 31:43] = 0.0" in source
+
+
+def test_external_o6_servo_owns_hand_position_and_velocity_barriers() -> None:
+    sample = _input()
+    q = sample.active_q.clone()
+    qd = sample.active_qd.clone()
+    q[31] = sample.q_max[31] + 1.0
+    qd[31] = 2.0 * sample.qd_max[31]
+
+    result = SafetyProjection(externally_servoed_hand=True).project(
+        replace(sample, active_q=q, active_qd=qd)
+    )
+
+    assert result.feasible
+
+
+def test_projection_accepts_an_already_safe_candidate_without_calling_qp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("QP should not run for an already feasible candidate")
+
+    monkeypatch.setattr(
+        "go2_pvcnn.control.m1_bimanual_coordination.safety_projection.solve_reference_qp",
+        fail_if_called,
+    )
+
+    result = SafetyProjection().project(_input())
+
+    assert result.feasible
+    assert result.fallback_reason is None
+    assert torch.equal(result.effort, torch.zeros(43, dtype=DTYPE))

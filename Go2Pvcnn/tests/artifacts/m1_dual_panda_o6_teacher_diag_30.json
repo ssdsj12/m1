@@ -1,0 +1,221 @@
+{
+  "acceptance_mode": "smoke",
+  "action_dim": 43,
+  "aggregate": {
+    "accepted": false,
+    "exact_trial_matrix": true,
+    "expected_trial_count": 1,
+    "observed_trial_count": 1,
+    "passing_trial_count": 0,
+    "seeds": [
+      42
+    ],
+    "trials_per_seed": 1
+  },
+  "finite_snapshot": true,
+  "metadata": {
+    "asset_sha256": "475f36e16ce932eabf3275679f4f852a062ae8813b94736380d568a4d3876e58",
+    "command": "scripts/m1_dual_panda_o6_bimanual_probe.py --mode teacher --seed 42 --trials-per-seed 1 --steps 30 --report tests/artifacts/m1_dual_panda_o6_teacher_diag_30.json --headless",
+    "git_ref": "c0f1777bbcb12839ecb08cbe6b333439931074d2",
+    "isaac_version": "5.1.0.0",
+    "source_sha256": "e427648424f80501601cf3c384d0211d5d7686b4d5db9c7defc3ec05e1f194ef"
+  },
+  "mode": "teacher",
+  "passed": true,
+  "schema_version": 1,
+  "trials": [
+    {
+      "arm_dynamics_diagnostics": {
+        "left": {
+          "body_count": 60,
+          "fallback_reason": null,
+          "full_body_jacobian_norm": 4.021777629852295,
+          "generalized_id_columns": [
+            19,
+            25,
+            27,
+            29,
+            31,
+            33,
+            35
+          ],
+          "jacobian_body_id": 36,
+          "jacobian_norm": 2.8330196319546554,
+          "jacobian_shape": [
+            1,
+            60,
+            6,
+            59
+          ],
+          "joint_id_columns_norm": 2.232825756072998,
+          "mass_condition": 1514.430608116583,
+          "mass_matrix_shape": [
+            1,
+            59,
+            59
+          ],
+          "palm_body_id": 36,
+          "physx_used": true
+        },
+        "right": {
+          "body_count": 60,
+          "fallback_reason": null,
+          "full_body_jacobian_norm": 4.031182765960693,
+          "generalized_id_columns": [
+            20,
+            26,
+            28,
+            30,
+            32,
+            34,
+            36
+          ],
+          "jacobian_body_id": 37,
+          "jacobian_norm": 2.82836598219829,
+          "jacobian_shape": [
+            1,
+            60,
+            6,
+            59
+          ],
+          "joint_id_columns_norm": 2.226825714111328,
+          "mass_condition": 1464.8348772987567,
+          "mass_matrix_shape": [
+            1,
+            59,
+            59
+          ],
+          "palm_body_id": 37,
+          "physx_used": true
+        }
+      },
+      "arm_mpc_feasible_rates": [
+        0.8,
+        0.8
+      ],
+      "box_dropped": false,
+      "collision_count": 0,
+      "fallback_counts": {
+        "arm_mpc": 6,
+        "left_hand_mpc": 0,
+        "object_mpc": 3,
+        "right_hand_mpc": 0,
+        "wbc_qp": 6
+      },
+      "fallback_reason_counts": {
+        "dual_arm_mpc_infeasible": 3,
+        "left_arm_mpc_infeasible": 3,
+        "object_mpc_infeasible": 6,
+        "qp_infeasible": 3
+      },
+      "final_base_state": [
+        -0.0019964270759373903,
+        0.0014492329210042953,
+        0.6080005764961243,
+        0.9999650716781616,
+        -0.007944753393530846,
+        -0.00038282270543277264,
+        0.002522556111216545,
+        -0.02003094181418419,
+        0.025929559022188187,
+        -0.12168563157320023,
+        -0.19010819494724274,
+        -0.01760616898536682,
+        0.0014929017052054405
+      ],
+      "final_box_pose_b": [
+        0.7522635472168887,
+        -0.011467476521585725,
+        0.3913209147142323,
+        0.015890479020323877,
+        0.0007650152438691962,
+        -0.005045067396614307
+      ],
+      "final_palm_target_errors": [
+        0.44072115578779814,
+        0.3819325411535662
+      ],
+      "final_phase": "APPROACH",
+      "fingertip_jacobian_norms": {
+        "left_o6": 0.19865662016795527,
+        "right_o6": 0.1996927252544613
+      },
+      "first_limit_violation": {
+        "joint": "right_pinky_mcp_pitch",
+        "maximum": 1.5199998617172241,
+        "minimum": 0.08000004291534424,
+        "position": 0.07522870600223541,
+        "step": 5,
+        "violation": 0.004771336913108826
+      },
+      "hand_mpc_feasible_rates": [
+        1.0,
+        1.0
+      ],
+      "hard_failure_count": 17,
+      "hold_duration_s": 0.0,
+      "hold_orientation_error_rad": 1000000000.0,
+      "hold_position_error_m": 1000000000.0,
+      "initial_box_pose_b": [
+        0.75,
+        0.0,
+        0.3799999952316284,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "initial_left_palm_pose_b": [
+        0.4127938151359558,
+        0.2000000923871994,
+        0.5682953596115112,
+        -2.3561066916760125,
+        0.9152017157775988,
+        -1.2206307303716641
+      ],
+      "initial_right_palm_pose_b": [
+        0.4127938151359558,
+        -0.19999991357326508,
+        0.5682953596115112,
+        -2.3561066643321236,
+        0.9152017051561893,
+        -1.2206308010432312
+      ],
+      "initial_velocity_max": 0.0,
+      "lift_height_m": 0.011320919482603886,
+      "limit_violation_count": 17,
+      "max_abs_pitch_rad": 0.0015513206700662687,
+      "max_abs_roll_rad": 0.015891556231014084,
+      "max_contact_forces_n": {
+        "left_o6": 0.0,
+        "right_o6": 0.0
+      },
+      "max_joint_limit_violation_rad": 0.09564381837844849,
+      "min_palm_target_errors": [
+        0.39322242456584516,
+        0.3819325411535662
+      ],
+      "nonfinite_count": 0,
+      "object_mpc_feasible_rate": 0.9,
+      "passed": false,
+      "phase_dwell_times_s": {
+        "APPROACH": 0.15
+      },
+      "relative_palm_slip_m": 0.0045797371677694584,
+      "released_supported": false,
+      "reset_count": 0,
+      "seed": 42,
+      "startup_terminal_count": 0,
+      "steps": 30,
+      "teacher_action_max_abs": 19.085332679630074,
+      "teacher_contact_residual_max": 2.2207073165628937e-14,
+      "teacher_dynamics_residual_max": 7.958078640513122e-13,
+      "teacher_fallback_reason_counts": {
+        "source_plan_infeasible": 22
+      },
+      "teacher_feasible_rate": 0.26666666666666666,
+      "trial_index": 0,
+      "wbc_qp_feasible_rate": 0.8
+    }
+  ],
+  "unexpected_reset_count": 0
+}

@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import ast
+import json
+import math
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILDER = PROJECT_ROOT / "scripts/build_m1_dual_panda_o6_asset.py"
 VERIFIER = PROJECT_ROOT / "scripts/verify_m1_dual_panda_o6_asset.py"
+ASSET_MANIFEST = PROJECT_ROOT / "assets/m1_dual_panda_o6/asset_manifest.json"
+
+EXPECTED_RIGHT_PALM_HOUSING_MESH_SHA256 = (
+    "f7fc8dae5d375e5a33251593c46f8b882c3a1aaafe89fa9544f0ef57d657f5de"
+)
+EXPECTED_RIGHT_PALM_HOUSING_BOUNDS_MIN_M = (-0.0200, -0.0392, 0.0)
+EXPECTED_RIGHT_PALM_HOUSING_BOUNDS_MAX_M = (0.0200, 0.0376, 0.1128)
 
 
 def _source() -> str:
@@ -51,7 +60,7 @@ def test_builder_freezes_symmetric_mount_transforms_and_platform_limit():
     assert assignments["RIGHT_ARM_MOUNT_XYZ"] == (0.0, -0.2, 0.0)
 
 
-def test_builder_freezes_chiral_o6_mount_calibration_and_serializes_measurement():
+def test_builder_freezes_box_facing_o6_mount_calibration_and_serializes_measurement():
     source = _source()
     tree = ast.parse(source)
     assignments = {
@@ -64,7 +73,7 @@ def test_builder_freezes_chiral_o6_mount_calibration_and_serializes_measurement(
     }
     assert assignments["HAND_MOUNT_QUATERNION_WXYZ"] == {
         "left": (1.0, 0.0, 0.0, 0.0),
-        "right": (0.0, 1.0, 0.0, 0.0),
+        "right": (0.0, 0.0, 0.0, 1.0),
     }
     assert "mount_matrix * relative" in source
     assert "local_rot0=mount_quaternion" in source
@@ -129,7 +138,56 @@ def test_verifier_reports_mount_drift_limits_contacts_and_resets():
 
 def test_verifier_independently_gates_serialized_hand_mount_calibration():
     source = VERIFIER.read_text(encoding="utf-8")
-    assert "EXPECTED_HAND_MOUNT_QUATERNION_WXYZ" in source
+    tree = ast.parse(source)
+    assignments = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "EXPECTED_HAND_MOUNT_QUATERNION_WXYZ"
+    }
+    assert assignments["EXPECTED_HAND_MOUNT_QUATERNION_WXYZ"] == {
+        "left": (1.0, 0.0, 0.0, 0.0),
+        "right": (0.0, 0.0, 0.0, 1.0),
+    }
     assert '"hand_mount_quaternion_wxyz"' in source
     assert '"hand_mount_calibration_valid"' in source
     assert 'offline["hand_mount_calibration_valid"]' in source
+
+
+def test_builder_and_verifier_freeze_independent_right_palm_housing_bounds():
+    names = {
+        "RIGHT_PALM_HOUSING_MESH_SHA256": EXPECTED_RIGHT_PALM_HOUSING_MESH_SHA256,
+        "RIGHT_PALM_HOUSING_BOUNDS_MIN_M": EXPECTED_RIGHT_PALM_HOUSING_BOUNDS_MIN_M,
+        "RIGHT_PALM_HOUSING_BOUNDS_MAX_M": EXPECTED_RIGHT_PALM_HOUSING_BOUNDS_MAX_M,
+    }
+    for path in (BUILDER, VERIFIER):
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        assignments = {
+            node.targets[0].id: ast.literal_eval(node.value)
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in names
+        }
+        assert assignments == names
+        assert "right_palm_housing_support" in source
+        assert "support_points_local_m" in source
+
+    verifier_source = VERIFIER.read_text(encoding="utf-8")
+    assert 'offline["right_palm_housing_support_valid"]' in verifier_source
+
+
+def test_asset_manifest_pins_eight_finite_right_palm_housing_support_points():
+    manifest = json.loads(ASSET_MANIFEST.read_text(encoding="utf-8"))
+    support = manifest["right_palm_housing_support"]
+    assert support["mesh_sha256"] == EXPECTED_RIGHT_PALM_HOUSING_MESH_SHA256
+    assert tuple(support["bounds_min_m"]) == EXPECTED_RIGHT_PALM_HOUSING_BOUNDS_MIN_M
+    assert tuple(support["bounds_max_m"]) == EXPECTED_RIGHT_PALM_HOUSING_BOUNDS_MAX_M
+    points = support["support_points_local_m"]
+    assert len(points) == 8
+    assert all(len(point) == 3 for point in points)
+    assert all(math.isfinite(value) for point in points for value in point)

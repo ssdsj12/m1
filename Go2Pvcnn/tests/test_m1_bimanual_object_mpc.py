@@ -22,6 +22,61 @@ from go2_pvcnn.control.m1_bimanual_coordination.object_mpc import (
 DTYPE = torch.float64
 
 
+def test_orientation_is_integrated_and_reset():
+    planner = BimanualObjectMpc()
+    sample = _input(phase=BimanualPhase.APPROACH)
+    result = planner.plan(sample)
+    assert result.diagnostics.feasible
+    assert planner.right_orientation_mpc.last_diagnostics.feasible
+    assert torch.equal(result.left_palm_pose[:, 3:], sample.snapshot.left_arm.palm_pose_b[3:].repeat(25, 1))
+    planner.reset()
+    assert planner.right_orientation_mpc.last_diagnostics is None
+    assert torch.equal(planner.plan(sample).right_palm_pose, result.right_palm_pose)
+
+
+def test_orientation_failure_rolls_back_object_preload_state():
+    from go2_pvcnn.control.m1_bimanual_coordination.palm_orientation_mpc import (
+        RightPalmOrientationMpc, PalmOrientationDiagnostics, PalmOrientationSolution)
+    class RejectingOrientation(RightPalmOrientationMpc):
+        def plan(self, sample):
+            return PalmOrientationSolution(torch.zeros(25, 3, dtype=DTYPE),
+                torch.zeros(25, dtype=DTYPE), PalmOrientationDiagnostics(False))
+    planner = BimanualObjectMpc(right_orientation_mpc=RejectingOrientation())
+    before = planner._preload_palm_targets
+    sample = _input(phase=BimanualPhase.PRELOAD)
+    sample = replace(sample, snapshot=replace(sample.snapshot,
+        box=replace(sample.snapshot.box, supported=True)))
+    result = planner.plan(sample)
+    assert not result.diagnostics.feasible
+    assert result.diagnostics.fallback_reason == 'right_palm_orientation_infeasible'
+    assert planner._last_safe is None
+    assert planner._preload_palm_targets is before
+
+
+@pytest.mark.parametrize('phase', [BimanualPhase.APPROACH, BimanualPhase.PRELOAD, BimanualPhase.HOLD])
+def test_nonzero_orientation_horizon_is_forwarded_in_every_object_path(phase):
+    from go2_pvcnn.control.m1_bimanual_coordination.palm_orientation_mpc import (
+        RightPalmOrientationMpc, PalmOrientationDiagnostics, PalmOrientationSolution)
+    target = torch.zeros(25, 3, dtype=DTYPE)
+    target[:, 0] = torch.linspace(.01, .25, 25, dtype=DTYPE)
+    class RecordingOrientation(RightPalmOrientationMpc):
+        def plan(self, sample):
+            self.sample = sample
+            return PalmOrientationSolution(target, target[:, 0], PalmOrientationDiagnostics(True))
+    recorder = RecordingOrientation()
+    planner = BimanualObjectMpc(right_orientation_mpc=recorder)
+    sample = _input(phase=phase)
+    if phase is BimanualPhase.PRELOAD:
+        sample = replace(sample, snapshot=replace(sample.snapshot,
+            box=replace(sample.snapshot.box, supported=True)))
+    result = planner.plan(sample)
+    assert result.diagnostics.feasible
+    assert torch.equal(result.right_palm_pose[:, 3:], target)
+    assert result.right_palm_pose.shape == (25, 6)
+    assert recorder.sample.fingertip_positions_b is sample.snapshot.right_hand.fingertip_positions_b
+    assert recorder.sample.phase is phase
+
+
 def _arm(palm_y: float) -> SideArmState:
     pose = torch.zeros(6, dtype=DTYPE)
     pose[1] = palm_y
@@ -90,6 +145,14 @@ def test_default_cfg_freezes_25_hz_one_second_horizon():
     assert cfg.friction_coefficient == pytest.approx(0.8)
     assert cfg.per_hand_normal_force_min == pytest.approx(8.0)
     assert cfg.per_hand_normal_force_max == pytest.approx(15.0)
+    assert cfg.grasp_half_width_m == pytest.approx(0.09)
+    assert cfg.palm_lateral_offset_m == pytest.approx(0.15)
+    assert cfg.palm_reach_offset_m == pytest.approx(0.20)
+    assert cfg.preload_palm_inward_speed_m_s == pytest.approx(0.025)
+    assert cfg.left_preload_inward_limit_m == pytest.approx(0.04)
+    assert cfg.right_preload_inward_limit_m == pytest.approx(0.075)
+    assert cfg.preload_forward_limit_m == pytest.approx(0.025)
+    assert cfg.right_palm_height_offset_m == pytest.approx(0.015)
 
 
 def test_static_box_solution_balances_gravity_and_is_mirrored():
@@ -104,6 +167,196 @@ def test_static_box_solution_balances_gravity_and_is_mirrored():
         -solution.right_palm_pose[0, 1].item()
     )
     assert torch.allclose(solution.box_pose, _snapshot().box.pose_b.expand(25, -1), atol=1.0e-7)
+
+
+def test_approach_plans_palms_without_requesting_unavailable_object_wrench() -> None:
+    snapshot = replace(
+        _snapshot(),
+        box=replace(
+            _snapshot().box,
+            twist_b=torch.tensor([0.0, 0.0, -0.2, 0.0, 0.0, 0.0], dtype=DTYPE),
+            supported=True,
+        ),
+    )
+
+    solution = BimanualObjectMpc().plan(
+        _input(snapshot=snapshot, phase=BimanualPhase.APPROACH)
+    )
+
+    assert solution.diagnostics.feasible
+    assert torch.all(solution.left_wrench == 0.0)
+    assert torch.all(solution.right_wrench == 0.0)
+    assert torch.allclose(solution.box_pose, snapshot.box.pose_b.expand(25, -1))
+    assert torch.linalg.vector_norm(
+        solution.left_palm_pose[0, :3] - snapshot.left_arm.palm_pose_b[:3]
+    ) < 0.05
+    assert solution.left_palm_pose[-1, 1].item() == pytest.approx(
+        snapshot.box.pose_b[1].item() + BimanualObjectMpc().cfg.palm_lateral_offset_m
+    )
+    assert solution.left_palm_pose[-1, 0].item() == pytest.approx(
+        snapshot.box.pose_b[0].item() - BimanualObjectMpc().cfg.palm_reach_offset_m
+    )
+    assert solution.right_palm_pose[-1, 2].item() == pytest.approx(
+        snapshot.box.pose_b[2].item()
+        + BimanualObjectMpc().cfg.right_palm_height_offset_m
+    )
+
+
+def test_preload_uses_supported_box_prediction_and_opposed_preload_wrenches() -> None:
+    snapshot = replace(_snapshot(), box=replace(_snapshot().box, supported=True))
+    planner = BimanualObjectMpc()
+
+    solution = planner.plan(
+        _input(snapshot=snapshot, phase=BimanualPhase.PRELOAD)
+    )
+
+    assert solution.diagnostics.feasible
+    assert solution.diagnostics.force_closure_margin > 0.0
+    assert torch.allclose(solution.box_pose, snapshot.box.pose_b.expand(25, -1))
+    assert torch.allclose(
+        solution.left_palm_pose,
+        snapshot.left_arm.palm_pose_b.expand(25, -1),
+    )
+    assert torch.allclose(
+        solution.right_palm_pose,
+        snapshot.right_arm.palm_pose_b.expand(25, -1),
+    )
+    assert torch.allclose(
+        solution.left_wrench[:, 1],
+        -planner.cfg.preload_normal_force * torch.ones(25, dtype=DTYPE),
+    )
+    assert torch.allclose(
+        solution.right_wrench[:, 1],
+        planner.cfg.preload_normal_force * torch.ones(25, dtype=DTYPE),
+    )
+
+
+def test_preload_moves_preclosed_noncontacting_palms_inward() -> None:
+    preclosed = replace(
+        _hand(),
+        q=torch.ones(6, dtype=DTYPE),
+        contact_mask=torch.zeros(5, dtype=torch.bool),
+    )
+    snapshot = replace(
+        _snapshot(),
+        left_hand=preclosed,
+        right_hand=preclosed,
+        box=replace(_snapshot().box, supported=True),
+    )
+    solution = BimanualObjectMpc().plan(
+        _input(snapshot=snapshot, phase=BimanualPhase.PRELOAD)
+    )
+    travel = ObjectMpcCfg().preload_palm_inward_speed_m_s * ObjectMpcCfg().dt
+    assert solution.left_palm_pose[-1, 1].item() == pytest.approx(
+        snapshot.left_arm.palm_pose_b[1].item() - travel
+    )
+    assert solution.right_palm_pose[-1, 1].item() == pytest.approx(
+        snapshot.right_arm.palm_pose_b[1].item() + travel
+    )
+    left_forward = ObjectMpcCfg().preload_forward_limit_m * (
+        travel / ObjectMpcCfg().left_preload_inward_limit_m
+    )
+    assert solution.left_palm_pose[-1, 0].item() == pytest.approx(
+        snapshot.left_arm.palm_pose_b[0].item() + left_forward
+    )
+    assert solution.right_palm_pose[-1, 0].item() == pytest.approx(
+        snapshot.right_arm.palm_pose_b[0].item()
+    )
+
+
+def test_right_preload_forward_starts_only_after_inward_travel_completes() -> None:
+    cfg = ObjectMpcCfg(
+        preload_palm_inward_speed_m_s=0.025,
+        right_preload_inward_limit_m=0.002,
+        preload_forward_limit_m=0.002,
+    )
+    preclosed = replace(
+        _hand(),
+        q=torch.ones(6, dtype=DTYPE),
+        contact_mask=torch.zeros(5, dtype=torch.bool),
+    )
+    snapshot = replace(
+        _snapshot(),
+        left_hand=preclosed,
+        right_hand=preclosed,
+        box=replace(_snapshot().box, supported=True),
+    )
+    planner = BimanualObjectMpc(cfg)
+    entry_x = snapshot.right_arm.palm_pose_b[0].item()
+
+    first = planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+    second = planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+    third = planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+    fourth = planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+
+    assert first.right_palm_pose[-1, 0].item() == pytest.approx(entry_x)
+    assert second.right_palm_pose[-1, 0].item() == pytest.approx(entry_x)
+    assert third.right_palm_pose[-1, 0].item() == pytest.approx(entry_x + 0.001)
+    assert fourth.right_palm_pose[-1, 0].item() == pytest.approx(entry_x + 0.002)
+    assert fourth.right_palm_pose[-1, 1].item() == pytest.approx(
+        snapshot.right_arm.palm_pose_b[1].item() + 0.002
+    )
+
+
+def test_right_preload_contact_latches_staged_target_and_approach_resets_it() -> None:
+    cfg = ObjectMpcCfg(
+        preload_palm_inward_speed_m_s=0.025,
+        right_preload_inward_limit_m=0.002,
+        preload_forward_limit_m=0.002,
+    )
+    preclosed = replace(
+        _hand(),
+        q=torch.ones(6, dtype=DTYPE),
+        contact_mask=torch.zeros(5, dtype=torch.bool),
+    )
+    snapshot = replace(
+        _snapshot(),
+        left_hand=preclosed,
+        right_hand=preclosed,
+        box=replace(_snapshot().box, supported=True),
+    )
+    planner = BimanualObjectMpc(cfg)
+    entry_x = snapshot.right_arm.palm_pose_b[0].item()
+    for _ in range(3):
+        planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+
+    right_contact = replace(
+        preclosed,
+        contact_mask=torch.tensor([False, True, False, False, False]),
+    )
+    contacted = replace(snapshot, right_hand=right_contact)
+    latched = planner.plan(_input(snapshot=contacted, phase=BimanualPhase.PRELOAD))
+    held = planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+
+    assert torch.equal(held.right_palm_pose, latched.right_palm_pose)
+    planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.APPROACH))
+    restarted = planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+    assert restarted.right_palm_pose[-1, 0].item() == pytest.approx(entry_x)
+
+
+def test_preload_latches_box_contact_side_while_other_advances() -> None:
+    preclosed = replace(
+        _hand(), q=torch.ones(6, dtype=DTYPE), contact_mask=torch.zeros(5, dtype=torch.bool)
+    )
+    snapshot = replace(
+        _snapshot(), left_hand=preclosed, right_hand=preclosed,
+        box=replace(_snapshot().box, supported=True),
+    )
+    planner = BimanualObjectMpc()
+    first = planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+    contact_forces = torch.zeros((5, 3), dtype=DTYPE)
+    contact_forces[0, 1] = 8.0
+    left_contact = replace(
+        preclosed,
+        contact_mask=torch.tensor([True, False, False, False, False]),
+        fingertip_forces_b=contact_forces,
+    )
+    contacted = replace(snapshot, left_hand=left_contact)
+    second = planner.plan(_input(snapshot=contacted, phase=BimanualPhase.PRELOAD))
+    third = planner.plan(_input(snapshot=snapshot, phase=BimanualPhase.PRELOAD))
+    assert torch.equal(second.left_palm_pose, first.left_palm_pose)
+    assert torch.equal(third.left_palm_pose, first.left_palm_pose)
+    assert second.right_palm_pose[-1, 1] > first.right_palm_pose[-1, 1]
 
 
 def test_palm_targets_preserve_each_mounted_hand_orientation():

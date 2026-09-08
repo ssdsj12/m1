@@ -1,0 +1,257 @@
+{
+  "acceptance_mode": "smoke",
+  "action_dim": 43,
+  "aggregate": {
+    "accepted": false,
+    "exact_trial_matrix": true,
+    "expected_trial_count": 1,
+    "observed_trial_count": 1,
+    "passing_trial_count": 0,
+    "seeds": [
+      42
+    ],
+    "trials_per_seed": 1
+  },
+  "finite_snapshot": true,
+  "metadata": {
+    "asset_sha256": "475f36e16ce932eabf3275679f4f852a062ae8813b94736380d568a4d3876e58",
+    "command": "scripts/m1_dual_panda_o6_bimanual_probe.py --mode teacher --seed 42 --trials-per-seed 1 --steps 64 --report tests/artifacts/m1_dual_panda_o6_teacher_no_hand_bias_64.json --headless",
+    "git_ref": "c0f1777bbcb12839ecb08cbe6b333439931074d2",
+    "isaac_version": "5.1.0.0",
+    "source_sha256": "ff33f1e3bc31876638cc5a746b1a1f39f8a03303cac250b9eee690b5f9963e4d"
+  },
+  "mode": "teacher",
+  "passed": true,
+  "schema_version": 1,
+  "trials": [
+    {
+      "arm_dynamics_diagnostics": {
+        "left": {
+          "body_count": 60,
+          "fallback_reason": null,
+          "full_body_jacobian_norm": 4.05498743057251,
+          "generalized_id_columns": [
+            19,
+            25,
+            27,
+            29,
+            31,
+            33,
+            35
+          ],
+          "jacobian_body_id": 36,
+          "jacobian_norm": 2.843119188784986,
+          "jacobian_shape": [
+            1,
+            60,
+            6,
+            59
+          ],
+          "joint_id_columns_norm": 2.2412400245666504,
+          "mass_condition": 1494.721898272374,
+          "mass_matrix_shape": [
+            1,
+            59,
+            59
+          ],
+          "palm_body_id": 36,
+          "physx_used": true
+        },
+        "right": {
+          "body_count": 60,
+          "fallback_reason": null,
+          "full_body_jacobian_norm": 4.066020965576172,
+          "generalized_id_columns": [
+            20,
+            26,
+            28,
+            30,
+            32,
+            34,
+            36
+          ],
+          "jacobian_body_id": 37,
+          "jacobian_norm": 2.8318195011316982,
+          "jacobian_shape": [
+            1,
+            60,
+            6,
+            59
+          ],
+          "joint_id_columns_norm": 2.226945161819458,
+          "mass_condition": 1447.925032541556,
+          "mass_matrix_shape": [
+            1,
+            59,
+            59
+          ],
+          "palm_body_id": 37,
+          "physx_used": true
+        }
+      },
+      "arm_mpc_feasible_rates": [
+        0.875,
+        0.875
+      ],
+      "box_dropped": false,
+      "collision_count": 0,
+      "command_fallback_reason_counts": {
+        "safety_qp_infeasible": 58,
+        "source_plan_infeasible": 32
+      },
+      "fallback_counts": {
+        "arm_mpc": 8,
+        "left_hand_mpc": 0,
+        "object_mpc": 0,
+        "right_hand_mpc": 0,
+        "wbc_qp": 8
+      },
+      "fallback_reason_counts": {
+        "both_arm_mpc_infeasible": 8,
+        "dual_arm_mpc_infeasible": 8
+      },
+      "final_base_state": [
+        -0.026646418496966362,
+        0.00099171232432127,
+        0.5747233629226685,
+        0.9999706149101257,
+        -0.00342377251945436,
+        0.006442391779273748,
+        0.002297820057719946,
+        -0.15153595805168152,
+        0.033557191491127014,
+        -0.1543220430612564,
+        -0.18053537607192993,
+        0.07960867136716843,
+        0.015010791830718517
+      ],
+      "final_box_pose_b": [
+        0.7710829266612158,
+        -0.007494483749518724,
+        0.4352189519625437,
+        0.006848478292316757,
+        -0.012885852647170348,
+        -0.0045956391586784795
+      ],
+      "final_palm_target_errors": [
+        0.4489324537798376,
+        0.6455899328592745
+      ],
+      "final_phase": "APPROACH",
+      "fingertip_jacobian_norms": {
+        "left_o6": 0.1843603869329685,
+        "right_o6": 0.1932177604076249
+      },
+      "first_arm_mpc_failure": {
+        "left_min_joint_margin": 0.06345660871656555,
+        "left_qd_max": 2.558246612548828,
+        "left_reason": "both_arm_mpc_infeasible",
+        "right_min_joint_margin": -8.881784197001252e-16,
+        "right_qd_max": 2.606438159942627,
+        "right_reason": "both_arm_mpc_infeasible",
+        "step": 32
+      },
+      "first_limit_violation": {
+        "joint": "right_ring_mcp_pitch",
+        "maximum": 1.5199998617172241,
+        "minimum": 0.08000004291534424,
+        "position": 0.07074344158172607,
+        "step": 8,
+        "violation": 0.009256601333618164
+      },
+      "first_object_mpc_failure": null,
+      "first_safety_failure": {
+        "base_state": [
+          -0.0005403697723522782,
+          7.255002856254578e-07,
+          0.6157743334770203,
+          0.9999997019767761,
+          0.0006296985666267574,
+          -0.0003023947647307068,
+          -2.0153544028289616e-05,
+          -0.02244938351213932,
+          -0.0002905542787630111,
+          -0.1488914042711258,
+          0.0776449590921402,
+          0.005944280419498682,
+          -0.000988178071565926
+        ],
+        "fastest_joint": "left_middle_mcp_pitch",
+        "max_velocity_fraction": 0.999919056892395,
+        "minimum_position_margin_rad": 0.012311287224292755,
+        "reason": "safety_qp_infeasible",
+        "step": 6,
+        "tightest_joint": "left_ring_mcp_pitch"
+      },
+      "hand_mpc_feasible_rates": [
+        1.0,
+        1.0
+      ],
+      "hard_failure_count": 56,
+      "hold_duration_s": 0.0,
+      "hold_orientation_error_rad": 1000000000.0,
+      "hold_position_error_m": 1000000000.0,
+      "initial_box_pose_b": [
+        0.75,
+        0.0,
+        0.3799999952316284,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "initial_left_palm_pose_b": [
+        0.4127938151359558,
+        0.2000000923871994,
+        0.5682953596115112,
+        -2.3561066916760125,
+        0.9152017157775988,
+        -1.2206307303716641
+      ],
+      "initial_right_palm_pose_b": [
+        0.4127938151359558,
+        -0.19999991357326508,
+        0.5682953596115112,
+        -2.3561066643321236,
+        0.9152017051561893,
+        -1.2206308010432312
+      ],
+      "initial_velocity_max": 0.0,
+      "lift_height_m": 0.05521895673091526,
+      "limit_violation_count": 56,
+      "max_abs_pitch_rad": 0.012900497184253491,
+      "max_abs_roll_rad": 0.009375833342290661,
+      "max_contact_forces_n": {
+        "left_o6": 0.0,
+        "right_o6": 0.0
+      },
+      "max_joint_limit_violation_rad": 0.2656062841415405,
+      "min_palm_target_errors": [
+        0.015172899520926882,
+        0.015317232750286831
+      ],
+      "nonfinite_count": 0,
+      "object_mpc_feasible_rate": 1.0,
+      "passed": false,
+      "phase_dwell_times_s": {
+        "APPROACH": 0.32
+      },
+      "relative_palm_slip_m": 0.0034764694578024486,
+      "released_supported": false,
+      "reset_count": 0,
+      "safety_feasible_rate": 0.09375,
+      "seed": 42,
+      "startup_terminal_count": 0,
+      "steps": 64,
+      "teacher_action_max_abs": 32.34147161686429,
+      "teacher_contact_residual_max": 2.7058216778286237e-14,
+      "teacher_dynamics_residual_max": 7.958078640513122e-13,
+      "teacher_fallback_reason_counts": {
+        "source_plan_infeasible": 32
+      },
+      "teacher_feasible_rate": 0.5,
+      "trial_index": 0,
+      "wbc_qp_feasible_rate": 0.875
+    }
+  ],
+  "unexpected_reset_count": 0
+}

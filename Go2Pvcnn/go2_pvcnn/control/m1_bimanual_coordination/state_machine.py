@@ -11,12 +11,13 @@ from .contracts import BimanualPhase, BimanualSnapshot
 @dataclass(frozen=True)
 class BimanualMissionCfg:
     physics_dt: float = 0.005
-    approach_dwell_steps: int = 20
+    approach_dwell_steps: int = 4
     preload_dwell_steps: int = 20
     grasp_dwell_steps: int = 20
     hold_steps: int = 600
     safe_hold_steps: int = 20
     max_consecutive_failures: int = 3
+    palm_position_tolerance_m: float = 0.03
     lift_height_m: float = 0.10
     max_relative_palm_slip_m: float = 0.005
     supported_twist_tolerance: float = 0.02
@@ -24,6 +25,7 @@ class BimanualMissionCfg:
     def __post_init__(self) -> None:
         for name in (
             "physics_dt",
+            "palm_position_tolerance_m",
             "lift_height_m",
             "max_relative_palm_slip_m",
             "supported_twist_tolerance",

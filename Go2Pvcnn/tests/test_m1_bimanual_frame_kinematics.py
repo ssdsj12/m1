@@ -7,12 +7,46 @@ import pytest
 import torch
 
 from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
+    damped_cartesian_joint_delta,
+    embed_fixed_base_jacobian,
+    embed_fixed_base_mass_matrix,
+    embed_fixed_base_vector,
     physx_jacobian_body_row,
     pose_in_base,
     spatial_jacobian_in_base,
     twist_in_base,
     vectors_in_base,
 )
+
+
+def test_damped_cartesian_joint_delta_tracks_translation_and_limits_step():
+    jacobian = torch.zeros((6, 7), dtype=torch.float64)
+    jacobian[:3, :3] = torch.eye(3, dtype=torch.float64)
+    delta = damped_cartesian_joint_delta(
+        jacobian,
+        torch.tensor([0.0, -0.04, 0.0], dtype=torch.float64),
+        damping=1.0e-3,
+        max_abs_joint_delta=0.02,
+    )
+    assert delta.shape == (7,)
+    assert delta[1].item() == pytest.approx(-0.02)
+    assert torch.count_nonzero(delta).item() == 1
+
+
+def test_damped_cartesian_joint_delta_can_lock_spatial_orientation():
+    jacobian = torch.zeros((6, 7), dtype=torch.float64)
+    jacobian[:, :6] = torch.eye(6, dtype=torch.float64)
+    delta = damped_cartesian_joint_delta(
+        jacobian,
+        torch.tensor([0.0, 0.01, 0.0, 0.0, 0.0, -0.02], dtype=torch.float64),
+        damping=1.0e-3,
+        max_abs_joint_delta=0.05,
+    )
+    assert torch.allclose(
+        delta[:6],
+        torch.tensor([0.0, 0.01, 0.0, 0.0, 0.0, -0.02], dtype=torch.float64),
+        atol=1.0e-5,
+    )
 
 
 DTYPE = torch.float64
@@ -122,6 +156,24 @@ def test_physx_body_row_supports_current_and_legacy_layouts(
 def test_physx_body_row_rejects_unknown_layout() -> None:
     with pytest.raises(ValueError, match="layout"):
         physx_jacobian_body_row(12, 60, 58)
+
+
+def test_fixed_base_physx_dynamics_are_embedded_in_floating_base_contract() -> None:
+    mass = torch.diag(torch.arange(1, 54, dtype=DTYPE))
+    bias = torch.arange(53, dtype=DTYPE)
+    jacobian = torch.arange(6 * 53, dtype=DTYPE).reshape(6, 53)
+
+    embedded_mass = embed_fixed_base_mass_matrix(mass)
+    embedded_bias = embed_fixed_base_vector(bias)
+    embedded_jacobian = embed_fixed_base_jacobian(jacobian)
+
+    assert embedded_mass.shape == (59, 59)
+    assert torch.equal(embedded_mass[:6, :6], torch.eye(6, dtype=DTYPE))
+    assert torch.equal(embedded_mass[6:, 6:], mass)
+    assert torch.equal(embedded_bias[:6], torch.zeros(6, dtype=DTYPE))
+    assert torch.equal(embedded_bias[6:], bias)
+    assert torch.equal(embedded_jacobian[:, :6], torch.zeros(6, 6, dtype=DTYPE))
+    assert torch.equal(embedded_jacobian[:, 6:], jacobian)
 
 
 def test_snapshot_adapter_routes_all_base_frame_quantities_through_pure_transforms() -> None:

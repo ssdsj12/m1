@@ -57,7 +57,9 @@ def _input() -> TeacherInput:
 
 
 def test_teacher_returns_complete_one_second_active_trajectory() -> None:
-    solution = FullActionTeacher().plan(_input())
+    teacher = FullActionTeacher()
+    assert teacher.effort_regularization >= 1.0e-2
+    solution = teacher.plan(_input())
 
     assert solution.action_trajectory.shape == (25, 43)
     assert solution.box_trajectory_b.shape == (25, 12)
@@ -86,6 +88,28 @@ def test_teacher_uses_coupled_dynamics_to_track_task_acceleration() -> None:
     assert loaded.diagnostics.task_acceleration_error_max < 0.1
 
 
+def test_teacher_preserves_arm_and_hand_mpc_efforts_instead_of_using_them_as_reaction_mass() -> None:
+    sample = _input()
+    nominal = sample.nominal_action_trajectory.clone()
+    nominal[:, 17:43] = torch.linspace(-2.0, 2.0, 26, dtype=DTYPE)
+    task_jacobian = sample.task_jacobian.clone()
+    task_jacobian[0, 37] = 1.0
+    task_target = sample.task_acceleration_target.clone()
+    task_target[:, 0] = 5.0
+
+    solution = FullActionTeacher().plan(
+        replace(
+            sample,
+            nominal_action_trajectory=nominal,
+            task_jacobian=task_jacobian,
+            task_acceleration_target=task_target,
+        )
+    )
+
+    assert solution.diagnostics.feasible
+    assert torch.allclose(solution.action_trajectory[:, 17:43], nominal[:, 17:43])
+
+
 def test_teacher_rejects_infeasible_source_without_exposing_59_actions() -> None:
     solution = FullActionTeacher().plan(replace(_input(), source_feasible=False))
 
@@ -93,6 +117,19 @@ def test_teacher_rejects_infeasible_source_without_exposing_59_actions() -> None
     assert solution.diagnostics.fallback_reason == "source_plan_infeasible"
     assert solution.action_trajectory.shape[-1] == 43
     assert torch.all(solution.action_trajectory[:, 12:16] == 0.0)
+
+
+def test_fixed_base_teacher_preserves_complete_hierarchical_action() -> None:
+    sample = _input()
+    nominal = torch.linspace(-5.0, 5.0, 43, dtype=DTYPE).repeat(HORIZON, 1)
+    nominal[:, 12:16] = 0.0
+
+    solution = FullActionTeacher(fixed_base=True).plan(
+        replace(sample, nominal_action_trajectory=nominal)
+    )
+
+    assert solution.diagnostics.feasible
+    assert torch.allclose(solution.action_trajectory, nominal)
 
 
 def test_bridge_builds_teacher_input_from_live_hierarchical_plans() -> None:

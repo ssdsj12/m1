@@ -18,7 +18,8 @@ from go2_pvcnn.assets.m1_dual_panda_o6 import (
 from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg, M1SmokeSceneCfg
 
 
-BOX_SIZE_M = (0.12, 0.18, 0.10)
+BOX_SIZE_M = (0.20, 0.18, 0.10)
+SUPPORT_SIZE_M = (0.08, 0.12, 0.10)
 BOX_MASS_KG = 0.5
 PHYSICS_DT = 0.005
 PRIVATE_ACTION_DIM = 43
@@ -27,12 +28,23 @@ _BIMANUAL_ROBOT_CFG = M1_DUAL_PANDA_O6_CFG.copy()
 _BIMANUAL_ROBOT_CFG.spawn = _BIMANUAL_ROBOT_CFG.spawn.replace(
     activate_contact_sensors=True
 )
+# Stage one intentionally validates manipulation with a physically fixed M1
+# chassis.  The mobile/sliding stage can switch this off without changing the
+# 43-channel controller contract.
+_BIMANUAL_ROBOT_CFG.spawn.articulation_props.fix_root_link = True
 # JointEffortAction supplies the complete impedance/WBC effort.  Disable the
 # actuator-side gains so the same feedback is not applied a second time.
 _BIMANUAL_ROBOT_CFG.actuators = {
     name: actuator.replace(stiffness=0.0, damping=0.0)
     for name, actuator in _BIMANUAL_ROBOT_CFG.actuators.items()
 }
+for name in ("left_o6", "right_o6"):
+    _BIMANUAL_ROBOT_CFG.actuators[name] = (
+        _BIMANUAL_ROBOT_CFG.actuators[name].replace(
+            stiffness=80.0,
+            damping=5.0,
+        )
+    )
 
 
 @configclass
@@ -42,9 +54,9 @@ class M1DualPandaO6BimanualSceneCfg(M1SmokeSceneCfg):
     robot = _BIMANUAL_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     support_table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/SupportTable",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.90, 0.0, 0.90)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.65, 0.0, 1.10)),
         spawn=sim_utils.CuboidCfg(
-            size=(0.50, 0.70, 0.10),
+            size=SUPPORT_SIZE_M,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.28, 0.30, 0.32)),
@@ -52,7 +64,7 @@ class M1DualPandaO6BimanualSceneCfg(M1SmokeSceneCfg):
     )
     box = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Box",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.75, 0.0, 1.00)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.65, 0.0, 1.20)),
         spawn=sim_utils.CuboidCfg(
             size=BOX_SIZE_M,
             mass_props=sim_utils.MassPropertiesCfg(mass=BOX_MASS_KG),
@@ -72,10 +84,16 @@ class M1DualPandaO6BimanualSceneCfg(M1SmokeSceneCfg):
     )
 
     o6_contacts = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/left_arm/left_o6/.*", history_length=3, track_air_time=False
+        prim_path="{ENV_REGEX_NS}/Robot/left_arm/left_o6/.*",
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Box"],
+        history_length=3,
+        track_air_time=False,
     )
     right_o6_contacts = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/right_arm/right_o6/.*", history_length=3, track_air_time=False
+        prim_path="{ENV_REGEX_NS}/Robot/right_arm/right_o6/.*",
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Box"],
+        history_length=3,
+        track_air_time=False,
     )
     palm_contacts = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/left_arm/left_o6/left_hand_base_link", history_length=3

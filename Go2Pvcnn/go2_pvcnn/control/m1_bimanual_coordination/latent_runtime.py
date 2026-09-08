@@ -130,6 +130,7 @@ class LatentRuntime:
         self._last_effort = torch.zeros(43, dtype=torch.float64)
         self._last_safe_effort: torch.Tensor | None = None
         self.last_teacher_solution: TeacherSolution | None = None
+        self.last_safety_result: SafetyResult | None = None
         self._counts = {"teacher": 0, "encoder": 0, "body": 0, "safety": 0}
         self.fallback_log: list[dict[str, object]] = []
 
@@ -231,6 +232,7 @@ class LatentRuntime:
         )
         safety_input = self.safety_input_provider(snapshot, dynamics, candidate)
         safe: SafetyResult = self.safety.project(safety_input)
+        self.last_safety_result = safe
         self._counts["safety"] += 1
         self._last_effort = safe.effort.clone()
         if safe.feasible:

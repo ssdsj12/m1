@@ -9,6 +9,90 @@ from __future__ import annotations
 import torch
 
 
+FLOATING_BASE_DOF = 6
+ARTICULATION_JOINT_DOF = 53
+GENERALIZED_DOF = FLOATING_BASE_DOF + ARTICULATION_JOINT_DOF
+
+
+def damped_cartesian_joint_delta(
+    spatial_jacobian: torch.Tensor,
+    cartesian_error: torch.Tensor,
+    *,
+    damping: float = 0.05,
+    max_abs_joint_delta: float = 0.15,
+) -> torch.Tensor:
+    """Map a small 3D translation or 6D pose error to a bounded joint step."""
+
+    if spatial_jacobian.shape != (6, 7):
+        raise ValueError("spatial_jacobian must have shape (6, 7)")
+    if not isinstance(cartesian_error, torch.Tensor) or cartesian_error.shape not in {
+        (3,),
+        (6,),
+    }:
+        raise ValueError("cartesian_error must have shape (3,) or (6,)")
+    if not torch.isfinite(cartesian_error).all().item():
+        raise ValueError("cartesian_error must contain only finite values")
+    if damping <= 0.0 or max_abs_joint_delta <= 0.0:
+        raise ValueError("damping and max_abs_joint_delta must be positive")
+    rows = cartesian_error.shape[0]
+    task_jacobian = spatial_jacobian[:rows]
+    regularizer = torch.eye(
+        rows, dtype=task_jacobian.dtype, device=task_jacobian.device
+    ) * float(damping) ** 2
+    delta = task_jacobian.T @ torch.linalg.solve(
+        task_jacobian @ task_jacobian.T + regularizer,
+        cartesian_error.to(dtype=task_jacobian.dtype, device=task_jacobian.device),
+    )
+    return torch.clamp(
+        delta,
+        min=-float(max_abs_joint_delta),
+        max=float(max_abs_joint_delta),
+    )
+
+
+def embed_fixed_base_vector(value: torch.Tensor) -> torch.Tensor:
+    """Embed a 53-DoF fixed-root vector in the frozen 59-DoF contract."""
+
+    if value.shape[-1] == GENERALIZED_DOF:
+        return value.clone()
+    if value.shape[-1] != ARTICULATION_JOINT_DOF:
+        raise ValueError("generalized vector must end in 53 or 59 columns")
+    result = value.new_zeros(value.shape[:-1] + (GENERALIZED_DOF,))
+    result[..., FLOATING_BASE_DOF:] = value
+    return result
+
+
+def embed_fixed_base_jacobian(value: torch.Tensor) -> torch.Tensor:
+    """Prepend six locked-base columns to a fixed-root PhysX Jacobian."""
+
+    if value.ndim < 2 or value.shape[-2] != 6:
+        raise ValueError("spatial Jacobian must have six rows")
+    if value.shape[-1] == GENERALIZED_DOF:
+        return value.clone()
+    if value.shape[-1] != ARTICULATION_JOINT_DOF:
+        raise ValueError("spatial Jacobian must end in 53 or 59 columns")
+    result = value.new_zeros(value.shape[:-1] + (GENERALIZED_DOF,))
+    result[..., FLOATING_BASE_DOF:] = value
+    return result
+
+
+def embed_fixed_base_mass_matrix(value: torch.Tensor) -> torch.Tensor:
+    """Embed fixed-root joint inertia with an identity locked-base block."""
+
+    if value.ndim < 2 or value.shape[-2] != value.shape[-1]:
+        raise ValueError("mass matrix must be square")
+    if value.shape[-1] == GENERALIZED_DOF:
+        return value.clone()
+    if value.shape[-1] != ARTICULATION_JOINT_DOF:
+        raise ValueError("mass matrix must be 53x53 or 59x59")
+    result = value.new_zeros(value.shape[:-2] + (GENERALIZED_DOF, GENERALIZED_DOF))
+    result[..., :FLOATING_BASE_DOF, :FLOATING_BASE_DOF] = torch.eye(
+        FLOATING_BASE_DOF, dtype=value.dtype, device=value.device
+    )
+    result[..., FLOATING_BASE_DOF:, FLOATING_BASE_DOF:] = value
+    return result
+
+
 def _require_last_dim(name: str, value: torch.Tensor, size: int) -> None:
     if not isinstance(value, torch.Tensor):
         raise TypeError(f"{name} must be a torch.Tensor")
@@ -203,6 +287,9 @@ def physx_jacobian_body_row(
 
 
 __all__ = [
+    "embed_fixed_base_jacobian",
+    "embed_fixed_base_mass_matrix",
+    "embed_fixed_base_vector",
     "physx_jacobian_body_row",
     "pose_in_base",
     "spatial_jacobian_in_base",

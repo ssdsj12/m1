@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import copy
+
+from .palm_orientation_mpc import PalmOrientationInput, RightPalmOrientationMpc
 import math
 
 import torch
@@ -71,7 +74,14 @@ class ObjectMpcCfg:
     per_hand_normal_force_min: float = 8.0
     per_hand_normal_force_max: float = 15.0
     preload_normal_force: float = 2.0
-    grasp_half_width_m: float = 0.12
+    grasp_half_width_m: float = 0.09
+    palm_lateral_offset_m: float = 0.15
+    palm_reach_offset_m: float = 0.20
+    preload_palm_inward_speed_m_s: float = 0.025
+    left_preload_inward_limit_m: float = 0.04
+    right_preload_inward_limit_m: float = 0.075
+    preload_forward_limit_m: float = 0.025
+    right_palm_height_offset_m: float = 0.015
     platform_yaw_limit_rad: float = math.pi / 2.0
     platform_velocity_limit_rad_s: float = 0.25
     max_target_translation_m: float = 0.5
@@ -98,6 +108,13 @@ class ObjectMpcCfg:
             "per_hand_normal_force_max",
             "preload_normal_force",
             "grasp_half_width_m",
+            "palm_lateral_offset_m",
+            "palm_reach_offset_m",
+            "preload_palm_inward_speed_m_s",
+            "left_preload_inward_limit_m",
+            "right_preload_inward_limit_m",
+            "preload_forward_limit_m",
+            "right_palm_height_offset_m",
             "platform_yaw_limit_rad",
             "platform_velocity_limit_rad_s",
             "max_target_translation_m",
@@ -413,13 +430,20 @@ def build_object_qp(sample: ObjectMpcInput, cfg: ObjectMpcCfg) -> DenseQpProblem
 def _palm_targets(
     box_pose: torch.Tensor,
     half_width: float,
+    reach_offset: float,
     left_orientation: torch.Tensor,
     right_orientation: torch.Tensor,
+    right_height_offset: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     left = box_pose.clone()
     right = box_pose.clone()
+    # Palm origins sit behind the O6 fingertips; contact targets are defined
+    # on the box while arm MPC must track the corresponding palm origins.
+    left[:, 0] -= reach_offset
+    right[:, 0] -= reach_offset
     left[:, 1] += half_width
     right[:, 1] -= half_width
+    right[:, 2] += right_height_offset
     # The O6 mounting transform is not the box frame.  For this fixed first
     # task, retain each calibrated mounted-hand orientation while translating
     # the palms to the two object faces.
@@ -431,8 +455,14 @@ def _palm_targets(
 class BimanualObjectMpc:
     """Stateful 25 Hz object MPC with atomic last-safe fallback."""
 
-    def __init__(self, cfg: ObjectMpcCfg | None = None) -> None:
+    def __init__(self, cfg: ObjectMpcCfg | None = None,
+                 right_orientation_mpc: RightPalmOrientationMpc | None = None) -> None:
         self.cfg = ObjectMpcCfg() if cfg is None else cfg
+        self.right_orientation_mpc = right_orientation_mpc if right_orientation_mpc is not None else RightPalmOrientationMpc()
+        self._preload_palm_targets: tuple[torch.Tensor, torch.Tensor] | None = None
+        self._preload_inward_travel = [0.0, 0.0]
+        self._right_preload_forward_travel = 0.0
+        self._preload_contact_latched = [False, False]
         if not isinstance(self.cfg, ObjectMpcCfg):
             raise TypeError("cfg must be ObjectMpcCfg")
         self._last_safe: ObjectMpcSolution | None = None
@@ -477,9 +507,11 @@ class BimanualObjectMpc:
         box_pose = sample.snapshot.box.pose_b.repeat(horizon, 1)
         left_palm, right_palm = _palm_targets(
             box_pose,
-            self.cfg.grasp_half_width_m,
+            self.cfg.palm_lateral_offset_m,
+            self.cfg.palm_reach_offset_m,
             sample.snapshot.left_arm.palm_pose_b[3:],
             sample.snapshot.right_arm.palm_pose_b[3:],
+            self.cfg.right_palm_height_offset_m,
         )
         return ObjectMpcSolution(
             box_pose=box_pose,
@@ -525,9 +557,11 @@ class BimanualObjectMpc:
         )
         left_palm, right_palm = _palm_targets(
             box_pose,
-            self.cfg.grasp_half_width_m,
+            self.cfg.palm_lateral_offset_m,
+            self.cfg.palm_reach_offset_m,
             sample.snapshot.left_arm.palm_pose_b[3:],
             sample.snapshot.right_arm.palm_pose_b[3:],
+            self.cfg.right_palm_height_offset_m,
         )
         return ObjectMpcSolution(
             box_pose=box_pose,
@@ -547,9 +581,163 @@ class BimanualObjectMpc:
             ),
         )
 
+    def reset(self) -> None:
+        self._preload_palm_targets = None
+        self._preload_inward_travel = [0.0, 0.0]
+        self._right_preload_forward_travel = 0.0
+        self._preload_contact_latched = [False, False]
+        self._last_safe = None
+        self.right_orientation_mpc.reset()
+
     def plan(self, sample: ObjectMpcInput) -> ObjectMpcSolution:
+        # Translation and orientation form one object proposal. Restore the
+        # translation state if the subordinate orientation proposal is rejected.
+        names = ('_preload_palm_targets', '_preload_inward_travel',
+                 '_right_preload_forward_travel', '_preload_contact_latched', '_last_safe')
+        saved = {name: copy.deepcopy(getattr(self, name)) for name in names}
+        candidate = self._plan_translation(sample)
+        if not candidate.diagnostics.feasible:
+            for name, value in saved.items():
+                setattr(self, name, value)
+            return candidate
+        snapshot = sample.snapshot
+        orientation = self.right_orientation_mpc.plan(PalmOrientationInput(
+            snapshot.right_arm.palm_pose_b, snapshot.right_hand.fingertip_positions_b,
+            snapshot.box.pose_b, snapshot.right_hand.contact_mask, sample.phase))
+        if not orientation.diagnostics.feasible:
+            for name, value in saved.items():
+                setattr(self, name, value)
+            return self._fallback(sample, 'right_palm_orientation_infeasible')
+        right_pose = candidate.right_palm_pose.clone()
+        right_pose[:, 3:] = orientation.orientation_rotvec_b
+        candidate = replace(candidate, right_palm_pose=right_pose)
+        self._last_safe = self._clone(candidate)
+        return candidate
+
+    def _plan_translation(self, sample: ObjectMpcInput) -> ObjectMpcSolution:
         if not isinstance(sample, ObjectMpcInput):
             raise TypeError("sample must be ObjectMpcInput")
+        if sample.phase is BimanualPhase.APPROACH:
+            self._preload_palm_targets = None
+            self._preload_inward_travel = [0.0, 0.0]
+            self._right_preload_forward_travel = 0.0
+            self._preload_contact_latched = [False, False]
+            horizon = self.cfg.horizon_steps
+            box_pose = sample.snapshot.box.pose_b.repeat(horizon, 1)
+            left_target, right_target = _palm_targets(
+                box_pose,
+                self.cfg.palm_lateral_offset_m,
+                self.cfg.palm_reach_offset_m,
+                sample.snapshot.left_arm.palm_pose_b[3:],
+                sample.snapshot.right_arm.palm_pose_b[3:],
+                self.cfg.right_palm_height_offset_m,
+            )
+            fractions = (
+                torch.arange(1, horizon + 1, dtype=torch.float64) / horizon
+            ).unsqueeze(1)
+            left_palm = sample.snapshot.left_arm.palm_pose_b + fractions * (
+                left_target - sample.snapshot.left_arm.palm_pose_b
+            )
+            right_palm = sample.snapshot.right_arm.palm_pose_b + fractions * (
+                right_target - sample.snapshot.right_arm.palm_pose_b
+            )
+            solution = ObjectMpcSolution(
+                box_pose=box_pose,
+                box_twist=torch.zeros((horizon, 6), dtype=torch.float64),
+                platform_yaw=sample.snapshot.platform_q_qd[0].repeat(horizon),
+                left_palm_pose=left_palm,
+                right_palm_pose=right_palm,
+                left_wrench=torch.zeros((horizon, 6), dtype=torch.float64),
+                right_wrench=torch.zeros((horizon, 6), dtype=torch.float64),
+                diagnostics=ObjectMpcDiagnostics(
+                    feasible=True,
+                    fallback_used=False,
+                    fallback_reason=None,
+                    force_closure_margin=0.0,
+                    saturation_fraction=0.0,
+                    iterations=0,
+                ),
+            )
+            self._last_safe = self._clone(solution)
+            return solution
+        if sample.phase is BimanualPhase.PRELOAD and sample.snapshot.box.supported:
+            horizon = self.cfg.horizon_steps
+            box_pose = sample.snapshot.box.pose_b.repeat(horizon, 1)
+            if self._preload_palm_targets is None:
+                self._preload_palm_targets = (
+                    sample.snapshot.left_arm.palm_pose_b.clone(),
+                    sample.snapshot.right_arm.palm_pose_b.clone(),
+                )
+            fingers_preclosed = bool(
+                torch.mean(sample.snapshot.left_hand.q[2:]).item() >= 0.65
+                and torch.mean(sample.snapshot.right_hand.q[2:]).item() >= 0.65
+            )
+            if fingers_preclosed:
+                right_inward_complete_at_start = (
+                    self._preload_inward_travel[1]
+                    >= self.cfg.right_preload_inward_limit_m
+                )
+                for index, (hand, limit) in enumerate(
+                    (
+                        (sample.snapshot.left_hand, self.cfg.left_preload_inward_limit_m),
+                        (sample.snapshot.right_hand, self.cfg.right_preload_inward_limit_m),
+                    )
+                ):
+                    if bool(hand.contact_mask.any()):
+                        self._preload_contact_latched[index] = True
+                    if not self._preload_contact_latched[index]:
+                        self._preload_inward_travel[index] = min(
+                            limit,
+                            self._preload_inward_travel[index]
+                            + self.cfg.preload_palm_inward_speed_m_s * self.cfg.dt,
+                        )
+                if (
+                    right_inward_complete_at_start
+                    and not self._preload_contact_latched[1]
+                ):
+                    self._right_preload_forward_travel = min(
+                        self.cfg.preload_forward_limit_m,
+                        self._right_preload_forward_travel
+                        + self.cfg.preload_palm_inward_speed_m_s * self.cfg.dt,
+                    )
+            left_target = self._preload_palm_targets[0].clone()
+            right_target = self._preload_palm_targets[1].clone()
+            left_target[1] -= self._preload_inward_travel[0]
+            right_target[1] += self._preload_inward_travel[1]
+            left_target[0] += self.cfg.preload_forward_limit_m * min(
+                1.0,
+                self._preload_inward_travel[0]
+                / self.cfg.left_preload_inward_limit_m,
+            )
+            right_target[0] += self._right_preload_forward_travel
+            left_palm = left_target.repeat(horizon, 1)
+            right_palm = right_target.repeat(horizon, 1)
+            left_wrench = torch.zeros((horizon, 6), dtype=torch.float64)
+            right_wrench = torch.zeros((horizon, 6), dtype=torch.float64)
+            left_wrench[:, 1] = -self.cfg.preload_normal_force
+            right_wrench[:, 1] = self.cfg.preload_normal_force
+            solution = ObjectMpcSolution(
+                box_pose=box_pose,
+                box_twist=torch.zeros((horizon, 6), dtype=torch.float64),
+                platform_yaw=sample.snapshot.platform_q_qd[0].repeat(horizon),
+                left_palm_pose=left_palm,
+                right_palm_pose=right_palm,
+                left_wrench=left_wrench,
+                right_wrench=right_wrench,
+                diagnostics=ObjectMpcDiagnostics(
+                    feasible=True,
+                    fallback_used=False,
+                    fallback_reason=None,
+                    force_closure_margin=(
+                        self.cfg.friction_coefficient
+                        * self.cfg.preload_normal_force
+                    ),
+                    saturation_fraction=1.0,
+                    iterations=0,
+                ),
+            )
+            self._last_safe = self._clone(solution)
+            return solution
         if not self._target_reachable(sample):
             return self._fallback(sample, "target_unreachable")
         result = solve_reference_qp(

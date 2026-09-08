@@ -124,3 +124,27 @@ def test_runtime_reset_clears_all_temporal_state_and_accepts_reused_timestamp():
     assert runtime.mission.phase.name == "APPROACH"
     command = runtime.compute(replace(_snapshot(), timestamp_ns=10))
     assert command.feasible
+
+
+def test_mission_reach_check_uses_final_palm_goal_not_first_waypoint():
+    runtime = _runtime()
+    object_solution = _object_solution()
+    snapshot = _snapshot()
+    snapshot = replace(
+        snapshot,
+        left_arm=replace(
+            snapshot.left_arm,
+            palm_pose_b=object_solution.left_palm_pose[0].clone(),
+        ),
+        right_arm=replace(
+            snapshot.right_arm,
+            palm_pose_b=object_solution.right_palm_pose[0].clone(),
+        ),
+    )
+    wbc_solution = _WbcController().solve(None)
+
+    diagnostics = runtime._mission_diagnostics(
+        snapshot, object_solution, wbc_solution
+    )
+
+    assert not diagnostics.palms_reached

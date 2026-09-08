@@ -217,10 +217,11 @@ class FullActionTeacher:
     def __init__(
         self,
         *,
-        effort_regularization: float = 1.0e-4,
+        effort_regularization: float = 1.0e-2,
         qp_tolerance: float = 1.0e-7,
         qp_max_iterations: int = 256,
         residual_tolerance: float = 1.0e-6,
+        fixed_base: bool = False,
     ) -> None:
         if effort_regularization <= 0.0 or not math.isfinite(effort_regularization):
             raise ValueError("effort_regularization must be finite and positive")
@@ -228,6 +229,9 @@ class FullActionTeacher:
         self.qp_tolerance = float(qp_tolerance)
         self.qp_max_iterations = int(qp_max_iterations)
         self.residual_tolerance = float(residual_tolerance)
+        if not isinstance(fixed_base, bool):
+            raise TypeError("fixed_base must be bool")
+        self.fixed_base = fixed_base
 
     @staticmethod
     def _bounded_nominal(sample: TeacherInput) -> torch.Tensor:
@@ -297,6 +301,13 @@ class FullActionTeacher:
         dynamics_residual_max = 0.0
         contact_residual_max = 0.0
         for node in range(TEACHER_HORIZON):
+            node_lower = lower.clone()
+            node_upper = upper.clone()
+            node_lower[17:43] = bounded_nominal[node, 17:43]
+            node_upper[17:43] = bounded_nominal[node, 17:43]
+            if self.fixed_base:
+                node_lower[:] = bounded_nominal[node]
+                node_upper[:] = bounded_nominal[node]
             desired = (
                 sample.task_acceleration_target[node]
                 - task_offset
@@ -314,8 +325,8 @@ class FullActionTeacher:
                     equality_rhs=empty_vector,
                     inequality_matrix=empty_matrix,
                     inequality_upper=empty_vector,
-                    lower_bound=lower,
-                    upper_bound=upper,
+                    lower_bound=node_lower,
+                    upper_bound=node_upper,
                 ),
                 tolerance=self.qp_tolerance,
                 max_iterations=self.qp_max_iterations,

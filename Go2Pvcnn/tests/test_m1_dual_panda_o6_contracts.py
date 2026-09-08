@@ -210,6 +210,8 @@ def test_cfg_is_project_owned_and_has_isolated_actuator_groups(contract):
 def test_platform_initial_position_and_soft_limit_contract(contract):
     cfg = contract.M1_DUAL_PANDA_O6_CFG
     assert cfg.init_state.joint_pos[contract.M1_DUAL_PANDA_O6_PLATFORM_JOINT_NAME] == pytest.approx(0.0)
+    assert cfg.init_state.joint_pos["left_(thumb|index|middle|ring|pinky)_.*"] >= 0.15
+    assert cfg.init_state.joint_pos["right_(thumb|index|middle|ring|pinky)_.*"] >= 0.15
     assert cfg.soft_joint_pos_limit_factor == pytest.approx(0.9)
     assert contract.M1_DUAL_PANDA_O6_PLATFORM_YAW_LIMIT_RAD == pytest.approx(
         (-1.5707963267948966, 1.5707963267948966)
