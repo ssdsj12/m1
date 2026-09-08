@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Preserve all existing M1/Panda assets, Gym IDs, checkpoint shapes, and default behavior.
-- Keep source O6 files under `/home/xk/coding/o6asset` read-only; generated project assets live under `Go2Pvcnn/assets/m1_dual_panda_o6/`.
+- Keep source O6 files under repository-relative `o6asset/` read-only; generated project assets live under `Go2Pvcnn/assets/m1_dual_panda_o6/`.
 - Normalize only the left O6 entry-layer location; do not regenerate its base/physics/robot/sensor layers.
 - Freeze the active order at 16 M1 + 1 platform + 14 Panda + 12 O6 = 43 channels.
 - Treat 53 as an expected runtime physical-DOF count, then record the measured PXR/Isaac value in the manifest; never force a wrong count.
@@ -125,7 +125,7 @@ Run: `cd Go2Pvcnn && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q tests/test_m1_du
 
 Expected: all tests pass.
 
-Run: `cd Go2Pvcnn && python scripts/normalize_o6_assets.py --source-root /home/xk/coding/o6asset --destination-root assets/m1_dual_panda_o6`
+Run: `cd Go2Pvcnn && python scripts/normalize_o6_assets.py --source-root ../o6asset --destination-root assets/m1_dual_panda_o6`
 
 Expected: JSON summary reports both sides, all four layers per side, and zero missing dependencies.
 

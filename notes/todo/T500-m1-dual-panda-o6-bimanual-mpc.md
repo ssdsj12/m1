@@ -26,6 +26,8 @@
 
 ## Related Logs
 
+- [2026-09-08 O6 原始资产迁入仓库](../log/2026-09-08-o6-source-relocation.md)
+
 - [2026-09-02 设计记录](../log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)
 - [2026-09-02 实施计划](../log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md)
 - [2026-09-02 Tasks 1–3 资产验证](../log/2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md)

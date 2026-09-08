@@ -172,8 +172,12 @@ def normalize_o6_sources(source_root: Path, destination_root: Path) -> dict[str,
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-root", type=Path, required=True)
-    parser.add_argument("--destination-root", type=Path, required=True)
+    project_root = Path(__file__).resolve().parents[1]
+    parser.add_argument("--source-root", type=Path, default=project_root.parent / "o6asset",
+                        help="Vendor O6 sources (default: repository/o6asset)")
+    parser.add_argument("--destination-root", type=Path,
+                        default=project_root / "assets/m1_dual_panda_o6",
+                        help="Normalized project assets")
     return parser.parse_args()
 
 
