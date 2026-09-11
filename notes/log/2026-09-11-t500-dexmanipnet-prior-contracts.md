@@ -57,6 +57,28 @@ Result: `30 passed in 0.79s`.
 
 The fix records the exact four-field geometry-only input order and the four output axes in `StudentArtifactMetadata`; rejects bool/float impostors for integer schema fields, non-tuples and non-strict hidden widths, malformed SHA/dtype/nonfinite values, and source string/list impostors. `LEFT_REFLECTION` is now a tuple-of-tuples and `SOURCE_HANDS` a `MappingProxyType`.
 
+### Second review: float32 mixture dtype and source-member negatives
+
+RED command:
+
+```bash
+cd Go2Pvcnn
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py
+```
+
+The new dtype cases were red as intended: float16, bfloat16, and float64 distributions each failed because `MixtureDistribution` did not raise `TypeError`; result `3 failed, 17 passed in 0.80s`.
+
+GREEN / current-contract regression:
+
+```bash
+cd Go2Pvcnn
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py tests/test_m1_dual_panda_o6_contracts.py
+```
+
+Result: `33 passed in 0.82s`.
+
+`MixtureDistribution` now requires exact `torch.float32` logits, means, and log standard deviations. Added source-spec negatives reject blank and non-string tuple members and duplicate joint/tip entries. No deep read-only tensor wrapping was added: the approved Task 1 contract specifies frozen dataclasses and construction-time validation, while PyTorch has no standard durable read-only tensor interface; clone/property wrapping would change the public tensor API without a design requirement.
+
 ### Pinned source-registry audit
 
 ```bash
@@ -70,7 +92,7 @@ ManipTrans checkout `a3d08cfe3c3a5868a7f057533bcaf759c5af4705` produced
 ## Input Conditions
 
 - Baseline Ref: `b109b684a32ca3b5400fcdfe5aa094aa82c44c74`
-- Candidate Ref: `eddcd91d54fe292455a00f4aa00ce562f765c799`
+- Candidate Ref: `0d5b82124ca1b0a36b257760d88ecd6e7050438c`
 - Key Files:
   - [contracts.py](../../Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/contracts.py)
   - [sources.py](../../Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/sources.py)
@@ -93,6 +115,6 @@ Task 2 只能消费这些固定 pin 和 registry，且 source URDF 的本地 clo
 
 ## Git Refs
 
-- Last Feature Commit: `eddcd91d54fe292455a00f4aa00ce562f765c799`
-- Last Verified Commit: `eddcd91d54fe292455a00f4aa00ce562f765c799` (verification was run immediately before the feature commit)
+- Last Feature Commit: `0d5b82124ca1b0a36b257760d88ecd6e7050438c`
+- Last Verified Commit: `0d5b82124ca1b0a36b257760d88ecd6e7050438c` (verification was run immediately before the feature commit)
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`

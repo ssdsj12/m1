@@ -97,3 +97,14 @@ PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_
 Result: `30 passed in 0.79s`.
 
 Self-review: staged only Task 1 contracts, source registry, focused test, and required evidence; `git diff --check` passed; no Graphify or parent-owned progress/brief files were staged. No new concern.
+
+## Second Review Fix: Strict Mixture Dtype
+
+Commit `0d5b82124ca1b0a36b257760d88ecd6e7050438c` (`fix: require float32 fingertip mixtures`) freezes all `MixtureDistribution` tensors to exact `torch.float32`. RED added float16/bfloat16/float64 cases and observed `3 failed, 17 passed in 0.80s`; GREEN/current regression is `33 passed in 0.82s` with:
+
+```bash
+cd Go2Pvcnn
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py tests/test_m1_dual_panda_o6_contracts.py
+```
+
+The same update adds `SourceHandSpec` negatives for blank and non-string tuple members and duplicate joint/tip names. Deep read-only tensor wrapping was deliberately not added: the approved Task 1 contract requires `@dataclass(frozen=True)` and construction-time validation, while “frozen student” denotes artifact/weight semantics. PyTorch has no standard durable read-only tensor contract, and cloning/property replacement would change the specified public tensor-field API without design authorization. Self-review confirmed only Task 1 code/tests and evidence were staged; no Graphify/progress/brief dirt was staged.
