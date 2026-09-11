@@ -9,7 +9,8 @@ OakInk V2 将经源手 URDF FK 转为掌坐标五指尖短时概率分布，先�
 冻结固定 pin、掌坐标五指窗口、四分量分布、student metadata 和 Inspire/Shadow 左右手
 registry；Task 2 已实现固定 DexManipNet revision、固定 ManipTrans commit、archive SHA/size
 manifest、路径/设备/越界链接拒绝、临时 sibling 解压后原子安装，以及不联网且不改写 evidence
-的 `--verify-only`。Task 1–2 合同共 `33 passed`；尚未下载 8.31 GB 数据、训练模型或修改运行时。
+的 `--verify-only`。source checkout 在复用和 verify 时均以 no-optional-lock Git status 拒绝 tracked、
+untracked 和 ignored 漂移。Task 1–2 合同共 `36 passed`；尚未下载 8.31 GB 数据、训练模型或修改运行时。
 见[下载验证](../log/2026-09-11-t500-dexmanipnet-fetcher.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
@@ -65,8 +66,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `5442a36`（DexManipNet 指尖先验 Task 2 固定下载与安全解压）
-- Last Verified Commit: `5442a36`（Task 1–2 合同共 `33 passed`，含 help/pycompile/diff）
+- Last Feature Commit: `c78d442`（DexManipNet 指尖先验 Task 2 source checkout cleanliness）
+- Last Verified Commit: `c78d442`（Task 1–2 合同共 `36 passed`，含 help/pycompile/diff）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
