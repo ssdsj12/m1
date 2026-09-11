@@ -7,8 +7,10 @@ OakInk V2 将经源手 URDF FK 转为掌坐标五指尖短时概率分布，先�
 再蒸馏冻结学生并只作为 O6 Hand MPC
 可退让软代价；模型不接收任务/对象 ID，也不决定掌、物体、机械臂或底盘轨迹。Task 1 已
 冻结固定 pin、掌坐标五指窗口、四分量分布、student metadata 和 Inspire/Shadow 左右手
-registry；第二轮 review 后合同与当前 dual-Panda 合同共 `33 passed`。尚未下载数据、训练模型或修改运行时。
-见[合同验证](../log/2026-09-11-t500-dexmanipnet-prior-contracts.md)。
+registry；Task 2 已实现固定 DexManipNet revision、固定 ManipTrans commit、archive SHA/size
+manifest、路径/设备/越界链接拒绝、临时 sibling 解压后原子安装，以及不联网且不改写 evidence
+的 `--verify-only`。Task 1–2 合同共 `33 passed`；尚未下载 8.31 GB 数据、训练模型或修改运行时。
+见[下载验证](../log/2026-09-11-t500-dexmanipnet-fetcher.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -29,7 +31,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Task 1 合同已完成，Task 2 安全下载/解压待执行。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Task 1 合同与 Task 2 安全下载已完成，下一步为 Task 3 源手 FK。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -47,6 +49,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 - [2026-09-11 DexManipNet 指尖先验合同冻结](../log/2026-09-11-t500-dexmanipnet-prior-contracts.md)
 
+- [2026-09-11 DexManipNet 固定下载与安全解压](../log/2026-09-11-t500-dexmanipnet-fetcher.md)
+
 - [2026-09-11 DexManipNet 指尖先验设计](../log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)
 
 - [2026-09-11 远端快进合入与本地验证](../log/2026-09-11-t500-remote-fast-forward-local-verification.md)
@@ -61,8 +65,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `0d5b821`（DexManipNet 指尖先验 Task 1 float32 mixture contract）
-- Last Verified Commit: `0d5b821`（Task 1 合同与当前 dual-Panda 合同共 `33 passed`）
+- Last Feature Commit: `5442a36`（DexManipNet 指尖先验 Task 2 固定下载与安全解压）
+- Last Verified Commit: `5442a36`（Task 1–2 合同共 `33 passed`，含 help/pycompile/diff）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)

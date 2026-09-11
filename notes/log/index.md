@@ -4,6 +4,7 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-11：[T500 DexManipNet 固定下载与安全解压](2026-09-11-t500-dexmanipnet-fetcher.md)：两个 archive 与 ManipTrans 均固定到合同 pin；安全 staged 解压拒绝 traversal、设备和越界链接；`--verify-only` 不联网、不写 manifest 且逐项比较 archive/source/evidence；Task 1–2 `33 passed`，未下载 8.31 GB 数据。
 - 2026-09-11：[T500 DexManipNet 指尖先验合同冻结](2026-09-11-t500-dexmanipnet-prior-contracts.md)：冻结数据/源码 pin、精确 input/output layout、严格 float32 四分量分布、不可变 artifact/source registry 和四个受支持 ManipTrans 手型；第二轮 review 后与现有 dual-Panda 合同共 `33 passed`。
 - 2026-09-11：[T500 DexManipNet 指尖先验实施计划](2026-09-11-t500-dexmanipnet-fingertip-prior-plan.md)：12 个逐文件 TDD 任务覆盖下载、FK、转换、教师、蒸馏、Hand QP、完整数据和 GPU0/30 条门；尚未执行。
 
