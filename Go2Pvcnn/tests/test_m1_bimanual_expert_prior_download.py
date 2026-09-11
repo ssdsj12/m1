@@ -174,3 +174,70 @@ def test_verify_only_compares_existing_manifest_without_writing_or_fetching(tmp_
     assert manifest_path.read_bytes() == before_content
     assert manifest_path.stat().st_mtime_ns == before_mtime_ns
     assert sorted(path.relative_to(root).as_posix() for path in root.rglob("*")) == before_paths
+
+
+@pytest.mark.parametrize(
+    ("mutation_path", "contents"),
+    [("README", "modified source\n"), ("untracked.txt", "untracked source\n")],
+)
+def test_existing_and_verify_only_reject_dirty_maniptrans_without_writing(
+    tmp_path, monkeypatch, mutation_path, contents
+):
+    fetch = _load_fetch_script()
+    root = tmp_path / "dexmanipnet"
+    downloads = root / "downloads"
+    downloads.mkdir(parents=True)
+    archive_paths = tuple(downloads / name for name in fetch.ARCHIVE_NAMES)
+    for path, payload in zip(archive_paths, (b"favor", b"oakink"), strict=True):
+        path.write_bytes(payload)
+        (root / "extracted" / path.name.removesuffix(".tar.gz") / "sequences").mkdir(
+            parents=True
+        )
+
+    source = root / "source_maniptrans"
+    source.mkdir()
+    _git(source, "init")
+    _git(source, "config", "user.email", "test@example.invalid")
+    _git(source, "config", "user.name", "Test User")
+    (source / "README").write_text("pinned source\n", encoding="utf-8")
+    _git(source, "add", "README")
+    _git(source, "commit", "-m", "fixture")
+    commit = _git(source, "rev-parse", "HEAD")
+    tree = _git(source, "rev-parse", "HEAD^{tree}")
+    monkeypatch.setattr(fetch, "DEXMANIPNET_REVISION", "a" * 40)
+    monkeypatch.setattr(fetch, "MANIPTRANS_COMMIT", commit)
+
+    manifest = build_download_manifest(downloads, archive_paths, "a" * 40, commit)
+    manifest["maniptrans_repository"] = fetch.MANIPTRANS_REPOSITORY
+    manifest["maniptrans_tree"] = tree
+    manifest_path = root / "manifests" / "download_manifest.json"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (source / mutation_path).write_text(contents, encoding="utf-8")
+    before_manifest = manifest_path.read_bytes()
+    before_manifest_mtime = manifest_path.stat().st_mtime_ns
+    index_path = source / ".git" / "index"
+    before_index_mtime = index_path.stat().st_mtime_ns
+    before_paths = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
+
+    with pytest.raises(ValueError, match="not clean"):
+        fetch._clone_maniptrans(source)
+    with pytest.raises(ValueError, match="not clean"):
+        fetch.run(root, download_only=False, verify_only=True)
+
+    assert manifest_path.read_bytes() == before_manifest
+    assert manifest_path.stat().st_mtime_ns == before_manifest_mtime
+    assert index_path.stat().st_mtime_ns == before_index_mtime
+    assert sorted(path.relative_to(root).as_posix() for path in root.rglob("*")) == before_paths
+
+
+def test_verify_only_reports_verification_not_manifest_write(monkeypatch, capsys):
+    fetch = _load_fetch_script()
+    manifest_path = Path("/tmp/download_manifest.json")
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--verify-only"])
+    monkeypatch.setattr(fetch, "run", lambda *args, **kwargs: manifest_path)
+
+    assert fetch.main() == 0
+    output = capsys.readouterr().out
+    assert "verified pinned downloads and source" in output
+    assert "wrote pinned" not in output

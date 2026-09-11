@@ -75,7 +75,7 @@ def _fetch_archives(download_root: Path) -> tuple[Path, Path]:
 
 def _git(directory: Path, *args: str) -> str:
     completed = subprocess.run(
-        ("git", "-C", str(directory), *args),
+        ("git", "--no-optional-locks", "-C", str(directory), *args),
         check=True,
         capture_output=True,
         text=True,
@@ -83,10 +83,26 @@ def _git(directory: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def _require_clean_maniptrans(destination: Path) -> None:
+    """Reject mutable source trees without refreshing or locking their index."""
+
+    status = _git(
+        destination,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignored=matching",
+        "--ignore-submodules=none",
+    )
+    if status:
+        raise ValueError(f"ManipTrans checkout is not clean: {status}")
+
+
 def _clone_maniptrans(destination: Path) -> tuple[str, str]:
     """Install a detached, pinned checkout without replacing an existing one."""
 
     if destination.exists():
+        _require_clean_maniptrans(destination)
         commit = _git(destination, "rev-parse", "HEAD")
         if commit != MANIPTRANS_COMMIT:
             raise ValueError(
@@ -102,6 +118,7 @@ def _clone_maniptrans(destination: Path) -> tuple[str, str]:
             ("git", "clone", "--filter=blob:none", MANIPTRANS_REPOSITORY, str(staging)), check=True
         )
         _git(staging, "checkout", "--detach", MANIPTRANS_COMMIT)
+        _require_clean_maniptrans(staging)
         commit = _git(staging, "rev-parse", "HEAD")
         if commit != MANIPTRANS_COMMIT:
             raise RuntimeError(f"ManipTrans checkout did not resolve pinned commit: {commit}")
@@ -116,6 +133,7 @@ def _clone_maniptrans(destination: Path) -> tuple[str, str]:
 def _verify_maniptrans(destination: Path) -> tuple[str, str]:
     if not destination.is_dir():
         raise FileNotFoundError(f"missing pinned ManipTrans checkout: {destination}")
+    _require_clean_maniptrans(destination)
     commit = _git(destination, "rev-parse", "HEAD")
     if commit != MANIPTRANS_COMMIT:
         raise ValueError(f"ManipTrans checkout is not pinned to {MANIPTRANS_COMMIT}: {commit}")
@@ -212,7 +230,10 @@ def main() -> int:
         )
     except (FileNotFoundError, RuntimeError, subprocess.CalledProcessError, ValueError) as error:
         raise SystemExit(f"fetch failed: {error}") from error
-    print(f"wrote pinned download manifest: {manifest_path}")
+    if args.verify_only:
+        print(f"verified pinned downloads and source: {manifest_path}")
+    else:
+        print(f"wrote pinned download manifest: {manifest_path}")
     return 0
 
 
