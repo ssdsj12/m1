@@ -33,6 +33,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Related Logs
 
+- [2026-09-11 根 README 状态说明](../log/2026-09-11-t500-readme-status.md)
+
 - [2026-09-08 O6 原始资产迁入仓库](../log/2026-09-08-o6-source-relocation.md)
 
 - [2026-09-02 设计记录](../log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)
