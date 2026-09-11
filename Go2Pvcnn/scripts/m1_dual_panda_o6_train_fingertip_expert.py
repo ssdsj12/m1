@@ -76,6 +76,12 @@ def _canonical_json(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode("utf-8")
 
 
+def _ensemble_manifest_sha256(body: dict[str, object]) -> str:
+    """Hash exactly the canonical manifest body used by the atomic writer."""
+
+    return sha256(_canonical_json(body)).hexdigest()
+
+
 def _atomic_bytes(path: Path, value: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
@@ -242,9 +248,19 @@ def _load_resume(
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("resume ensemble manifest is invalid") from error
+    if type(manifest) is not dict:
+        raise ValueError("resume ensemble manifest is invalid")
+    declared_manifest_sha = manifest.get("ensemble_manifest_sha256")
+    manifest_body = dict(manifest)
+    manifest_body.pop("ensemble_manifest_sha256", None)
     if (
-        type(manifest) is not dict
-        or manifest.get("format_version") != 1
+        type(declared_manifest_sha) is not str
+        or len(declared_manifest_sha) != 64
+        or declared_manifest_sha != _ensemble_manifest_sha256(manifest_body)
+    ):
+        raise ValueError("resume ensemble manifest SHA-256 mismatch")
+    if (
+        manifest.get("format_version") != 1
         or manifest.get("dataset_aggregate_sha256") != aggregate_sha
         or manifest.get("hidden") != list(hidden)
     ):
@@ -570,7 +586,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "synthetic_smoke": bool(args.synthetic_smoke),
             "production_deployable": production_deployable,
         }
-        manifest_sha = sha256(_canonical_json(body)).hexdigest()
+        manifest_sha = _ensemble_manifest_sha256(body)
         _atomic_bytes(stage / "ensemble_manifest.json", _canonical_json({**body, "ensemble_manifest_sha256": manifest_sha}))
         os.replace(stage, destination)
         print(json.dumps({**body, "ensemble_manifest_sha256": manifest_sha}, sort_keys=True))

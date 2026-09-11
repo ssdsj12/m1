@@ -67,3 +67,29 @@ def test_group_overlap_is_rejected_before_shards_are_loaded():
 
     with pytest.raises(ValueError, match="overlap"):
         _trainer_module()._validate_group_assignments(document)
+
+
+@pytest.mark.parametrize("field, value", [("seed", 9999), ("checkpoint_sha256", "0" * 64)])
+def test_resume_rejects_manifest_member_tampering_before_checkpoint_load(
+    tmp_path: Path, field: str, value: object
+):
+    initial = tmp_path / "initial"
+    environment = {**os.environ, "PYTHONPATH": str(SCRIPT.parents[1])}
+    subprocess.run(
+        [sys.executable, str(SCRIPT), "--synthetic-smoke", "--epochs", "1", "--output-dir", str(initial)],
+        check=True,
+        env=environment,
+    )
+    manifest_path = initial / "ensemble_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["members"][1][field] = value
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest SHA-256"):
+        _trainer_module()._load_resume(
+            initial,
+            member_index=0,
+            seed=1701,
+            hidden=(512, 512, 512),
+            aggregate_sha=manifest["dataset_aggregate_sha256"],
+        )
