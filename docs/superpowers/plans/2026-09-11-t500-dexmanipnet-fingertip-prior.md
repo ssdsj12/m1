@@ -226,7 +226,7 @@ git commit -m "feat: add pinned DexManipNet fetcher"
 - Consumes: `SourceHandSpec` and source URDF.
 - Produces: `UrdfKinematicTree.from_file(path)`, `forward_links(q, joint_order, links) -> np.ndarray`, mimic expansion, palm-relative five-tip FK.
 
-- [ ] **Step 1: Write analytical two-joint and mimic RED tests**
+- [x] **Step 1: Write analytical two-joint and mimic RED tests**
 
 ```python
 def test_two_revolute_joint_fk_matches_hand_solution(tmp_path):
@@ -241,13 +241,13 @@ def test_mimic_joint_uses_master_multiplier_and_offset(tmp_path):
     assert tree.expanded_joint_positions({"j0": 0.4})["j1"] == pytest.approx(0.3)
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_urdf_fk.py`
 
 Expected: missing `UrdfKinematicTree`.
 
-- [ ] **Step 3: Implement XML parsing and deterministic batched FK**
+- [x] **Step 3: Implement XML parsing and deterministic batched FK**
 
 ```python
 def axis_angle_matrix(axis: np.ndarray, angle: np.ndarray) -> np.ndarray:
@@ -259,13 +259,13 @@ def axis_angle_matrix(axis: np.ndarray, angle: np.ndarray) -> np.ndarray:
 
 Parse link/joint name, parent/child, origin xyz/rpy, axis, type, limit, and mimic. Reject cycles, multiple parents, missing roots, unknown joint types, duplicate names, missing requested links, mismatched q columns, non-finite values, and mimic cycles. Compose root-to-link transforms in stable topological order, then compute `inv(T_palm) @ T_tip` in frozen finger order.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_urdf_fk.py`
 
 Expected: pass with maximum analytical FK error `<=1e-8 m`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/urdf_fk.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_urdf_fk.py
