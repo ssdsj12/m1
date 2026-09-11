@@ -3,12 +3,15 @@ from __future__ import annotations
 from dataclasses import asdict
 from hashlib import sha256
 import json
+import importlib.util
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
 import h5py
 import numpy as np
+import pytest
 import torch
 
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts import (
@@ -21,6 +24,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.sources import SOURCE_HANDS
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.storage import (
     deterministic_group_split,
+    verify_aggregate_manifest,
     write_shards,
 )
 
@@ -144,6 +148,25 @@ def test_shards_have_strict_arrays_stats_audit_jsonl_and_no_group_leakage(tmp_pa
     document = json.loads((output / "aggregate_manifest.json").read_text())
     assert document["aggregate_sha256"] == manifest.aggregate_sha256
     assert document["shards"] == [asdict(record) for record in manifest.shards]
+    audit_bytes = (output / "audit.jsonl").read_bytes()
+    assert document["audit_jsonl_bytes"] == len(audit_bytes)
+    assert document["audit_jsonl_sha256"] == sha256(audit_bytes).hexdigest()
+    assert verify_aggregate_manifest(output)["aggregate_sha256"] == manifest.aggregate_sha256
+
+    for name in ("audit", "shard", "aggregate"):
+        copied = tmp_path / f"mutated-{name}"
+        shutil.copytree(output, copied)
+        if name == "audit":
+            (copied / "audit.jsonl").write_bytes(audit_bytes + b"{}\n")
+        elif name == "shard":
+            (copied / manifest.shards[0].path).write_bytes(b"tampered shard")
+        else:
+            aggregate_path = copied / "aggregate_manifest.json"
+            aggregate_path.write_bytes(
+                aggregate_path.read_bytes().replace(b'"format_version":1', b'"format_version":2')
+            )
+        with pytest.raises(ValueError, match=name if name != "aggregate" else "aggregate"):
+            verify_aggregate_manifest(copied)
 
 
 def test_storage_rejects_missing_group_assignment_nonfinite_or_existing_output(tmp_path: Path):
@@ -189,22 +212,48 @@ def test_conversion_cli_help_does_not_inspect_or_download_data(tmp_path: Path):
     assert not missing_root.exists()
 
 
-def _write_full_conversion_fixture(root: Path) -> None:
-    manifest = {
-        "dataset_revision": DEXMANIPNET_REVISION,
-        "maniptrans_commit": MANIPTRANS_COMMIT,
-        "maniptrans_tree": "1" * 40,
-        "archives": [
-            {"name": "dexmanipnet_favor.tar.gz", "sha256": "2" * 64, "size_bytes": 1},
-            {"name": "dexmanipnet_oakinkv2.tar.gz", "sha256": "3" * 64, "size_bytes": 1},
-        ],
+def _git(directory: Path, *args: str) -> str:
+    return subprocess.run(
+        ("git", "-C", str(directory), *args),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _load_convert_script():
+    script = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_convert_dexmanipnet.py"
+    spec = importlib.util.spec_from_file_location("convert_dexmanipnet_test", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_full_conversion_fixture(root: Path) -> tuple[str, str]:
+    downloads = root / "downloads"
+    downloads.mkdir(parents=True)
+    archive_payloads = {
+        "dexmanipnet_favor.tar.gz": b"favor-archive-fixture",
+        "dexmanipnet_oakinkv2.tar.gz": b"oakink-archive-fixture",
     }
-    manifest_path = root / "manifests" / "download_manifest.json"
-    manifest_path.parent.mkdir(parents=True)
-    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+    archive_records = []
+    for name, payload in archive_payloads.items():
+        path = downloads / name
+        path.write_bytes(payload)
+        archive_records.append(
+            {"name": name, "path": name, "sha256": sha256(payload).hexdigest(), "size_bytes": len(payload),
+             "source_url": f"https://huggingface.co/datasets/LiKailin/DexManipNet/resolve/{'a' * 40}/{name}"}
+        )
+
+    source_root = root / "source_maniptrans"
+    source_root.mkdir()
+    _git(source_root, "init")
+    _git(source_root, "config", "user.email", "test@example.invalid")
+    _git(source_root, "config", "user.name", "Test User")
 
     spec = SOURCE_HANDS["inspire_rh"]
-    hand_path = root / "source_maniptrans" / spec.urdf_relpath
+    hand_path = source_root / spec.urdf_relpath
     hand_path.parent.mkdir(parents=True)
     links = ['<link name="R_hand_base_link"/>']
     joints = []
@@ -227,6 +276,22 @@ def _write_full_conversion_fixture(root: Path) -> None:
     hand_path.write_text(
         '<robot name="fixture">' + "".join(links + joints) + "</robot>", encoding="utf-8"
     )
+    _git(source_root, "add", ".")
+    _git(source_root, "commit", "-m", "fixture")
+    commit = _git(source_root, "rev-parse", "HEAD")
+    tree = _git(source_root, "rev-parse", "HEAD^{tree}")
+
+    manifest = {
+        "dataset_repository": "LiKailin/DexManipNet",
+        "dataset_revision": "a" * 40,
+        "maniptrans_commit": commit,
+        "maniptrans_repository": "https://github.com/ManipTrans/ManipTrans.git",
+        "maniptrans_tree": tree,
+        "archives": archive_records,
+    }
+    manifest_path = root / "manifests" / "download_manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
 
     favor = root / "extracted" / "dexmanipnet_favor"
     oakink = root / "extracted" / "dexmanipnet_oakinkv2"
@@ -262,35 +327,19 @@ def _write_full_conversion_fixture(root: Path) -> None:
         rollout.create_dataset("dq_rh", data=np.zeros_like(q))
         rollout.create_dataset("state_rh", data=state)
         rollout.create_dataset("state_manip_obj_rh", data=state)
+    return commit, tree
 
 
-def test_two_complete_offline_conversions_have_identical_all_file_hashes(tmp_path: Path):
+def test_two_complete_offline_conversions_have_identical_all_file_hashes(tmp_path: Path, monkeypatch):
     root = tmp_path / "external"
-    _write_full_conversion_fixture(root)
-    script = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_convert_dexmanipnet.py"
-    environment = {**__import__("os").environ, "PYTHONPATH": str(Path(__file__).parents[1])}
+    commit, _ = _write_full_conversion_fixture(root)
+    convert = _load_convert_script()
+    monkeypatch.setattr(convert, "DEXMANIPNET_REVISION", "a" * 40)
+    monkeypatch.setattr(convert, "MANIPTRANS_COMMIT", commit)
     outputs = (tmp_path / "conversion-a", tmp_path / "conversion-b")
 
     for output in outputs:
-        completed = subprocess.run(
-            [
-                sys.executable,
-                str(script),
-                "--root",
-                str(root),
-                "--output",
-                str(output),
-                "--seed",
-                "17",
-                "--shard-size",
-                "7",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            env=environment,
-        )
-        assert completed.returncode == 0, completed.stderr
+        convert.run(root, output, seed=17, shard_size=7)
 
     assert _tree_hash(outputs[0]) == _tree_hash(outputs[1])
     manifest_a = json.loads((outputs[0] / "aggregate_manifest.json").read_text())
@@ -298,26 +347,53 @@ def test_two_complete_offline_conversions_have_identical_all_file_hashes(tmp_pat
     assert manifest_a["aggregate_sha256"] == manifest_b["aggregate_sha256"]
     assert manifest_a["shards"] == manifest_b["shards"]
     assert manifest_a["shards"][0]["hand_counts"] == {"inspire_rh": 7}
+    assert manifest_a["verified_inputs"]["archives"] == manifest_b["verified_inputs"]["archives"]
+    assert manifest_a["verified_inputs"]["source"] == {"commit": commit, "tree": manifest_a["verified_inputs"]["source"]["tree"]}
 
 
-def test_conversion_rejects_malformed_archive_provenance_before_touching_output(tmp_path: Path):
+def test_conversion_rejects_malformed_archive_provenance_before_touching_output(tmp_path: Path, monkeypatch):
     root = tmp_path / "external"
-    _write_full_conversion_fixture(root)
+    commit, _ = _write_full_conversion_fixture(root)
     manifest_path = root / "manifests" / "download_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["archives"][0]["sha256"] = "not-a-sha"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     output = tmp_path / "must-stay-missing"
-    script = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_convert_dexmanipnet.py"
+    convert = _load_convert_script()
+    monkeypatch.setattr(convert, "DEXMANIPNET_REVISION", "a" * 40)
+    monkeypatch.setattr(convert, "MANIPTRANS_COMMIT", commit)
+    try:
+        convert.run(root, output, seed=42, shard_size=8)
+    except ValueError as error:
+        assert "manifest" in str(error).lower() or "archive" in str(error).lower()
+    else:
+        raise AssertionError("malformed archive provenance was accepted")
+    assert not output.exists()
 
-    completed = subprocess.run(
-        [sys.executable, str(script), "--root", str(root), "--output", str(output)],
-        check=False,
-        capture_output=True,
-        text=True,
-        env={**__import__("os").environ, "PYTHONPATH": str(Path(__file__).parents[1])},
-    )
 
-    assert completed.returncode != 0
-    assert "archive" in completed.stderr.lower() and "sha" in completed.stderr.lower()
+@pytest.mark.parametrize(
+    "failure", ["mutated_archive", "missing_archive", "missing_source", "dirty_source"]
+)
+def test_conversion_verifies_actual_archives_and_clean_source_before_output(
+    tmp_path: Path, monkeypatch, failure: str
+):
+    root = tmp_path / "external"
+    commit, _ = _write_full_conversion_fixture(root)
+    convert = _load_convert_script()
+    monkeypatch.setattr(convert, "DEXMANIPNET_REVISION", "a" * 40)
+    monkeypatch.setattr(convert, "MANIPTRANS_COMMIT", commit)
+    if failure == "mutated_archive":
+        (root / "downloads" / "dexmanipnet_favor.tar.gz").write_bytes(b"tampered archive")
+    elif failure == "missing_archive":
+        (root / "downloads" / "dexmanipnet_oakinkv2.tar.gz").unlink()
+    elif failure == "missing_source":
+        (root / "source_maniptrans").rename(root / "source_maniptrans.removed")
+    else:
+        source_file = root / "source_maniptrans" / SOURCE_HANDS["inspire_rh"].urdf_relpath
+        source_file.write_text(source_file.read_text() + "\n<!-- dirty -->\n", encoding="utf-8")
+    output = tmp_path / "must-stay-missing"
+
+    with pytest.raises((FileNotFoundError, ValueError)):
+        convert.run(root, output, seed=42, shard_size=8)
+
     assert not output.exists()

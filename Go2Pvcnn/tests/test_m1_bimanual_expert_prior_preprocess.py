@@ -16,6 +16,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.preproces
     infer_contact_hysteresis,
     infer_prior_phase,
     load_object_collision_mesh,
+    object_relative_surface_kinematics,
     resample_fingertips,
     resample_fingertips_with_velocity,
     windows_from_sequence,
@@ -195,6 +196,71 @@ def test_object_box_geometry_is_loaded_without_dataset_semantics(tmp_path: Path)
     assert mesh.is_watertight
     np.testing.assert_allclose(mesh.extents, [0.2, 0.4, 0.6], atol=1e-12)
     np.testing.assert_allclose(mesh.centroid, [0.1, 0.0, 0.0], atol=1e-12)
+
+
+def _write_mesh_urdf(tmp_path: Path, mesh: object, name: str) -> Path:
+    mesh_path = tmp_path / f"{name}.obj"
+    mesh.export(mesh_path)
+    urdf = tmp_path / f"{name}.urdf"
+    urdf.write_text(
+        f'<robot name="mesh"><link name="object"><collision><geometry>'
+        f'<mesh filename="{mesh_path.name}"/></geometry></collision></link></robot>',
+        encoding="utf-8",
+    )
+    return urdf
+
+
+def test_inward_mesh_is_deterministically_normalized_to_outward_normals(tmp_path: Path):
+    import trimesh
+
+    box = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    box.faces = box.faces[:, ::-1]
+    assert box.volume < 0.0 and box.is_winding_consistent
+
+    loaded = load_object_collision_mesh(_write_mesh_urdf(tmp_path, box, "inward"))
+
+    assert loaded.is_watertight and loaded.is_winding_consistent
+    assert loaded.volume > 0.0
+    assert np.all(np.einsum("ij,ij->i", loaded.triangles_center, loaded.face_normals) > 0.0)
+
+
+def test_inconsistent_mesh_winding_is_atomic_rejection(tmp_path: Path):
+    import trimesh
+
+    box = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    box.faces[0] = box.faces[0, ::-1]
+    assert not box.is_winding_consistent
+
+    with pytest.raises(ValueError, match="winding"):
+        load_object_collision_mesh(_write_mesh_urdf(tmp_path, box, "inconsistent"))
+
+
+def test_moving_object_relative_normal_speed_is_target_spline_analytic_derivative():
+    import trimesh
+
+    source_hz = 60
+    source_time = np.arange(7, dtype=np.float64) / source_hz
+    fingertips = np.zeros((source_time.size, 5, 3), dtype=np.float64)
+    fingertips[..., 0] = 0.2
+    hand_state = np.zeros((source_time.size, 13), dtype=np.float64)
+    object_state = np.zeros_like(hand_state)
+    hand_state[:, 6] = object_state[:, 6] = 1.0
+    # A stationary fingertip relative to a cubically moving object gives
+    # x_object = 0.2 + t^3 and exact normal speed +3*t^2 on the +x box face.
+    object_state[:, 0] = -(source_time**3)
+
+    distance, normal_speed, target_time = object_relative_surface_kinematics(
+        fingertips,
+        hand_state,
+        object_state,
+        trimesh.creation.box(extents=(0.2, 0.2, 0.2)),
+        source_hz=source_hz,
+        target_hz=100,
+    )
+
+    np.testing.assert_allclose(distance[:, 0], 0.1 + target_time**3, atol=1e-10)
+    np.testing.assert_allclose(normal_speed[:, 0], 3.0 * target_time**2, atol=1e-10)
+    assert normal_speed[0, 0] == pytest.approx(0.0, abs=1e-12)
 
 
 def _write_inspire_fixture(path: Path) -> Path:

@@ -19,6 +19,10 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.download 
     DATASET_REPOSITORY,
     atomic_extract_tar,
     build_download_manifest,
+    git_readonly,
+    require_clean_checkout,
+    verify_clean_checkout,
+    verify_pinned_external_inputs,
 )
 
 
@@ -74,28 +78,16 @@ def _fetch_archives(download_root: Path) -> tuple[Path, Path]:
 
 
 def _git(directory: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ("git", "--no-optional-locks", "-C", str(directory), *args),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip()
+    return git_readonly(directory, *args)
 
 
 def _require_clean_maniptrans(destination: Path) -> None:
     """Reject mutable source trees without refreshing or locking their index."""
 
-    status = _git(
-        destination,
-        "status",
-        "--porcelain=v1",
-        "--untracked-files=all",
-        "--ignored=matching",
-        "--ignore-submodules=none",
-    )
-    if status:
-        raise ValueError(f"ManipTrans checkout is not clean: {status}")
+    try:
+        require_clean_checkout(destination)
+    except ValueError as error:
+        raise ValueError(str(error).replace("pinned source checkout", "ManipTrans checkout")) from error
 
 
 def _clone_maniptrans(destination: Path) -> tuple[str, str]:
@@ -131,13 +123,12 @@ def _clone_maniptrans(destination: Path) -> tuple[str, str]:
 
 
 def _verify_maniptrans(destination: Path) -> tuple[str, str]:
-    if not destination.is_dir():
-        raise FileNotFoundError(f"missing pinned ManipTrans checkout: {destination}")
-    _require_clean_maniptrans(destination)
-    commit = _git(destination, "rev-parse", "HEAD")
-    if commit != MANIPTRANS_COMMIT:
-        raise ValueError(f"ManipTrans checkout is not pinned to {MANIPTRANS_COMMIT}: {commit}")
-    return commit, _git(destination, "rev-parse", "HEAD^{tree}")
+    try:
+        facts = verify_clean_checkout(destination, expected_commit=MANIPTRANS_COMMIT)
+    except (FileNotFoundError, ValueError) as error:
+        message = str(error).replace("source checkout", "ManipTrans checkout")
+        raise type(error)(message) from error
+    return facts["commit"], facts["tree"]
 
 
 def _validate_existing_extraction(destination: Path) -> None:
@@ -196,7 +187,16 @@ def run(root: Path, *, download_only: bool, verify_only: bool) -> Path:
     manifest["maniptrans_tree"] = tree
 
     if verify_only:
-        return _verify_manifest(root, manifest)
+        manifest_path = _verify_manifest(root, manifest)
+        verify_pinned_external_inputs(
+            root,
+            manifest_path,
+            archive_names=ARCHIVE_NAMES,
+            expected_revision=DEXMANIPNET_REVISION,
+            expected_commit=MANIPTRANS_COMMIT,
+            source_repository=MANIPTRANS_REPOSITORY,
+        )
+        return manifest_path
 
     if not download_only:
         extracted_root = root / "extracted"

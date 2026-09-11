@@ -9,7 +9,7 @@ from hashlib import sha256
 from io import BytesIO
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import random
 import shutil
 import tempfile
@@ -51,6 +51,9 @@ class AggregateManifest:
     format_version: int
     archive_manifest_sha256: str | None
     source_manifest_sha256: str | None
+    verified_inputs: dict[str, object]
+    audit_jsonl_sha256: str
+    audit_jsonl_bytes: int
     split_groups: dict[str, tuple[str, ...]]
     shards: tuple[ShardRecord, ...]
     aggregate_sha256: str
@@ -187,6 +190,7 @@ def write_shards(
     archive_manifest_sha256: str | None = None,
     source_manifest_sha256: str | None = None,
     group_hands: Mapping[str, str] | None = None,
+    verified_inputs: Mapping[str, object] | None = None,
 ) -> AggregateManifest:
     """Atomically install deterministic NPZ shards, audit JSONL, and manifest."""
 
@@ -199,6 +203,8 @@ def write_shards(
         raise TypeError("split must be a GroupSplit")
     archive_sha = _sha_or_none("archive_manifest_sha256", archive_manifest_sha256)
     source_sha = _sha_or_none("source_manifest_sha256", source_manifest_sha256)
+    input_facts = {} if verified_inputs is None else dict(verified_inputs)
+    _canonical_json(input_facts)
     assignments: dict[str, str] = {}
     for split_name in ("train", "validation", "test"):
         for group in getattr(split, split_name):
@@ -267,12 +273,16 @@ def write_shards(
                     )
                 )
 
-        (staging / "audit.jsonl").write_bytes(b"".join(_canonical_json(row) for row in audit_rows))
+        audit_bytes = b"".join(_canonical_json(row) for row in audit_rows)
+        (staging / "audit.jsonl").write_bytes(audit_bytes)
         records.sort(key=lambda item: item.path)
         body = {
             "format_version": 1,
             "archive_manifest_sha256": archive_sha,
             "source_manifest_sha256": source_sha,
+            "verified_inputs": input_facts,
+            "audit_jsonl_sha256": sha256(audit_bytes).hexdigest(),
+            "audit_jsonl_bytes": len(audit_bytes),
             "split_groups": {
                 name: sorted(getattr(split, name)) for name in ("train", "validation", "test")
             },
@@ -292,6 +302,9 @@ def write_shards(
         format_version=1,
         archive_manifest_sha256=archive_sha,
         source_manifest_sha256=source_sha,
+        verified_inputs=input_facts,
+        audit_jsonl_sha256=sha256(audit_bytes).hexdigest(),
+        audit_jsonl_bytes=len(audit_bytes),
         split_groups={
             name: tuple(sorted(getattr(split, name))) for name in ("train", "validation", "test")
         },
@@ -300,10 +313,63 @@ def write_shards(
     )
 
 
+def verify_aggregate_manifest(output_root: str | Path) -> dict[str, object]:
+    """Verify aggregate, audit, and exact shard hashes without loading pickle data."""
+
+    root = Path(output_root)
+    manifest_path = root / "aggregate_manifest.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise FileNotFoundError(f"missing aggregate manifest: {manifest_path}")
+    try:
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("aggregate manifest is invalid") from error
+    if type(document) is not dict:
+        raise ValueError("aggregate manifest must be a JSON object")
+    aggregate_sha = document.get("aggregate_sha256")
+    body = dict(document)
+    body.pop("aggregate_sha256", None)
+    if aggregate_sha != sha256(_canonical_json(body)).hexdigest():
+        raise ValueError("aggregate manifest SHA-256 mismatch")
+
+    audit_path = root / "audit.jsonl"
+    if not audit_path.is_file() or audit_path.is_symlink():
+        raise FileNotFoundError(f"missing audit JSONL: {audit_path}")
+    audit_bytes = audit_path.read_bytes()
+    if document.get("audit_jsonl_bytes") != len(audit_bytes):
+        raise ValueError("audit JSONL byte count mismatch")
+    if document.get("audit_jsonl_sha256") != sha256(audit_bytes).hexdigest():
+        raise ValueError("audit JSONL SHA-256 mismatch")
+
+    shard_records = document.get("shards")
+    if type(shard_records) is not list:
+        raise ValueError("aggregate manifest shards must be a list")
+    declared_paths: list[str] = []
+    for record in shard_records:
+        if type(record) is not dict or type(record.get("path")) is not str:
+            raise ValueError("aggregate manifest shard record is invalid")
+        relative = PurePosixPath(record["path"])
+        if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".npz":
+            raise ValueError("aggregate manifest shard path is unsafe")
+        declared_paths.append(relative.as_posix())
+        shard_path = root.joinpath(*relative.parts)
+        if not shard_path.is_file() or shard_path.is_symlink():
+            raise FileNotFoundError(f"missing shard: {relative.as_posix()}")
+        if record.get("sha256") != sha256(shard_path.read_bytes()).hexdigest():
+            raise ValueError(f"shard SHA-256 mismatch: {relative.as_posix()}")
+    if declared_paths != sorted(declared_paths) or len(declared_paths) != len(set(declared_paths)):
+        raise ValueError("aggregate manifest shard paths are not unique and sorted")
+    actual_paths = sorted(path.relative_to(root).as_posix() for path in root.rglob("*.npz"))
+    if actual_paths != declared_paths:
+        raise ValueError("aggregate manifest has missing or extra shards")
+    return document
+
+
 __all__ = [
     "AggregateManifest",
     "GroupSplit",
     "ShardRecord",
     "deterministic_group_split",
+    "verify_aggregate_manifest",
     "write_shards",
 ]

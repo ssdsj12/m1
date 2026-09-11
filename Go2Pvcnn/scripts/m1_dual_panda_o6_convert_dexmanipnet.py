@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Any
@@ -16,6 +15,9 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.dexmanipnet import (
     audit_sequence,
     load_best_successful_rollout,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.download import (
+    verify_pinned_external_inputs,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.preprocess import (
     convert_loaded_sequence,
@@ -32,67 +34,12 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.urdf_fk i
 
 
 _SOURCE_SIDES = {"favor": ("rh",), "oakinkv2": ("lh", "rh")}
+_ARCHIVE_NAMES = ("dexmanipnet_favor.tar.gz", "dexmanipnet_oakinkv2.tar.gz")
+_MANIPTRANS_REPOSITORY = "https://github.com/ManipTrans/ManipTrans.git"
 
 
 def _default_root() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "external" / "dexmanipnet"
-
-
-def _sha256_file(path: Path) -> str:
-    digest = sha256()
-    with path.open("rb") as stream:
-        while block := stream.read(1024 * 1024):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _canonical_json(value: object) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
-        "utf-8"
-    )
-
-
-def _load_pinned_manifest(path: Path) -> tuple[str, str]:
-    if not path.is_file():
-        raise FileNotFoundError(f"missing pinned download manifest: {path}")
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ValueError("download manifest is invalid") from error
-    if type(document) is not dict:
-        raise ValueError("download manifest must be a JSON object")
-    if document.get("dataset_revision") != DEXMANIPNET_REVISION:
-        raise ValueError("download manifest has the wrong DexManipNet revision")
-    if document.get("maniptrans_commit") != MANIPTRANS_COMMIT:
-        raise ValueError("download manifest has the wrong ManipTrans commit")
-    archives = document.get("archives")
-    required_archives = {"dexmanipnet_favor.tar.gz", "dexmanipnet_oakinkv2.tar.gz"}
-    if type(archives) is not list or len(archives) != len(required_archives) or {
-        item.get("name") for item in archives if type(item) is dict
-    } != required_archives:
-        raise ValueError("download manifest does not contain both pinned archives")
-    for item in archives:
-        if type(item) is not dict:
-            raise ValueError("download manifest archive record is invalid")
-        archive_sha = item.get("sha256")
-        if (
-            type(archive_sha) is not str
-            or len(archive_sha) != 64
-            or any(character not in "0123456789abcdef" for character in archive_sha)
-        ):
-            raise ValueError("download manifest archive SHA-256 is invalid")
-        size = item.get("size_bytes")
-        if type(size) is not int or size <= 0:
-            raise ValueError("download manifest archive size is invalid")
-    tree = document.get("maniptrans_tree")
-    if (
-        type(tree) is not str
-        or len(tree) != 40
-        or any(character not in "0123456789abcdef" for character in tree)
-    ):
-        raise ValueError("download manifest has no valid ManipTrans tree")
-    source_document = {"maniptrans_commit": MANIPTRANS_COMMIT, "maniptrans_tree": tree}
-    return _sha256_file(path), sha256(_canonical_json(source_document)).hexdigest()
 
 
 def _audit_dict(audit: object) -> dict[str, Any]:
@@ -119,7 +66,14 @@ def run(
     """Run the offline-only conversion; rejected sides contribute audit rows only."""
 
     manifest = root / "manifests" / "download_manifest.json" if manifest_path is None else manifest_path
-    archive_manifest_sha, source_manifest_sha = _load_pinned_manifest(manifest)
+    verified = verify_pinned_external_inputs(
+        root,
+        manifest,
+        archive_names=_ARCHIVE_NAMES,
+        expected_revision=DEXMANIPNET_REVISION,
+        expected_commit=MANIPTRANS_COMMIT,
+        source_repository=_MANIPTRANS_REPOSITORY,
+    )
     source_root = root / "source_maniptrans"
     extracted = {
         "favor": root / "extracted" / "dexmanipnet_favor",
@@ -187,9 +141,10 @@ def run(
         split,
         shard_size=shard_size,
         audits=audit_rows,
-        archive_manifest_sha256=archive_manifest_sha,
-        source_manifest_sha256=source_manifest_sha,
+        archive_manifest_sha256=verified["archive_manifest_sha256"],
+        source_manifest_sha256=verified["source_manifest_sha256"],
         group_hands=group_hands,
+        verified_inputs=verified["facts"],
     )
     print(
         json.dumps(

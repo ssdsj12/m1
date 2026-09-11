@@ -347,6 +347,29 @@ def _collision_mesh(geometry: ElementTree.Element, urdf: Path) -> trimesh.Trimes
     raise ValueError(f"object geometry shape is unsupported: {shape.tag}")
 
 
+def _outward_collision_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Return consistently wound, positive-volume collision geometry."""
+
+    result = mesh.copy()
+    if (
+        result.vertices.size == 0
+        or result.faces.size == 0
+        or not np.isfinite(result.vertices).all()
+        or not result.is_watertight
+    ):
+        raise ValueError("object geometry collision mesh is unusable")
+    if not result.is_winding_consistent:
+        raise ValueError("object geometry collision mesh has inconsistent winding")
+    volume = float(result.volume)
+    if not math.isfinite(volume) or volume == 0.0:
+        raise ValueError("object geometry collision mesh has unusable volume")
+    if volume < 0.0:
+        result.invert()
+    if not result.is_winding_consistent or not math.isfinite(float(result.volume)) or result.volume <= 0.0:
+        raise ValueError("object geometry collision mesh orientation is unusable")
+    return result
+
+
 def load_object_collision_mesh(path: str | Path) -> trimesh.Trimesh:
     """Load a finite, watertight object collision surface from a local URDF."""
 
@@ -374,18 +397,11 @@ def load_object_collision_mesh(path: str | Path) -> trimesh.Trimesh:
             _vector(None if origin is None else origin.get("rpy"), default=(0, 0, 0), label="rpy"),
         )
         mesh.apply_transform(transform)
-        meshes.append(mesh)
+        meshes.append(_outward_collision_mesh(mesh))
     if not meshes:
         raise ValueError("object geometry URDF has no collision geometry")
     combined = trimesh.util.concatenate(meshes)
-    if (
-        combined.vertices.size == 0
-        or combined.faces.size == 0
-        or not np.isfinite(combined.vertices).all()
-        or not combined.is_watertight
-    ):
-        raise ValueError("object geometry collision mesh is unusable")
-    return combined
+    return _outward_collision_mesh(combined)
 
 
 def _quaternion_xyzw_matrix(quaternion: np.ndarray) -> np.ndarray:
@@ -404,32 +420,64 @@ def _quaternion_xyzw_matrix(quaternion: np.ndarray) -> np.ndarray:
     ).reshape(quat.shape[:-1] + (3, 3))
 
 
-def _object_relative_geometry(
+def _object_relative_points(
+    fingertip_palm: np.ndarray,
+    root_state: np.ndarray,
+    object_state: np.ndarray,
+) -> np.ndarray:
+    hand_rotation = _quaternion_xyzw_matrix(root_state[:, 3:7])
+    world = np.einsum("tij,tfj->tfi", hand_rotation, fingertip_palm) + root_state[:, None, :3]
+    object_rotation = _quaternion_xyzw_matrix(object_state[:, 3:7])
+    return np.einsum(
+        "tji,tfj->tfi", object_rotation, world - object_state[:, None, :3]
+    )
+
+
+def object_relative_surface_kinematics(
     fingertip_palm: np.ndarray,
     root_state: np.ndarray,
     object_state: np.ndarray,
     mesh: trimesh.Trimesh,
-    source_hz: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    hand_rotation = _quaternion_xyzw_matrix(root_state[:, 3:7])
-    world = np.einsum("tij,tfj->tfi", hand_rotation, fingertip_palm) + root_state[:, None, :3]
-    object_rotation = _quaternion_xyzw_matrix(object_state[:, 3:7])
-    local = np.einsum(
-        "tji,tfj->tfi", object_rotation, world - object_state[:, None, :3]
-    )
-    flat = local.reshape(-1, 3)
+    *,
+    source_hz: float = 60,
+    target_hz: float = 100,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Query target-rate surface distance and analytic object-relative normal speed."""
+
+    points = _finite_geometry(
+        fingertip_palm, name="fingertip positions", trailing=(5, 3)
+    ).astype(np.float64, copy=False)
+    if points.ndim != 3 or points.shape[0] < 2:
+        raise ValueError("fingertip positions must have shape (frames, 5, 3)")
+    for name, states in (("root_state", root_state), ("object_state", object_state)):
+        values = _finite_geometry(states, name=name, trailing=(13,))
+        if values.shape != (points.shape[0], 13):
+            raise ValueError(f"{name} must have shape (frames, 13)")
+    source_rate = _rate("source_hz", source_hz)
+    target_rate = _rate("target_hz", target_hz)
+    oriented_mesh = _outward_collision_mesh(mesh)
+    source_local = _object_relative_points(points, root_state, object_state)
+    source_time = np.arange(points.shape[0], dtype=np.float64) / source_rate
+    duration = source_time[-1]
+    last_index = int(np.floor(np.nextafter(duration * target_rate, np.inf)))
+    target_time = np.arange(last_index + 1, dtype=np.float64) / target_rate
+    target_time = target_time[target_time <= np.nextafter(duration, np.inf)]
+    spline = CubicSpline(source_time, source_local, axis=0)
+    target_local = np.asarray(spline(target_time), dtype=np.float64)
+    target_local_velocity = np.asarray(spline(target_time, 1), dtype=np.float64)
+    flat = target_local.reshape(-1, 3)
     try:
-        signed = -np.asarray(trimesh.proximity.signed_distance(mesh, flat)).reshape(local.shape[:2])
-        _, _, triangle = trimesh.proximity.closest_point_naive(mesh, flat)
+        signed = -np.asarray(trimesh.proximity.signed_distance(oriented_mesh, flat)).reshape(
+            target_local.shape[:2]
+        )
+        _, _, triangle = trimesh.proximity.closest_point_naive(oriented_mesh, flat)
     except BaseException as error:
         raise ValueError("object geometry distance query failed") from error
-    normals = np.asarray(mesh.face_normals[triangle]).reshape(local.shape)
-    edge_order = 2 if local.shape[0] >= 3 else 1
-    local_velocity = np.gradient(local, 1.0 / source_hz, axis=0, edge_order=edge_order)
-    normal_speed = np.sum(local_velocity * normals, axis=-1)
+    normals = np.asarray(oriented_mesh.face_normals[triangle]).reshape(target_local.shape)
+    normal_speed = np.sum(target_local_velocity * normals, axis=-1)
     if not np.isfinite(signed).all() or not np.isfinite(normal_speed).all():
         raise ValueError("object geometry distance query is non-finite")
-    return signed, normal_speed
+    return signed, normal_speed, target_time
 
 
 def convert_loaded_sequence(
@@ -447,15 +495,19 @@ def convert_loaded_sequence(
     try:
         source_points = tree.palm_relative_fingertips(sequence.q, source_hand)
         mesh = load_object_collision_mesh(sequence.object_geometry_path)
-        source_distance, source_normal_speed = _object_relative_geometry(
-            source_points, sequence.root_state, sequence.object_state, mesh, float(source_hz)
-        )
         positions, velocities, target_time = resample_fingertips_with_velocity(
             source_points, source_hz=source_hz, target_hz=target_hz
         )
-        source_time = np.arange(source_points.shape[0], dtype=np.float64) / float(source_hz)
-        distance = CubicSpline(source_time, source_distance, axis=0)(target_time)
-        normal_speed = CubicSpline(source_time, source_normal_speed, axis=0)(target_time)
+        distance, normal_speed, contact_time = object_relative_surface_kinematics(
+            source_points,
+            sequence.root_state,
+            sequence.object_state,
+            mesh,
+            source_hz=source_hz,
+            target_hz=target_hz,
+        )
+        if not np.array_equal(contact_time, target_time):
+            raise RuntimeError("position and contact target timestamps diverged")
         contact = infer_contact_hysteresis(
             distance, normal_speed, enter_m=enter_m, exit_m=exit_m
         )
@@ -506,6 +558,7 @@ __all__ = [
     "infer_prior_phase",
     "load_object_collision_mesh",
     "object_geometry_sha256",
+    "object_relative_surface_kinematics",
     "resample_fingertips",
     "resample_fingertips_with_velocity",
     "windows_from_sequence",
