@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from hashlib import sha256
 import json
 import math
@@ -117,8 +117,25 @@ def _phase_one_hot(values: np.ndarray) -> np.ndarray:
     return np.eye(len(PriorPhase), dtype=np.float32)[values]
 
 
+def _validate_group_assignments(document: dict[str, object]) -> None:
+    split_groups = document.get("split_groups")
+    if type(split_groups) is not dict or set(split_groups) != {"train", "validation", "test"}:
+        raise ValueError("aggregate split groups are invalid")
+    groups_by_split: list[set[str]] = []
+    for split_name in ("train", "validation", "test"):
+        groups = split_groups[split_name]
+        if type(groups) is not list or any(type(group) is not str or not group for group in groups):
+            raise ValueError("aggregate split groups are invalid")
+        groups_by_split.append(set(groups))
+        if len(groups_by_split[-1]) != len(groups):
+            raise ValueError("aggregate split groups contain duplicates")
+    if groups_by_split[0] & groups_by_split[1] or groups_by_split[0] & groups_by_split[2] or groups_by_split[1] & groups_by_split[2]:
+        raise ValueError("aggregate split groups overlap")
+
+
 def _load_group_split(manifest_path: Path, split_name: str) -> tuple[GroupShardDataset, dict[str, object]]:
     document = verify_aggregate_manifest(manifest_path.parent)
+    _validate_group_assignments(document)
     expected_groups = document.get("split_groups", {}).get(split_name)
     if type(expected_groups) is not list or any(type(group) is not str for group in expected_groups):
         raise ValueError("aggregate split groups are invalid")
@@ -200,16 +217,71 @@ def _checkpoint_sha(path: Path) -> str:
     return sha256(path.read_bytes()).hexdigest()
 
 
-def _load_resume(path: Path | None, *, member_index: int, seed: int, aggregate_sha: str) -> dict[str, object] | None:
+@dataclass(frozen=True)
+class _ResumeState:
+    state: dict[str, object]
+    selected_checkpoint: bytes
+
+
+def _load_resume(
+    path: Path | None,
+    *,
+    member_index: int,
+    seed: int,
+    hidden: tuple[int, ...],
+    aggregate_sha: str,
+) -> _ResumeState | None:
     if path is None:
         return None
-    checkpoint_path = path / f"member-{member_index:02d}-last.pt" if path.is_dir() else path
+    if not path.is_dir() or path.is_symlink():
+        raise ValueError("resume checkpoint must be an ensemble output directory")
+    manifest_path = path / "ensemble_manifest.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise FileNotFoundError("resume output is missing ensemble_manifest.json")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("resume ensemble manifest is invalid") from error
+    if (
+        type(manifest) is not dict
+        or manifest.get("format_version") != 1
+        or manifest.get("dataset_aggregate_sha256") != aggregate_sha
+        or manifest.get("hidden") != list(hidden)
+    ):
+        raise ValueError("resume ensemble manifest does not match the verified aggregate and model")
+    records = manifest.get("members")
+    if type(records) is not list:
+        raise ValueError("resume ensemble member records are invalid")
+    record = next((item for item in records if isinstance(item, dict) and item.get("member_index") == member_index), None)
+    expected_relative = f"checkpoints/member-{member_index:02d}-best.pt"
+    if (
+        record is None
+        or record.get("seed") != seed
+        or record.get("checkpoint") != expected_relative
+        or type(record.get("checkpoint_sha256")) is not str
+    ):
+        raise ValueError("resume ensemble member does not match the requested seed")
+    checkpoint_path = path / expected_relative
     if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
         raise FileNotFoundError(f"missing resume checkpoint: {checkpoint_path}")
-    state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    if not isinstance(state, dict) or state.get("seed") != seed or state.get("dataset_aggregate_sha256") != aggregate_sha:
-        raise ValueError("resume checkpoint does not match member seed and verified aggregate")
-    return state
+    checkpoint_bytes = checkpoint_path.read_bytes()
+    if sha256(checkpoint_bytes).hexdigest() != record["checkpoint_sha256"]:
+        raise ValueError("resume checkpoint SHA-256 does not match ensemble manifest")
+    state = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    if (
+        not isinstance(state, dict)
+        or state.get("format_version") != 1
+        or state.get("member_index") != member_index
+        or state.get("seed") != seed
+        or state.get("hidden") != hidden
+        or state.get("dataset_aggregate_sha256") != aggregate_sha
+        or type(state.get("epoch")) is not int
+        or type(state.get("best_validation_nll")) is not float
+        or not isinstance(state.get("model_state"), dict)
+        or not isinstance(state.get("optimizer_state"), dict)
+    ):
+        raise ValueError("resume checkpoint metadata is invalid")
+    return _ResumeState(state=state, selected_checkpoint=checkpoint_bytes)
 
 
 def _train_member(
@@ -232,17 +304,21 @@ def _train_member(
     _set_seed(seed)
     model = FingertipMixtureNet(hidden=hidden).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    resume_state = _load_resume(resume, member_index=member_index, seed=seed, aggregate_sha=aggregate_sha)
+    resume_state = _load_resume(
+        resume, member_index=member_index, seed=seed, hidden=hidden, aggregate_sha=aggregate_sha
+    )
     start_epoch = 0
     best_validation_nll = math.inf
     if resume_state is not None:
-        model.load_state_dict(resume_state["model_state"])
-        optimizer.load_state_dict(resume_state["optimizer_state"])
-        start_epoch = int(resume_state["epoch"])
-        best_validation_nll = float(resume_state["best_validation_nll"])
+        model.load_state_dict(resume_state.state["model_state"])
+        optimizer.load_state_dict(resume_state.state["optimizer_state"])
+        start_epoch = int(resume_state.state["epoch"])
+        best_validation_nll = float(resume_state.state["best_validation_nll"])
     validation_loader = _loader(validation_data, batch_size=batch_size, seed=seed, shuffle=False)
     best_path = output / "checkpoints" / f"member-{member_index:02d}-best.pt"
     last_path = output / "checkpoints" / f"member-{member_index:02d}-last.pt"
+    if resume_state is not None:
+        _atomic_bytes(best_path, resume_state.selected_checkpoint)
     for epoch in range(start_epoch, epochs):
         model.train()
         for network_input, target in _loader(train_data, batch_size=batch_size, seed=seed + epoch, shuffle=True):
@@ -276,7 +352,7 @@ def _train_member(
             _atomic_torch_save(best_path, state)
     if not best_path.exists():
         raise RuntimeError("no best validation checkpoint was selected")
-    selected = torch.load(best_path, map_location=device, weights_only=False)
+    selected = torch.load(best_path, map_location=device, weights_only=True)
     model.load_state_dict(selected["model_state"])
     model.eval()
     return model, {
@@ -389,7 +465,13 @@ def _synthetic_manifest(stage: Path) -> Path:
             future = velocity.unsqueeze(0) + 0.001 * horizon
             windows.append(ExpertWindow(position, velocity, torch.zeros(5, dtype=torch.bool), PriorPhase.APPROACH, future.expand(-1, 5, 3).clone(), group, f"{group_index + 1:064x}"))
     root = stage / "synthetic-shards"
-    write_shards(root, windows, deterministic_group_split(groups, seed=17), shard_size=16)
+    write_shards(
+        root,
+        windows,
+        deterministic_group_split(groups, seed=17),
+        shard_size=16,
+        verified_inputs={"nonproduction_synthetic": True},
+    )
     return root / "aggregate_manifest.json"
 
 
@@ -470,8 +552,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         metrics = _ensemble_metrics(members, test_data, batch_size=args.batch_size, device=device)
         if not all(math.isfinite(value) for value in metrics.values()):
             raise FloatingPointError("held-out metrics are non-finite")
+        nonproduction_synthetic = document.get("verified_inputs", {}).get("nonproduction_synthetic") is True
         production_deployable = (
             not args.synthetic_smoke
+            and not nonproduction_synthetic
             and metrics["first_step_improvement"] >= 0.10
             and metrics["endpoint_improvement"] >= 0.10
             and 0.65 <= metrics["interval_80_coverage"] <= 0.95
