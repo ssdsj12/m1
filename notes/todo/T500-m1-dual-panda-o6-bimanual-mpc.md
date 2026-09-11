@@ -15,9 +15,12 @@ prismatic 批量 FK、递归 mimic 展开和掌坐标五指尖转换，保持 st
 Task 4 已实现精确 `favor`/`oakinkv2` source-side、`lh_main`/`rh_main`/`bh_main` interaction-side、固定手型
 joint width、长度/shape/有限性、手根/对象状态、对象 URDF 与全部 successful rollout 的原子审计，并按
 累计 reward 和 rollout 名确定性选优；拒绝 HDF5 外部 link/storage 与对象 geometry symlink，输出不含
-task/object ID/name、primitive、description 或 text。Task 1–4 相关回归 `80 passed`；尚未下载 8.31 GB
-数据、验证真实全量 schema/对象几何、训练模型或修改运行时。见
-[sequence 审计验证](../log/2026-09-11-t500-dexmanipnet-sequence-audit.md)。
+task/object ID/name、primitive、description 或 text。Task 5 已加入 palm-frame 五指尖规范化、固定
+`60 -> 100 Hz` CubicSpline 解析导数、对象 collision mesh 几何接触滞回、七阶段、20 节点窗口、
+group-exclusive 80/10/10 split，以及固定 ZIP metadata 的原子 NPZ、audit JSONL 和排序 SHA aggregate；
+两次完整合成 CLI 转换逐文件哈希一致。Task 1–5 回归 `101 passed`；尚未下载 8.31 GB 数据、验证真实
+全量 schema/对象 mesh 接受率、训练模型或修改运行时。见
+[deterministic shard 验证](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -38,12 +41,12 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–4 合同、下载边界、源手 FK 与 sequence 审计已完成，下一步为 Task 5 deterministic shards。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–5 合同、下载边界、源手 FK、sequence 审计和 deterministic shards 已完成，下一步为 Task 6 offline expert ensemble。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
 - T500.1：书面规格已确认。
-- T500.2：逐文件 TDD 实施计划正在 Inline Execution 执行，Task 5 待开始。
+- T500.2：逐文件 TDD 实施计划正在 Inline Execution 执行，Task 6 待开始。
 - T500.3：已冻结双臂平台安装变换和 O6 规范化资产 manifest；53 物理 DOF、43 主动通道运行时确认通过。
 
 ## Closed Children Archive
@@ -51,6 +54,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-11 DexManipNet deterministic fingertip shards](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)
 
 - [2026-09-11 DexManipNet sequence 审计与 rollout 选优](../log/2026-09-11-t500-dexmanipnet-sequence-audit.md)
 
@@ -76,8 +81,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `7d21403`（DexManipNet 指尖先验 Task 4 provenance hardening）
-- Last Verified Commit: `7d21403`（Task 1–4 相关回归 `80 passed`，含 pycompile/diff）
+- Last Feature Commit: `ef60ae1`（DexManipNet 指尖先验 Task 5 deterministic shards）
+- Last Verified Commit: `ef60ae1`（focused `21 passed`；Task 1–5 `101 passed`；CLI help、pycompile/diff）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
@@ -89,7 +94,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-从 T500.5 Task 5 的 deterministic fingertip shard RED 开始继续 12 任务计划；运行时物理主线仍需在
+从 T500.5 Task 6 的 offline expert ensemble RED 开始继续 12 任务计划；运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。

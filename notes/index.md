@@ -16,6 +16,7 @@
 ## Agent Memory Entry
 
 - [调查 dashboard](todo.md)
+- [T500 DexManipNet deterministic shard 转换验证](log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)
 - [T500 DexManipNet strict sequence/provenance 审计验证](log/2026-09-11-t500-dexmanipnet-sequence-audit.md)
 - [branch memory 目录](todo/README.md)
 - [验证日志索引](log/index.md)

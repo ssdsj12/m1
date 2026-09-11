@@ -342,7 +342,7 @@ git commit -m "feat: audit DexManipNet successful rollouts"
 - Consumes: `LoadedHandSequence`, `UrdfKinematicTree`, source/archive manifests.
 - Produces: `canonicalize_left`, `resample_fingertips`, `infer_contact_hysteresis`, `infer_prior_phase`, `windows_from_sequence`, `deterministic_group_split`, `write_shards`, aggregate manifest and audit JSONL.
 
-- [ ] **Step 1: Write geometry and split RED tests**
+- [x] **Step 1: Write geometry and split RED tests**
 
 ```python
 def test_left_mirror_round_trip_and_resampling_contract():
@@ -367,13 +367,13 @@ def test_contact_hysteresis_and_phase_labels_use_geometry_only():
     assert phase.tolist() == [PriorPhase.APPROACH, PriorPhase.PRELOAD, PriorPhase.HOLD, PriorPhase.RELEASE]
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_preprocess.py tests/test_m1_bimanual_expert_prior_storage.py`
 
 Expected: missing preprocessing/storage functions.
 
-- [ ] **Step 3: Implement canonicalization, 100 Hz windows, labels, and atomic shards**
+- [x] **Step 3: Implement canonicalization, 100 Hz windows, labels, and atomic shards**
 
 ```python
 LEFT_REFLECTION = np.diag([1.0, -1.0, 1.0])
@@ -390,13 +390,13 @@ def deterministic_group_split(groups: Sequence[str], seed: int) -> GroupSplit:
 
 Use `scipy.interpolate.CubicSpline` with source timestamps `arange(n)/60` and target timestamps that remain inside the original interval. Derive velocities from spline derivatives. Implement contact enter/exit hysteresis from signed mesh distance and relative normal speed, and seven phase labels from contact transitions plus speed thresholds. Reject missing geometry rather than filling contact false. Write `.npz` shards through a sibling temporary file, rename atomically, hash each shard, and make the aggregate manifest sort by relative shard path.
 
-- [ ] **Step 4: Run GREEN and conversion CLI help**
+- [x] **Step 4: Run GREEN and conversion CLI help**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_preprocess.py tests/test_m1_bimanual_expert_prior_storage.py && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_convert_dexmanipnet.py --help`
 
 Expected: pass; help exits `0` without reading the dataset.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/preprocess.py Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/storage.py Go2Pvcnn/scripts/m1_dual_panda_o6_convert_dexmanipnet.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_preprocess.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_storage.py
