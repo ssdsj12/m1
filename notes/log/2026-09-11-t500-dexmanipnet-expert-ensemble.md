@@ -18,7 +18,9 @@ T500.5 / Task 6; see [T500 branch page](../todo/T500-m1-dual-panda-o6-bimanual-m
 - Source groups are checked against the verified train/validation/test assignment. Distinct fixed
   seeds, deterministic loaders, residual mixture NLL plus finite acceleration/jerk penalties,
   atomic last/best checkpoints and manifest/selected-checkpoint-SHA/seed/architecture-bound resume
-  validation are implemented. Overlapping split group lists reject before shards are opened.
+  validation are implemented. Before trusting resume member/checkpoint facts, the declared manifest
+  self-hash is recomputed over the exact writer-identical canonical body (excluding only its
+  self-hash field). Overlapping split group lists reject before shards are opened.
 - Held-out intervals combine every member and component into one predictive Gaussian mixture. Exact
   10th/90th marginal mixture quantiles include component variance and member disagreement. First
   node and all 20 nodes integrated with `0.01 s` use zero baselines. Production needs both RMSE
@@ -54,7 +56,10 @@ PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
   tests/test_m1_bimanual_expert_prior_train_static.py
 ```
 
-Final result: `115 passed in 7.87s`. Task 6 `--help` and `py_compile` also exited `0`.
+The final review added a RED regression that tampers a non-requested member's seed or selected
+checkpoint SHA. It initially did not reject (`2 failed`); canonical self-hash verification fixed it.
+Final result: `117 passed` (post-fix Tasks 1–6 regression). Task 6 `--help` and `py_compile` also
+exit `0`.
 
 An uncommitted temporary synthetic Task 5 shard set trained for two epochs with three members. The
 finite manifest reported first-step RMSE/zero/improvement `0.4473666814/0.4682388797/0.0445759615`,
@@ -65,9 +70,9 @@ claim; it fails numeric gates and the synthetic gate independently.
 ## Git Refs
 
 - Baseline Ref: `65e2b7b55fcc14fad11808ead2d1928bb0147296`
-- Candidate Ref: `0011f651f581aa3be9391993af004ac5be1f57d0` (`fix: harden fingertip expert training gates`)
-- Last Feature Commit: `0011f65` (base ensemble `ab0f672`)
-- Last Verified Commit: `0011f65`
+- Candidate Ref: `9d318773cdaf58dd5479a3796e09c3598b6b6f0f` (`fix: verify resumed ensemble manifest`)
+- Last Feature Commit: `9d31877` (base ensemble `ab0f672`)
+- Last Verified Commit: `9d31877`
 - Key Files: `model.py`, `m1_dual_panda_o6_train_fingertip_expert.py`, and the two Task 6 tests.
 
 ## Follow-up

@@ -28,7 +28,7 @@ large residual MLP mixture ensemble：训练在读取前重新验证 aggregate�
 ensemble/component predictive mixture（同时含 aleatoric 与成员间 epistemic 不确定性）的精确 80% quantile coverage，
 终点以 `0.01 s` 积分 20 节点。合成 two-epoch smoke 有限但 first/endpoint 零基线改善仅 `4.46%/4.59%`、coverage
 `1.0`；nonproduction synthetic provenance 写入 verified aggregate 且无论数值如何都不会标记为 production deployable；
-resume 验证 selected checkpoint SHA、member/seed、architecture 和 aggregate。Tasks 1–6 `115 passed`。尚未下载 8.31 GB
+resume 在读取 member facts 前验证 writer-identical canonical manifest self-hash，随后验证 selected checkpoint SHA、member/seed、architecture 和 aggregate。Tasks 1–6 `117 passed`。尚未下载 8.31 GB
 数据、验证真实全量 schema/对象 mesh 接受率、训练真实模型或修改运行时。见 [Task 6 ensemble 验证](../log/2026-09-11-t500-dexmanipnet-expert-ensemble.md)。
 [deterministic shard 验证](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)。
 
@@ -95,8 +95,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `0011f65`（DexManipNet Task 6 gate/resume hardening）
-- Last Verified Commit: `0011f65`（focused `7 passed`；Tasks 1–6 `115 passed`；CLI help、pycompile/synthetic smoke）
+- Last Feature Commit: `9d31877`（DexManipNet Task 6 resumed manifest self-hash verification）
+- Last Verified Commit: `9d31877`（focused `9 passed`；Tasks 1–6 `117 passed`；CLI help、pycompile/diff）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
