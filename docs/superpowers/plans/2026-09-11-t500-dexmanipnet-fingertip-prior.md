@@ -59,7 +59,7 @@
 - Produces: `DEXMANIPNET_REVISION`, `MANIPTRANS_COMMIT`, `PriorPhase`, `ExpertWindow`, `MixtureDistribution`, `StudentArtifactMetadata`, `SourceHandSpec`, `SOURCE_HANDS`.
 - Consumes: no runtime or external-data dependency.
 
-- [ ] **Step 1: Write the failing contract tests**
+- [x] **Step 1: Write the failing contract tests**
 
 ```python
 def test_expert_window_freezes_geometry_only_contract():
@@ -82,13 +82,13 @@ def test_source_pins_and_five_finger_order_are_frozen():
     assert all(len(set(spec.fingertip_links)) == 5 for spec in SOURCE_HANDS.values())
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py`
 
 Expected: collection fails because `expert_fingertip_prior` does not exist.
 
-- [ ] **Step 3: Implement the frozen contracts and explicit source registry**
+- [x] **Step 3: Implement the frozen contracts and explicit source registry**
 
 ```python
 DEXMANIPNET_REVISION = "3933fae5fe83498fb314a0924aa21d5038fba5a5"
@@ -120,13 +120,13 @@ class SourceHandSpec:
 
 Populate `SOURCE_HANDS` only with pinned ManipTrans hands whose URDF and five distinct fingertips exist; start with explicit right/left Inspire and Shadow entries copied from the pinned official definitions. Validate all tensors, enum values, SHA strings, unique fingertip names, and model dimensions in dataclass `__post_init__` methods.
 
-- [ ] **Step 4: Run GREEN and current contracts**
+- [x] **Step 4: Run GREEN and current contracts**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py tests/test_m1_dual_panda_o6_contracts.py`
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior Go2Pvcnn/tests/test_m1_bimanual_expert_prior_contracts.py
