@@ -5,8 +5,10 @@
 2026-09-11 更新：T500.5 DexManipNet 指尖运动先验设计已获用户逐段批准。完整 FAVOR 与
 OakInk V2 将经源手 URDF FK 转为掌坐标五指尖短时概率分布，先训练离线教师 ensemble，
 再蒸馏冻结学生并只作为 O6 Hand MPC
-可退让软代价；模型不接收任务/对象 ID，也不决定掌、物体、机械臂或底盘轨迹。当前尚未
-下载数据、训练模型或修改运行时。见[设计规格](../../docs/superpowers/specs/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)。
+可退让软代价；模型不接收任务/对象 ID，也不决定掌、物体、机械臂或底盘轨迹。Task 1 已
+冻结固定 pin、掌坐标五指窗口、四分量分布、student metadata 和 Inspire/Shadow 左右手
+registry；合同与当前 dual-Panda 合同共 `16 passed`。尚未下载数据、训练模型或修改运行时。
+见[合同验证](../log/2026-09-11-t500-dexmanipnet-prior-contracts.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -27,7 +29,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；书面规格已确认，12 任务 TDD 实施计划已写入，等待执行方式选择。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Task 1 合同已完成，Task 2 安全下载/解压待执行。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -42,6 +44,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 ## Related Logs
 
 - [2026-09-11 DexManipNet 指尖先验实施计划](../log/2026-09-11-t500-dexmanipnet-fingertip-prior-plan.md)
+
+- [2026-09-11 DexManipNet 指尖先验合同冻结](../log/2026-09-11-t500-dexmanipnet-prior-contracts.md)
 
 - [2026-09-11 DexManipNet 指尖先验设计](../log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)
 

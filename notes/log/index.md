@@ -4,6 +4,7 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-11：[T500 DexManipNet 指尖先验合同冻结](2026-09-11-t500-dexmanipnet-prior-contracts.md)：冻结数据/源码 pin、几何 window、四分量分布、artifact metadata 和四个受支持 ManipTrans 手型；Task 1 合同与现有 dual-Panda 合同共 `16 passed`。
 - 2026-09-11：[T500 DexManipNet 指尖先验实施计划](2026-09-11-t500-dexmanipnet-fingertip-prior-plan.md)：12 个逐文件 TDD 任务覆盖下载、FK、转换、教师、蒸馏、Hand QP、完整数据和 GPU0/30 条门；尚未执行。
 
 - 2026-09-11：[T500 DexManipNet 指尖先验设计](2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)：完整 FAVOR + OakInk V2 经源手 FK 转为掌坐标五指尖概率先验；只作为 O6 Hand MPC 可退让软代价，尚未下载或实施。

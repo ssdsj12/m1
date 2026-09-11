@@ -4,7 +4,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
-- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：从固定 pin/合同 RED 开始，依次完成安全下载、源手 FK、全量转换、教师 ensemble、学生蒸馏、原子 Hand QP 和 GPU0/未见操作门；当前等待执行方式选择。见 [计划记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-plan.md)。
+- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Task 1 已冻结 pin、几何窗口、四分量分布、artifact metadata 和受支持 source-hand registry，合同与当前 dual-Panda 合同共 `16 passed`；下一步为安全下载。见 [合同验证](log/2026-09-11-t500-dexmanipnet-prior-contracts.md)。
 
 - T500.5 DexManipNet 指尖运动先验设计已获用户批准：完整 FAVOR + OakInk V2 只蒸馏掌坐标五指尖短时分布，经 O6 真实 Jacobian 作为 Hand MPC 可退让软代价；不输入任务/对象 ID，不决定掌、物体、机械臂或底盘轨迹。当前只完成设计，尚未下载/训练/接线。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [设计记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)。
 
