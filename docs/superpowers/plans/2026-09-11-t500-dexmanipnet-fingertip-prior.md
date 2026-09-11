@@ -415,7 +415,7 @@ git commit -m "feat: convert DexManipNet to fingertip prior shards"
 - Consumes: Task 5 aggregate manifest and shards.
 - Produces: `FingertipMixtureNet`, `mixture_log_prob`, `mixture_nll`, `temporal_regularizer`, ensemble checkpoints/manifest, held-out metrics.
 
-- [ ] **Step 1: Write output/NLL/CLI RED tests**
+- [x] **Step 1: Write output/NLL/CLI RED tests**
 
 ```python
 def test_mixture_network_outputs_normalized_finite_distribution():
@@ -432,13 +432,13 @@ def test_training_script_does_not_import_task_or_object_features():
         assert forbidden not in source
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_model.py tests/test_m1_bimanual_expert_prior_train_static.py`
 
 Expected: missing model/training CLI.
 
-- [ ] **Step 3: Implement mixture density and ensemble training**
+- [x] **Step 3: Implement mixture density and ensemble training**
 
 ```python
 def mixture_nll(dist: MixtureDistribution, target: torch.Tensor) -> torch.Tensor:
@@ -451,13 +451,13 @@ def mixture_nll(dist: MixtureDistribution, target: torch.Tensor) -> torch.Tensor
 
 Train multiple larger residual MLP members with fixed distinct seeds, sequence-group loaders, NLL plus finite acceleration/jerk regularization, atomic checkpoints, and best-validation selection. Compute held-out first-step velocity RMSE, integrated endpoint RMSE, NLL, and 80% interval coverage. Mark the ensemble deployable only when both RMSE values beat zero baselines by `>=10%` and coverage lies in `[0.65, 0.95]`.
 
-- [ ] **Step 4: Run GREEN and synthetic training smoke**
+- [x] **Step 4: Run GREEN and synthetic training smoke**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_model.py tests/test_m1_bimanual_expert_prior_train_static.py && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_train_fingertip_expert.py --synthetic-smoke --output-dir /tmp/t500-expert-smoke --epochs 2`
 
 Expected: tests pass; smoke emits finite metrics and an ensemble manifest but does not mark synthetic data as production-deployable.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/model.py Go2Pvcnn/scripts/m1_dual_panda_o6_train_fingertip_expert.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_model.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_train_static.py
