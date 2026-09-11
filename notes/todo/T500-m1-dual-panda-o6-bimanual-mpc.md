@@ -7,7 +7,7 @@ OakInk V2 将经源手 URDF FK 转为掌坐标五指尖短时概率分布，先�
 再蒸馏冻结学生并只作为 O6 Hand MPC
 可退让软代价；模型不接收任务/对象 ID，也不决定掌、物体、机械臂或底盘轨迹。Task 1 已
 冻结固定 pin、掌坐标五指窗口、四分量分布、student metadata 和 Inspire/Shadow 左右手
-registry；合同与当前 dual-Panda 合同共 `16 passed`。尚未下载数据、训练模型或修改运行时。
+registry；review hardening 后合同与当前 dual-Panda 合同共 `30 passed`。尚未下载数据、训练模型或修改运行时。
 见[合同验证](../log/2026-09-11-t500-dexmanipnet-prior-contracts.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
@@ -61,8 +61,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `8b5523c`（DexManipNet 指尖先验 Task 1 合同）
-- Last Verified Commit: `8b5523c`（Task 1 合同与当前 dual-Panda 合同共 `16 passed`）
+- Last Feature Commit: `eddcd91`（DexManipNet 指尖先验 Task 1 合同 review hardening）
+- Last Verified Commit: `eddcd91`（Task 1 合同与当前 dual-Panda 合同共 `30 passed`）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)

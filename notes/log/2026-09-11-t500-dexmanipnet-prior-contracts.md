@@ -32,6 +32,31 @@ PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_
 
 结果：`16 passed in 0.78s`。
 
+### Contract review hardening
+
+The Task 1 review requested frozen artifact layout metadata, strict schema types, tuple-only source fields, exact registry assertions, and immutable public constants.
+
+RED command:
+
+```bash
+cd Go2Pvcnn
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py
+```
+
+The new negative tests failed at collection as intended because
+`MIXTURE_OUTPUT_AXIS_ORDER` was absent: `ImportError: cannot import name 'MIXTURE_OUTPUT_AXIS_ORDER'`; `1 error in 0.81s`.
+
+GREEN / current-contract regression:
+
+```bash
+cd Go2Pvcnn
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py tests/test_m1_dual_panda_o6_contracts.py
+```
+
+Result: `30 passed in 0.79s`.
+
+The fix records the exact four-field geometry-only input order and the four output axes in `StudentArtifactMetadata`; rejects bool/float impostors for integer schema fields, non-tuples and non-strict hidden widths, malformed SHA/dtype/nonfinite values, and source string/list impostors. `LEFT_REFLECTION` is now a tuple-of-tuples and `SOURCE_HANDS` a `MappingProxyType`.
+
 ### Pinned source-registry audit
 
 ```bash
@@ -45,7 +70,7 @@ ManipTrans checkout `a3d08cfe3c3a5868a7f057533bcaf759c5af4705` produced
 ## Input Conditions
 
 - Baseline Ref: `b109b684a32ca3b5400fcdfe5aa094aa82c44c74`
-- Candidate Ref: `8b5523cc3b9d181cf2e4bb94fe565bd8667210ab`
+- Candidate Ref: `eddcd91d54fe292455a00f4aa00ce562f765c799`
 - Key Files:
   - [contracts.py](../../Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/contracts.py)
   - [sources.py](../../Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/sources.py)
@@ -68,6 +93,6 @@ Task 2 只能消费这些固定 pin 和 registry，且 source URDF 的本地 clo
 
 ## Git Refs
 
-- Last Feature Commit: `8b5523cc3b9d181cf2e4bb94fe565bd8667210ab`
-- Last Verified Commit: `8b5523cc3b9d181cf2e4bb94fe565bd8667210ab` (verification was run immediately before the feature commit)
+- Last Feature Commit: `eddcd91d54fe292455a00f4aa00ce562f765c799`
+- Last Verified Commit: `eddcd91d54fe292455a00f4aa00ce562f765c799` (verification was run immediately before the feature commit)
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`

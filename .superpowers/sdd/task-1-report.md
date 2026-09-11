@@ -68,3 +68,32 @@ The pinned ManipTrans checkout at `a3d08cfe3c3a5868a7f057533bcaf759c5af4705` was
 ## Concerns
 
 None for Task 1. No DexManipNet data was downloaded, no artifact was trained, and no Hand MPC or Isaac physical behavior was changed or claimed.
+
+## Review Fix: Strict Artifact Layout and Registry Immutability
+
+The Task 1 review findings are addressed by `eddcd91d54fe292455a00f4aa00ce562f765c799` (`fix: harden fingertip prior contracts`):
+
+- `StudentArtifactMetadata` now stores and validates the exact geometry-only input field order (`fingertip_position_palm`, `fingertip_velocity_palm`, `contact_mask`, `phase_one_hot`) and mixture output axes (`mixture_component`, `horizon`, `finger`, `xyz`).
+- Frozen schema dimensions and seeds require strict `int` values; `hidden` requires a non-empty tuple of positive strict ints; SHA, dtype, finite mirror matrix, phase/finger orders, and layouts are covered by focused negative tests.
+- `SourceHandSpec` requires tuple-valued `joint_order` and `fingertip_links`, with strict non-empty string names. The test fixes all four registry keys and every official field value.
+- `LEFT_REFLECTION` is immutable tuple data and `SOURCE_HANDS` is a `MappingProxyType`.
+
+Review RED:
+
+```bash
+cd Go2Pvcnn
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py
+```
+
+Expected failure observed: missing `MIXTURE_OUTPUT_AXIS_ORDER` during collection (`1 error in 0.81s`).
+
+Review GREEN/current regression:
+
+```bash
+cd Go2Pvcnn
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py tests/test_m1_dual_panda_o6_contracts.py
+```
+
+Result: `30 passed in 0.79s`.
+
+Self-review: staged only Task 1 contracts, source registry, focused test, and required evidence; `git diff --check` passed; no Graphify or parent-owned progress/brief files were staged. No new concern.
