@@ -4,7 +4,7 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
-- 2026-09-11：[T500 DexManipNet sequence 审计与 rollout 选优](2026-09-11-t500-dexmanipnet-sequence-audit.md)：严格验证 source-side、固定手型 joint width、长度/shape/有限性、手根/对象状态与对象 URDF；全部 successful rollout 审计后按累计 reward 和名字确定性选优；focused `16 passed`，Task 1–4 `72 passed`，未下载 8.31 GB 数据。
+- 2026-09-11：[T500 DexManipNet sequence 审计与 rollout 选优](2026-09-11-t500-dexmanipnet-sequence-audit.md)：严格验证精确 source/interaction-side 合同、固定手型 joint width、长度/shape/有限性、手根/对象状态与对象 URDF；拒绝 HDF5 外部 link/storage 与越界 geometry symlink；全部 successful rollout 审计后按累计 reward 和名字确定性选优；focused `24 passed`，Task 1–4 `80 passed`，未下载 8.31 GB 数据。
 - 2026-09-11：[T500 DexManipNet Isaac-independent URDF FK](2026-09-11-t500-dexmanipnet-urdf-fk.md)：严格解析单根 URDF tree，按稳定拓扑执行批量 NumPy FK、递归 mimic 展开与掌坐标五指尖转换；Task 1–3 `56 passed`，真实固定 Inspire/Shadow URDF 兼容验证留待数据就绪。
 - 2026-09-11：[T500 DexManipNet 固定下载与安全解压](2026-09-11-t500-dexmanipnet-fetcher.md)：两个 archive 与 ManipTrans 均固定到合同 pin；安全 staged 解压拒绝 traversal、设备和越界链接；`--verify-only` 不联网、不写 manifest，且拒绝任何 tracked/untracked/ignored source 漂移；Task 1–2 `36 passed`，未下载 8.31 GB 数据。
 - 2026-09-11：[T500 DexManipNet 指尖先验合同冻结](2026-09-11-t500-dexmanipnet-prior-contracts.md)：冻结数据/源码 pin、精确 input/output layout、严格 float32 四分量分布、不可变 artifact/source registry 和四个受支持 ManipTrans 手型；第二轮 review 后与现有 dual-Panda 合同共 `33 passed`。

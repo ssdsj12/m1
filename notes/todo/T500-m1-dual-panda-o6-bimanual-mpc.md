@@ -12,9 +12,10 @@ manifest、路径/设备/越界链接拒绝、临时 sibling 解压后原子安�
 的 `--verify-only`。source checkout 在复用和 verify 时均以 no-optional-lock Git status 拒绝 tracked、
 untracked 和 ignored 漂移。Task 3 已实现严格单根 URDF tree、稳定拓扑、fixed/revolute/continuous/
 prismatic 批量 FK、递归 mimic 展开和掌坐标五指尖转换，保持 stdlib XML + NumPy 且不依赖 Isaac。
-Task 4 已实现 FAVOR/OakInk V2 source-side、固定手型 joint width、长度/shape/有限性、手根/对象状态、
-对象 URDF 与全部 successful rollout 的原子审计，并按累计 reward 和 rollout 名确定性选优；输出不含
-task/object ID/name、primitive、description 或 text。Task 1–4 相关回归 `72 passed`；尚未下载 8.31 GB
+Task 4 已实现精确 `favor`/`oakinkv2` source-side、`lh_main`/`rh_main`/`bh_main` interaction-side、固定手型
+joint width、长度/shape/有限性、手根/对象状态、对象 URDF 与全部 successful rollout 的原子审计，并按
+累计 reward 和 rollout 名确定性选优；拒绝 HDF5 外部 link/storage 与对象 geometry symlink，输出不含
+task/object ID/name、primitive、description 或 text。Task 1–4 相关回归 `80 passed`；尚未下载 8.31 GB
 数据、验证真实全量 schema/对象几何、训练模型或修改运行时。见
 [sequence 审计验证](../log/2026-09-11-t500-dexmanipnet-sequence-audit.md)。
 
@@ -75,8 +76,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `fdcd40a`（DexManipNet 指尖先验 Task 4 sequence audit）
-- Last Verified Commit: `fdcd40a`（Task 1–4 相关回归 `72 passed`，含 pycompile/diff）
+- Last Feature Commit: `7d21403`（DexManipNet 指尖先验 Task 4 provenance hardening）
+- Last Verified Commit: `7d21403`（Task 1–4 相关回归 `80 passed`，含 pycompile/diff）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
