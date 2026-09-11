@@ -7,6 +7,8 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path, PurePosixPath
+import stat
+from types import MappingProxyType
 from typing import Final
 
 import h5py
@@ -17,10 +19,14 @@ from .sources import SOURCE_HANDS
 
 _SOURCE_SIDES: Final = {
     "favor": frozenset({"rh"}),
-    "oakink": frozenset({"rh", "lh"}),
     "oakinkv2": frozenset({"rh", "lh"}),
 }
 _SIDES: Final = frozenset({"rh", "lh"})
+INTERACTION_MODE_SIDES = MappingProxyType({
+    "lh_main": frozenset({"lh"}),
+    "rh_main": frozenset({"rh"}),
+    "bh_main": frozenset({"rh", "lh"}),
+})
 _ROOT_STATE_DIM: Final = 13
 _TIP_FORCE_DIM: Final = 15
 
@@ -164,6 +170,30 @@ def _source_root(sequence_path: Path) -> Path:
     return sequence_path.parent.resolve()
 
 
+def _contained_regular_file(
+    root: Path, relative_path: PurePosixPath
+) -> tuple[Path | None, bool]:
+    """Return a local regular file and whether a failed lookup was simply missing."""
+
+    candidate = root
+    final_index = len(relative_path.parts) - 1
+    for index, part in enumerate(relative_path.parts):
+        candidate /= part
+        try:
+            mode = candidate.lstat().st_mode
+        except FileNotFoundError:
+            return None, True
+        except OSError:
+            return None, False
+        if stat.S_ISLNK(mode):
+            return None, False
+        if index < final_index and not stat.S_ISDIR(mode):
+            return None, False
+    if final_index < 0 or not stat.S_ISREG(mode):
+        return None, False
+    return candidate, False
+
+
 def _resolve_object_geometry(sequence_path: Path, seq_info: dict, side: str) -> Path:
     raw = seq_info.get(f"obj_{side}_path")
     if type(raw) is not str or not raw:
@@ -172,12 +202,10 @@ def _resolve_object_geometry(sequence_path: Path, seq_info: dict, side: str) -> 
     if posix_path.is_absolute() or ".." in posix_path.parts or posix_path.suffix.lower() != ".urdf":
         _reject("invalid_object_geometry")
     root = _source_root(sequence_path)
-    try:
-        candidate = (root / Path(*posix_path.parts)).resolve()
-        candidate.relative_to(root)
-    except (OSError, ValueError):
-        _reject("invalid_object_geometry")
-    if not candidate.is_file():
+    candidate, missing = _contained_regular_file(root, posix_path)
+    if candidate is None:
+        if not missing:
+            _reject("invalid_object_geometry")
         _reject("missing_object_geometry")
     return candidate
 
@@ -211,20 +239,57 @@ def _best_effort_input_hash(path: object, side: object) -> str:
             if type(raw) is str:
                 posix_path = PurePosixPath(raw)
                 if not posix_path.is_absolute() and ".." not in posix_path.parts:
-                    geometry = (_source_root(sequence_path) / Path(*posix_path.parts)).resolve()
-                    if geometry.is_file():
+                    geometry, _ = _contained_regular_file(_source_root(sequence_path), posix_path)
+                    if geometry is not None:
                         paths.append(geometry)
         return _hash_files(tuple(paths)) if paths else ""
     except (OSError, TypeError, ValueError, UnicodeError, json.JSONDecodeError):
         return ""
 
 
+def _hard_member(group: h5py.Group, name: str, expected_type, missing_reason: str):
+    link = group.get(name, getlink=True)
+    if link is None:
+        _reject(missing_reason)
+    if isinstance(link, h5py.ExternalLink):
+        _reject("external_hdf5_link")
+    if not isinstance(link, h5py.HardLink):
+        _reject("nonlocal_hdf5_link")
+    member = group.get(name)
+    if not isinstance(member, expected_type):
+        _reject(missing_reason)
+    return member
+
+
+def _reject_nonlocal_hdf5_links(group: h5py.Group, seen: set[int] | None = None) -> None:
+    """Walk link metadata without dereferencing soft or external targets."""
+
+    if seen is None:
+        seen = set()
+    address = int(h5py.h5o.get_info(group.id).addr)
+    if address in seen:
+        return
+    seen.add(address)
+    for name in group.keys():
+        link = group.get(name, getlink=True)
+        if isinstance(link, h5py.ExternalLink):
+            _reject("external_hdf5_link")
+        if not isinstance(link, h5py.HardLink):
+            _reject("nonlocal_hdf5_link")
+        member = group.get(name)
+        if isinstance(member, h5py.Group):
+            _reject_nonlocal_hdf5_links(member, seen)
+
+
 def _dataset_array(group: h5py.Group, name: str) -> np.ndarray:
-    if name not in group or not isinstance(group[name], h5py.Dataset):
-        _reject("missing_rollout_field")
+    dataset = _hard_member(group, name, h5py.Dataset, "missing_rollout_field")
     try:
-        array = np.asarray(group[name])
-    except (OSError, TypeError, ValueError):
+        if dataset.is_virtual or dataset.external:
+            _reject("nonlocal_hdf5_storage")
+        array = np.asarray(dataset)
+    except _SequenceRejected:
+        raise
+    except (OSError, RuntimeError, TypeError, ValueError):
         _reject("invalid_rollout_dataset")
     if array.dtype.kind not in "iuf":
         _reject("invalid_rollout_dataset")
@@ -312,8 +377,10 @@ def _load_best(
         _reject("invalid_seq_info")
     context.frames = frames
     interaction_mode = seq_info.get("interaction_mode")
-    if type(interaction_mode) is not str or not interaction_mode:
-        _reject("invalid_seq_info")
+    if type(interaction_mode) is not str or interaction_mode not in INTERACTION_MODE_SIDES:
+        _reject("invalid_interaction_mode")
+    if side not in INTERACTION_MODE_SIDES[interaction_mode]:
+        _reject("interaction_mode_side_mismatch")
     dexhand = seq_info.get("dexhand")
     if type(dexhand) is not str or not dexhand:
         _reject("invalid_seq_info")
@@ -329,11 +396,11 @@ def _load_best(
         _reject("missing_rollouts")
     try:
         with h5py.File(rollout_path, "r") as h5:
-            if "rollouts/successful" not in h5 or not isinstance(
-                h5["rollouts/successful"], h5py.Group
-            ):
-                _reject("missing_successful_rollouts")
-            successful = h5["rollouts/successful"]
+            _reject_nonlocal_hdf5_links(h5)
+            rollouts = _hard_member(h5, "rollouts", h5py.Group, "missing_successful_rollouts")
+            successful = _hard_member(
+                rollouts, "successful", h5py.Group, "missing_successful_rollouts"
+            )
             names = sorted(successful.keys())
             if not names:
                 _reject("no_successful_rollout")
@@ -341,9 +408,9 @@ def _load_best(
             best_key: tuple[float, str] | None = None
             best_data = None
             for name in names:
-                rollout = successful[name]
-                if not isinstance(rollout, h5py.Group):
-                    _reject("invalid_rollout_group")
+                rollout = _hard_member(
+                    successful, name, h5py.Group, "invalid_rollout_group"
+                )
                 data = _validate_rollout(
                     rollout, side=side, frames=frames, joint_dim=joint_dim
                 )
@@ -428,6 +495,7 @@ def audit_sequence(path: str | Path, source: str, side: str) -> SequenceAudit:
 
 
 __all__ = [
+    "INTERACTION_MODE_SIDES",
     "LoadedHandSequence",
     "SequenceAudit",
     "audit_sequence",

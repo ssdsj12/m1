@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.dexmanipnet import (
+    INTERACTION_MODE_SIDES,
     LoadedHandSequence,
     SequenceAudit,
     audit_sequence,
@@ -29,6 +30,7 @@ def write_minimal_sequence(
     joint_dim: int | None = None,
     include_geometry: bool = True,
     include_tip_force: bool = True,
+    interaction_mode: str | None = None,
 ) -> Path:
     sequence = tmp_path / source / "sequences" / "sequence_000"
     sequence.mkdir(parents=True)
@@ -40,7 +42,7 @@ def write_minimal_sequence(
     metadata = {
         "seq_len": seq_len,
         "dexhand": dexhand,
-        "interaction_mode": "right" if side == "rh" else "left",
+        "interaction_mode": interaction_mode or ("rh_main" if side == "rh" else "lh_main"),
         "obj_rh_path": "ObjURDF/object.urdf",
         "obj_lh_path": "ObjURDF/object.urdf",
         # Deliberately sensitive fields: the geometry loader must never copy these.
@@ -148,10 +150,39 @@ def test_tip_force_is_optional_because_mesh_geometry_can_drive_contact_inference
     assert loaded.tip_force is None
 
 
+def test_interaction_mode_contract_is_exact_and_side_aware(tmp_path):
+    assert INTERACTION_MODE_SIDES == {
+        "lh_main": frozenset({"lh"}),
+        "rh_main": frozenset({"rh"}),
+        "bh_main": frozenset({"rh", "lh"}),
+    }
+    with pytest.raises(TypeError):
+        INTERACTION_MODE_SIDES["garbage"] = frozenset({"rh"})
+
+    garbage = write_minimal_sequence(tmp_path / "garbage", interaction_mode="right")
+    conflict = write_minimal_sequence(tmp_path / "conflict", interaction_mode="lh_main")
+    shared_rh = write_minimal_sequence(tmp_path / "shared_rh", interaction_mode="bh_main")
+    shared_lh = write_minimal_sequence(
+        tmp_path / "shared_lh",
+        source="oakinkv2",
+        side="lh",
+        interaction_mode="bh_main",
+    )
+
+    assert audit_sequence(garbage, source="favor", side="rh").reason == "invalid_interaction_mode"
+    assert (
+        audit_sequence(conflict, source="favor", side="rh").reason
+        == "interaction_mode_side_mismatch"
+    )
+    assert audit_sequence(shared_rh, source="favor", side="rh").accepted
+    assert audit_sequence(shared_lh, source="oakinkv2", side="lh").accepted
+
+
 @pytest.mark.parametrize(
     ("source", "side", "reason"),
     [
         ("unknown", "rh", "unsupported_source"),
+        ("oakink", "rh", "unsupported_source"),
         ("favor", "lh", "unsupported_source_side"),
         ("oakinkv2", "bih", "unsupported_side"),
     ],
@@ -223,3 +254,92 @@ def test_all_successful_rollouts_are_audited_before_best_is_returned(tmp_path):
 
     assert not audit.accepted
     assert audit.reason == "non_finite"
+
+
+def test_external_link_at_successful_group_boundary_is_rejected(tmp_path):
+    sequence = write_minimal_sequence(tmp_path)
+    rollout_path = sequence / "rollouts.hdf5"
+    external_path = sequence / "external-rollouts.hdf5"
+    rollout_path.rename(external_path)
+    with h5py.File(rollout_path, "w") as h5:
+        rollouts = h5.create_group("rollouts")
+        rollouts["successful"] = h5py.ExternalLink(external_path.name, "/rollouts/successful")
+
+    audit = audit_sequence(sequence, source="favor", side="rh")
+
+    assert not audit.accepted
+    assert audit.reason == "external_hdf5_link"
+
+
+@pytest.mark.parametrize(
+    ("link_factory", "reason"),
+    [
+        (lambda filename: h5py.ExternalLink(filename, "/q"), "external_hdf5_link"),
+        (lambda filename: h5py.SoftLink("/rollouts/successful/rollout_0/dq_rh"), "nonlocal_hdf5_link"),
+    ],
+)
+def test_non_hard_link_at_consumed_dataset_boundary_is_rejected(
+    tmp_path, link_factory, reason
+):
+    sequence = write_minimal_sequence(tmp_path)
+    external_path = sequence / "external-q.hdf5"
+    with h5py.File(external_path, "w") as external:
+        external.create_dataset("q", data=np.zeros((2, 12), dtype=np.float64))
+    with h5py.File(sequence / "rollouts.hdf5", "a") as h5:
+        rollout = h5["rollouts/successful/rollout_0"]
+        del rollout["q_rh"]
+        rollout["q_rh"] = link_factory(external_path.name)
+
+    audit = audit_sequence(sequence, source="favor", side="rh")
+
+    assert not audit.accepted
+    assert audit.reason == reason
+
+
+@pytest.mark.parametrize("storage_kind", ["virtual", "external_raw"])
+def test_nonlocal_storage_at_consumed_dataset_boundary_is_rejected(
+    tmp_path, storage_kind
+):
+    sequence = write_minimal_sequence(tmp_path)
+    values = np.zeros((2, 12), dtype=np.float64)
+    with h5py.File(sequence / "rollouts.hdf5", "a") as h5:
+        rollout = h5["rollouts/successful/rollout_0"]
+        del rollout["q_rh"]
+        if storage_kind == "virtual":
+            external_hdf5 = tmp_path / "external-q.hdf5"
+            with h5py.File(external_hdf5, "w") as external:
+                external.create_dataset("q", data=values)
+            layout = h5py.VirtualLayout(shape=values.shape, dtype=values.dtype)
+            layout[:] = h5py.VirtualSource(str(external_hdf5), "q", shape=values.shape)
+            rollout.create_virtual_dataset("q_rh", layout)
+        else:
+            external_raw = tmp_path / "external-q.raw"
+            dataset = rollout.create_dataset(
+                "q_rh",
+                shape=values.shape,
+                dtype=values.dtype,
+                external=[(str(external_raw), 0, values.nbytes)],
+            )
+            dataset[:] = values
+
+    audit = audit_sequence(sequence, source="favor", side="rh")
+
+    assert not audit.accepted
+    assert audit.reason == "nonlocal_hdf5_storage"
+
+
+def test_rejected_hash_never_reads_object_symlink_outside_source_root(tmp_path):
+    sequence = write_minimal_sequence(tmp_path)
+    geometry = sequence.parents[1] / "ObjURDF" / "object.urdf"
+    geometry.unlink()
+    outside = tmp_path / "outside.urdf"
+    outside.write_bytes(b"external-A")
+    geometry.symlink_to(outside)
+
+    first = audit_sequence(sequence, source="favor", side="rh")
+    outside.write_bytes(b"external-B")
+    second = audit_sequence(sequence, source="favor", side="rh")
+
+    assert first.reason == second.reason == "invalid_object_geometry"
+    assert len(first.input_sha256) == 64
+    assert first.input_sha256 == second.input_sha256
