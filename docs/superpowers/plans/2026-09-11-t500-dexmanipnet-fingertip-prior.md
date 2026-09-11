@@ -145,7 +145,7 @@ git commit -m "feat: freeze DexManipNet fingertip prior contracts"
 - Consumes: Task 1 pins.
 - Produces: `sha256_file(path)`, `validate_tar_members(members)`, `atomic_extract_tar(archive, destination)`, `build_download_manifest(download_root, archive_paths, revision, source_commit)`, and CLI `--root/--download-only/--verify-only`.
 
-- [ ] **Step 1: Write path-traversal and pin tests**
+- [x] **Step 1: Write path-traversal and pin tests**
 
 ```python
 @pytest.mark.parametrize("name", ["/abs/file", "../escape", "safe/../../escape"])
@@ -168,13 +168,13 @@ def test_failed_extraction_never_installs_destination(tmp_path):
     assert not destination.exists()
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_download.py`
 
 Expected: fails on missing download module/script.
 
-- [ ] **Step 3: Implement safe extraction and resumable fetch**
+- [x] **Step 3: Implement safe extraction and resumable fetch**
 
 ```python
 def validate_tar_members(members: Iterable[tarfile.TarInfo]) -> tuple[tarfile.TarInfo, ...]:
@@ -203,13 +203,13 @@ snapshot_download(
 )
 ```
 
-- [ ] **Step 4: Run GREEN and help smoke**
+- [x] **Step 4: Run GREEN and help smoke**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_download.py && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_fetch_dexmanipnet.py --help`
 
 Expected: tests pass and help exits `0` without downloading.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .gitignore Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/download.py Go2Pvcnn/scripts/m1_dual_panda_o6_fetch_dexmanipnet.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_download.py
