@@ -4,6 +4,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- T500 2026-09-11 上传候选：SO(3)、接触摘要、举升动作原语和固定步数训练链已整理到 `265fbcf`；专项 `224 passed`，正式 30/30 物理验收仍待执行。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [上传验证日志](log/2026-09-11-t500-github-upload-verification.md)。
+
 - T500 worktree 当前验证叶子：[T500.4 右掌姿态传递与跟踪边界](todo/T500-m1-dual-panda-o6-bimanual-mpc.md)；[350 步诊断](log/2026-09-06-right-palm-orientation-boundary-diagnosis.md)已复现，物理验收未通过。
 
 - Current focus: **T302u semantic map contact collision**.

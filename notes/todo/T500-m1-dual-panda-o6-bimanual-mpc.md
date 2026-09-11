@@ -8,6 +8,13 @@
 见[诊断日志](../log/2026-09-06-right-palm-orientation-boundary-diagnosis.md)。
 以下资产 Tasks 1–3 描述保留为历史基线。
 
+2026-09-11 更新：本轮控制与训练改进已整理为功能提交 `265fbcf`。改动包含
+SO(3) 几何插值/空间姿态误差、接触摘要与逐 body Box 过滤、举升动作原语与
+向量控制入口，以及可恢复的 10k/40k 固定总步数账本和 teacher 数据准备链。
+T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正式 30/30
+物理验收仍未执行，不能据此宣称整套举升任务已验收通过。见
+[上传验证日志](../log/2026-09-11-t500-github-upload-verification.md)。
+
 交互设计和书面规格均已由用户确认。首版使用 M1、公共单轴回转平台、左右两条 Panda 和左右 O6，完成固定 `0.5 kg` 箱体的确定性双手夹持、抬升 `0.10 m`、保持 `3 s`、下降和释放。采用 object MPC、双 Arm MPC、双 Hand MPC 和 200 Hz WBC/QP；第一阶段不训练 RL。
 
 规格已写入 [设计文档](../../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)，13 任务 TDD [实施计划](../../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md)正在以 Inline Execution 执行。Tasks 1–3 已完成：左右 O6 资产规范化入库，组合 articulation 已生成并通过最终 Isaac 2000 步硬门。
@@ -34,8 +41,8 @@
 
 ## Git Refs
 
-- Last Feature Commit: `a17912d`
-- Last Verified Commit: `a17912d`
+- Last Feature Commit: `265fbcf`
+- Last Verified Commit: `265fbcf`（T500 专项静态/纯控制测试）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [设计文档](../../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)
@@ -45,8 +52,9 @@
 
 ## Next Step
 
-先修正 T500 姿态适配中的 SO(3) 插值、空间误差和角速度，保持公共合同；
-以相同 350 步样本做单变量对照，再评估实测姿态到首目标的跟踪约束。
+恢复服务器 Vulkan/DRM 访问后，先运行跨 seed 物理门并核对固定步数账本，
+再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
+再单独评估跟踪感知边界。
 
 ## Node Details
 

@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-11：[T500 GitHub 上传验证](2026-09-11-t500-github-upload-verification.md)：SO(3)、接触、动作原语和固定步数训练链整理为 `265fbcf`；T500 专项 `224 passed`，正式 30/30 物理验收未执行。
+
 - 2026-09-08：[O6 源资产迁移](2026-09-08-o6-source-relocation.md)：仓库相对默认路径；临时规范化的 35 项哈希完全一致。
 
 - 2026-09-06：[T500 右掌姿态边界诊断](2026-09-06-right-palm-orientation-boundary-diagnosis.md)：350 步精确复现；首目标跟踪隐含校正率 7.29 rad/s，空间误差与坐标差不一致；控制行为未改。
