@@ -61,8 +61,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `265fbcf`
-- Last Verified Commit: `037595b`（本机 T500 专项静态/纯控制测试）
+- Last Feature Commit: `8b5523c`（DexManipNet 指尖先验 Task 1 合同）
+- Last Verified Commit: `8b5523c`（Task 1 合同与当前 dual-Panda 合同共 `16 passed`）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)

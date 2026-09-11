@@ -45,7 +45,7 @@ ManipTrans checkout `a3d08cfe3c3a5868a7f057533bcaf759c5af4705` produced
 ## Input Conditions
 
 - Baseline Ref: `b109b684a32ca3b5400fcdfe5aa094aa82c44c74`
-- Candidate Ref: Task 1 feature commit pending
+- Candidate Ref: `8b5523cc3b9d181cf2e4bb94fe565bd8667210ab`
 - Key Files:
   - [contracts.py](../../Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/contracts.py)
   - [sources.py](../../Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/sources.py)
@@ -68,6 +68,6 @@ Task 2 只能消费这些固定 pin 和 registry，且 source URDF 的本地 clo
 
 ## Git Refs
 
-- Last Feature Commit: Task 1 feature commit pending
-- Last Verified Commit: Task 1 feature commit pending; verification was run before commit
+- Last Feature Commit: `8b5523cc3b9d181cf2e4bb94fe565bd8667210ab`
+- Last Verified Commit: `8b5523cc3b9d181cf2e4bb94fe565bd8667210ab` (verification was run immediately before the feature commit)
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
