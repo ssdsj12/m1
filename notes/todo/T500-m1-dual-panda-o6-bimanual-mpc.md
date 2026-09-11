@@ -12,8 +12,11 @@ manifest、路径/设备/越界链接拒绝、临时 sibling 解压后原子安�
 的 `--verify-only`。source checkout 在复用和 verify 时均以 no-optional-lock Git status 拒绝 tracked、
 untracked 和 ignored 漂移。Task 3 已实现严格单根 URDF tree、稳定拓扑、fixed/revolute/continuous/
 prismatic 批量 FK、递归 mimic 展开和掌坐标五指尖转换，保持 stdlib XML + NumPy 且不依赖 Isaac。
-Task 1–3 合同共 `56 passed`；尚未下载 8.31 GB 数据、用固定真实 URDF 做兼容验证、训练模型或修改运行时。
-见[FK 验证](../log/2026-09-11-t500-dexmanipnet-urdf-fk.md)。
+Task 4 已实现 FAVOR/OakInk V2 source-side、固定手型 joint width、长度/shape/有限性、手根/对象状态、
+对象 URDF 与全部 successful rollout 的原子审计，并按累计 reward 和 rollout 名确定性选优；输出不含
+task/object ID/name、primitive、description 或 text。Task 1–4 相关回归 `72 passed`；尚未下载 8.31 GB
+数据、验证真实全量 schema/对象几何、训练模型或修改运行时。见
+[sequence 审计验证](../log/2026-09-11-t500-dexmanipnet-sequence-audit.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -34,12 +37,12 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–3 合同、下载边界与源手 FK 已完成，下一步为 Task 4 sequence 审计。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–4 合同、下载边界、源手 FK 与 sequence 审计已完成，下一步为 Task 5 deterministic shards。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
 - T500.1：书面规格已确认。
-- T500.2：逐文件 TDD 实施计划正在 Inline Execution 执行，Task 4 进行中。
+- T500.2：逐文件 TDD 实施计划正在 Inline Execution 执行，Task 5 待开始。
 - T500.3：已冻结双臂平台安装变换和 O6 规范化资产 manifest；53 物理 DOF、43 主动通道运行时确认通过。
 
 ## Closed Children Archive
@@ -47,6 +50,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-11 DexManipNet sequence 审计与 rollout 选优](../log/2026-09-11-t500-dexmanipnet-sequence-audit.md)
 
 - [2026-09-11 DexManipNet Isaac-independent URDF FK](../log/2026-09-11-t500-dexmanipnet-urdf-fk.md)
 
@@ -70,8 +75,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `27dc96f`（DexManipNet 指尖先验 Task 3 Isaac-independent URDF FK）
-- Last Verified Commit: `27dc96f`（Task 1–3 合同共 `56 passed`，含 pycompile/diff）
+- Last Feature Commit: `fdcd40a`（DexManipNet 指尖先验 Task 4 sequence audit）
+- Last Verified Commit: `fdcd40a`（Task 1–4 相关回归 `72 passed`，含 pycompile/diff）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
@@ -83,7 +88,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-从 T500.5 Task 4 的 DexManipNet sequence 审计 RED 开始继续 12 任务计划；运行时物理主线仍需在
+从 T500.5 Task 5 的 deterministic fingertip shard RED 开始继续 12 任务计划；运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。

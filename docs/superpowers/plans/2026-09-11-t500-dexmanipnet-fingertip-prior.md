@@ -282,7 +282,7 @@ git commit -m "feat: add source hand URDF forward kinematics"
 - Consumes: extracted source root and `SOURCE_HANDS`.
 - Produces: `SequenceAudit`, `LoadedHandSequence`, `audit_sequence(path, source, side)`, `load_best_successful_rollout(path, source, side)`.
 
-- [ ] **Step 1: Write minimal HDF5 RED tests**
+- [x] **Step 1: Write minimal HDF5 RED tests**
 
 ```python
 def test_loader_selects_highest_total_reward_without_exposing_task_id(tmp_path):
@@ -299,13 +299,13 @@ def test_length_mismatch_is_one_atomic_rejection(tmp_path):
     assert audit.reason == "length_mismatch"
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_dexmanipnet.py`
 
 Expected: missing loader.
 
-- [ ] **Step 3: Implement strict schema and best-rollout loading**
+- [x] **Step 3: Implement strict schema and best-rollout loading**
 
 ```python
 successful = h5["rollouts/successful"]
@@ -316,13 +316,13 @@ rollout_name = max(names, key=lambda name: (scores[name], name))
 
 Validate `seq_info.json`, sequence length, `q_<side>`, `dq_<side>`, root state, object pose/geometry inputs, finite arrays, supported hand-side key, and exact source joint dimension. Return only geometry-required arrays and provenance; never place primitive, object ID/name, description, or text in `LoadedHandSequence`.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_dexmanipnet.py`
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/dexmanipnet.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_dexmanipnet.py
