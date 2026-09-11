@@ -158,6 +158,8 @@ class MixtureDistribution:
                 raise TypeError(f"{name} must be a torch.Tensor")
             if not torch.is_floating_point(value):
                 raise TypeError(f"{name} must have a floating-point dtype")
+            if value.dtype != torch.float32:
+                raise TypeError(f"{name} must have dtype torch.float32")
             if not torch.isfinite(value).all().item():
                 raise ValueError(f"{name} must be finite")
         if self.logits.ndim < 1 or self.logits.shape[-1] != MIXTURE_COMPONENTS:

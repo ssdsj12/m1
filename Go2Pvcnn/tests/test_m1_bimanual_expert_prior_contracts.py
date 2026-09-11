@@ -84,6 +84,16 @@ def test_distribution_and_window_reject_invalid_frozen_shapes():
         )
 
 
+@pytest.mark.parametrize("dtype", (torch.float16, torch.bfloat16, torch.float64))
+def test_distribution_requires_exact_float32_tensors(dtype):
+    with pytest.raises(TypeError, match="torch.float32"):
+        MixtureDistribution(
+            logits=torch.zeros(MIXTURE_COMPONENTS, dtype=dtype),
+            mean=torch.zeros(MIXTURE_COMPONENTS, PRIOR_HORIZON, 5, 3, dtype=dtype),
+            log_std=torch.zeros(MIXTURE_COMPONENTS, PRIOR_HORIZON, 5, 3, dtype=dtype),
+        )
+
+
 def _metadata(**overrides) -> StudentArtifactMetadata:
     values = {
         "format_version": 1,
@@ -203,6 +213,42 @@ def test_source_spec_requires_tuple_names_and_registry_is_exact_and_immutable():
             palm_link=spec.palm_link,
             fingertip_links=spec.fingertip_links,
         )
+    for field, invalid in (("joint_order", ("valid", " ")), ("fingertip_links", ("tip", "", "a", "b", "c"))):
+        values = {
+            "name": "inspire",
+            "side": "rh",
+            "urdf_relpath": spec.urdf_relpath,
+            "joint_order": spec.joint_order,
+            "palm_link": spec.palm_link,
+            "fingertip_links": spec.fingertip_links,
+        }
+        values[field] = invalid
+        with pytest.raises(ValueError, match=field):
+            SourceHandSpec(**values)
+    for field, invalid in (("joint_order", ("valid", 1)), ("fingertip_links", ("tip", "a", "b", "c", 1))):
+        values = {
+            "name": "inspire",
+            "side": "rh",
+            "urdf_relpath": spec.urdf_relpath,
+            "joint_order": spec.joint_order,
+            "palm_link": spec.palm_link,
+            "fingertip_links": spec.fingertip_links,
+        }
+        values[field] = invalid
+        with pytest.raises(ValueError, match=field):
+            SourceHandSpec(**values)
+    for field, invalid in (("joint_order", ("duplicate", "duplicate")), ("fingertip_links", ("tip", "tip", "a", "b", "c"))):
+        values = {
+            "name": "inspire",
+            "side": "rh",
+            "urdf_relpath": spec.urdf_relpath,
+            "joint_order": spec.joint_order,
+            "palm_link": spec.palm_link,
+            "fingertip_links": spec.fingertip_links,
+        }
+        values[field] = invalid
+        with pytest.raises(ValueError, match="unique"):
+            SourceHandSpec(**values)
 
     inspire_joint_suffixes = (
         "index_proximal_joint", "index_intermediate_joint",
