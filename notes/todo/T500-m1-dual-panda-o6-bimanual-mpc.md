@@ -18,7 +18,10 @@ joint width、长度/shape/有限性、手根/对象状态、对象 URDF 与全�
 task/object ID/name、primitive、description 或 text。Task 5 已加入 palm-frame 五指尖规范化、固定
 `60 -> 100 Hz` CubicSpline 解析导数、对象 collision mesh 几何接触滞回、七阶段、20 节点窗口、
 group-exclusive 80/10/10 split，以及固定 ZIP metadata 的原子 NPZ、audit JSONL 和排序 SHA aggregate；
-两次完整合成 CLI 转换逐文件哈希一致。Task 1–5 回归 `101 passed`；尚未下载 8.31 GB 数据、验证真实
+两次完整合成 CLI 转换逐文件哈希一致。review 已补齐 conversion 前 archive size/SHA 重算、共享 Task 2
+readonly ManipTrans commit/tree/dirty 检查、outward mesh normal 门、target-rate spline normal speed 及
+audit/shard/aggregate drift verifier；Task 1–5 回归 `108 passed`。见
+[review hardening 验证](../log/2026-09-11-t500-dexmanipnet-shard-review-hardening.md)。尚未下载 8.31 GB 数据、验证真实
 全量 schema/对象 mesh 接受率、训练模型或修改运行时。见
 [deterministic shard 验证](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)。
 
@@ -57,6 +60,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 - [2026-09-11 DexManipNet deterministic fingertip shards](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)
 
+- [2026-09-11 DexManipNet shard review hardening](../log/2026-09-11-t500-dexmanipnet-shard-review-hardening.md)
+
 - [2026-09-11 DexManipNet sequence 审计与 rollout 选优](../log/2026-09-11-t500-dexmanipnet-sequence-audit.md)
 
 - [2026-09-11 DexManipNet Isaac-independent URDF FK](../log/2026-09-11-t500-dexmanipnet-urdf-fk.md)
@@ -81,8 +86,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `ef60ae1`（DexManipNet 指尖先验 Task 5 deterministic shards）
-- Last Verified Commit: `ef60ae1`（focused `21 passed`；Task 1–5 `101 passed`；CLI help、pycompile/diff）
+- Last Feature Commit: `3ccea5d`（DexManipNet Task 5 provenance/geometry/artifact review hardening）
+- Last Verified Commit: `3ccea5d`（focused `28 passed`；Task 1–5 `108 passed`；both CLI help、pycompile/diff）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)

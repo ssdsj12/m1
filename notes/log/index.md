@@ -4,6 +4,7 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-11：[T500 DexManipNet shard review hardening](2026-09-11-t500-dexmanipnet-shard-review-hardening.md)：转换前重算两 archive 的 size/SHA 并通过 Task 2 readonly Git check 固定 ManipTrans commit/tree；aggregate 绑定 verified facts 和 audit byte/SHA；mesh outward/inconsistent-winding 门与 target-rate CubicSpline 解析 normal speed 已覆盖；focused `28 passed`，Task 1–5 `108 passed`。
 - 2026-09-11：[T500 DexManipNet deterministic fingertip shards](2026-09-11-t500-dexmanipnet-deterministic-shards.md)：离线 source-hand FK 转换为规范掌坐标五指尖，以固定 `60 -> 100 Hz` CubicSpline 及解析导数生成 20 节点窗口；对象 collision mesh 距离/法向速度驱动接触滞回和七阶段；固定 ZIP metadata 的 NPZ、group-exclusive split、audit JSONL 与排序 aggregate manifest 在两次完整合成转换中逐文件 SHA 相同；focused `21 passed`，Tasks 1–5 `101 passed`。
 - 2026-09-11：[T500 DexManipNet sequence 审计与 rollout 选优](2026-09-11-t500-dexmanipnet-sequence-audit.md)：严格验证精确 source/interaction-side 合同、固定手型 joint width、长度/shape/有限性、手根/对象状态与对象 URDF；拒绝 HDF5 外部 link/storage 与越界 geometry symlink；全部 successful rollout 审计后按累计 reward 和名字确定性选优；focused `24 passed`，Task 1–4 `80 passed`，未下载 8.31 GB 数据。
 - 2026-09-11：[T500 DexManipNet Isaac-independent URDF FK](2026-09-11-t500-dexmanipnet-urdf-fk.md)：严格解析单根 URDF tree，按稳定拓扑执行批量 NumPy FK、递归 mimic 展开与掌坐标五指尖转换；Task 1–3 `56 passed`，真实固定 Inspire/Shadow URDF 兼容验证留待数据就绪。

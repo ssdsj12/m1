@@ -4,7 +4,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
-- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Tasks 1–4 已冻结合同、下载边界、源手 FK 和 strict sequence/provenance audit；Task 5 已完成离线 palm-frame 五指尖转换、精确左手反射、固定 `60 -> 100 Hz` CubicSpline/解析导数、mesh 几何接触滞回、七阶段、20 节点窗口、group-exclusive split，以及原子 deterministic NPZ/audit/aggregate。两次完整合成转换逐文件 SHA 相同，focused `21 passed`，Tasks 1–5 `101 passed`；未下载 8.31 GB 原始数据，下一步为 Task 6 offline expert ensemble。见 [deterministic shard 验证](log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)。
+- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Tasks 1–4 已冻结合同、下载边界、源手 FK 和 strict sequence/provenance audit；Task 5 已完成离线 palm-frame 五指尖转换、精确左手反射、固定 `60 -> 100 Hz` CubicSpline/解析导数、mesh 几何接触滞回、七阶段、20 节点窗口、group-exclusive split，以及原子 deterministic NPZ/audit/aggregate。review 已补齐 conversion 前双 archive size/SHA 重算、共享 Task 2 readonly ManipTrans commit/tree/dirty 检查、outward mesh normal、target-rate spline normal speed 和 audit/shard/aggregate drift verifier；focused `28 passed`，Tasks 1–5 `108 passed`。未下载 8.31 GB 原始数据，下一步为 Task 6 offline expert ensemble。见 [review hardening 验证](log/2026-09-11-t500-dexmanipnet-shard-review-hardening.md)。
 
 - T500.5 DexManipNet 指尖运动先验设计已获用户批准：完整 FAVOR + OakInk V2 只蒸馏掌坐标五指尖短时分布，经 O6 真实 Jacobian 作为 Hand MPC 可退让软代价；不输入任务/对象 ID，不决定掌、物体、机械臂或底盘轨迹。离线实施已完成 Tasks 1–5，仍未下载完整数据、训练模型或接线运行时。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [设计记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)。
 
