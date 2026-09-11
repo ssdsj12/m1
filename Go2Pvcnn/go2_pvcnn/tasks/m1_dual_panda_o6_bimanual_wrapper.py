@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
-import time
 from collections.abc import Sequence
 
 import torch
@@ -48,6 +48,10 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     stack_stationary_wheel_jacobians,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
+from go2_pvcnn.control.m1_bimanual_coordination.contact_summary import (
+    ContactSummary,
+    summarize_contacts,
+)
 from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
     damped_cartesian_joint_delta,
     embed_fixed_base_jacobian,
@@ -58,6 +62,9 @@ from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
     spatial_jacobian_in_base,
     twist_in_base,
     vectors_in_base,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.vector_control import (
+    stack_lane_actions,
 )
 
 
@@ -168,9 +175,18 @@ class M1DualPandaO6SnapshotAdapter:
             tuple(_exact_sensor_body_id(right_sensor_names, name) for name in candidates)
             for candidates in _o6_contact_body_candidates("right")
         )
+        self.left_filtered_sensor_names = tuple(
+            tuple(f"{body_name}_box_contact" for body_name in candidates)
+            for candidates in _o6_contact_body_candidates("left")
+        )
+        self.right_filtered_sensor_names = tuple(
+            tuple(f"{body_name}_box_contact" for body_name in candidates)
+            for candidates in _o6_contact_body_candidates("right")
+        )
         self._sequence = 0
         self._previous_wheel_contact_jacobian: torch.Tensor | None = None
         self.arm_dynamics_diagnostics: dict[str, dict[str, object]] = {}
+        self.contact_summaries: dict[str, ContactSummary] = {}
 
     def dynamics(self) -> FullDynamicsState:
         """Read full PhysX dynamics and four fixed-wheel contact constraints."""
@@ -347,10 +363,12 @@ class M1DualPandaO6SnapshotAdapter:
 
     def _hand_state(
         self,
+        side: str,
         joint_ids: tuple[int, ...],
         contact_body_id_candidates: tuple[tuple[int, ...], ...],
         contact_sensor_id_candidates: tuple[tuple[int, ...], ...],
         sensor_name: str,
+        filtered_sensor_names: tuple[tuple[str, ...], ...],
         active_generalized_ids: tuple[int, ...],
         mimic_specs: tuple[tuple[int, int, float], ...],
     ) -> SideHandState:
@@ -358,28 +376,41 @@ class M1DualPandaO6SnapshotAdapter:
         env = self.env_index
         base_position = _cpu64(data.root_pos_w[env])
         base_quaternion = _cpu64(data.root_quat_w[env])
-        force_matrix_w = self.env.scene[sensor_name].data.force_matrix_w
-        if force_matrix_w is None:
-            raise RuntimeError(f"{sensor_name} must filter contacts against the box")
-        sensor_forces_w = force_matrix_w[env, :, 0]
-        selected_body_ids: list[int] = []
-        selected_sensor_ids: list[int] = []
-        for body_candidates, sensor_candidates in zip(
-            contact_body_id_candidates, contact_sensor_id_candidates, strict=True
-        ):
-            candidate_forces = sensor_forces_w[list(sensor_candidates)]
-            selected = int(torch.argmax(torch.linalg.vector_norm(candidate_forces, dim=1)).item())
-            selected_body_ids.append(body_candidates[selected])
-            selected_sensor_ids.append(sensor_candidates[selected])
+        raw_sensor_forces_w = self.env.scene[sensor_name].data.net_forces_w[env]
+        flat_sensor_ids = tuple(
+            sensor_id
+            for candidates in contact_sensor_id_candidates
+            for sensor_id in candidates
+        )
+        flat_filtered_sensor_names = tuple(
+            name for candidates in filtered_sensor_names for name in candidates
+        )
+        filtered_forces_w = []
+        for filtered_sensor_name in flat_filtered_sensor_names:
+            force_matrix_w = self.env.scene[filtered_sensor_name].data.force_matrix_w
+            if force_matrix_w is None:
+                raise RuntimeError(
+                    f"{filtered_sensor_name} must filter contacts against the box"
+                )
+            filtered_forces_w.append(force_matrix_w[env, 0, 0])
+        summary = summarize_contacts(
+            side=side,
+            candidate_names=_o6_contact_body_candidates(side),
+            filtered_forces_w=_cpu64(torch.stack(filtered_forces_w)),
+            raw_forces_w=_cpu64(raw_sensor_forces_w[list(flat_sensor_ids)]),
+        )
+        self.contact_summaries[side] = summary
+        body_names = tuple(self.robot.body_names)
+        selected_body_ids = [
+            _exact_body_id(body_names, name) for name in summary.selected_names
+        ]
         positions = vectors_in_base(
             base_quaternion,
             _cpu64(data.body_pos_w[env, selected_body_ids]) - base_position,
         )
         forces = vectors_in_base(
             base_quaternion,
-            _cpu64(
-                sensor_forces_w[selected_sensor_ids]
-            ),
+            summary.filtered_forces_w,
         )
         all_jacobians = embed_fixed_base_jacobian(
             self.robot.root_physx_view.get_jacobians()
@@ -412,14 +443,17 @@ class M1DualPandaO6SnapshotAdapter:
             fingertip_forces_b=forces,
             fingertip_positions_b=positions,
             fingertip_jacobian_b=fingertip_jacobian,
-            contact_mask=torch.linalg.vector_norm(forces, dim=1) > 0.2,
+            contact_mask=summary.contact_mask,
+            contact_consistent=summary.consistency_reason is None,
         )
 
     def snapshot(self) -> BimanualSnapshot:
         data = self.robot.data
         env = self.env_index
         self._sequence += 1
-        timestamp_ns = max(time.monotonic_ns(), self._sequence)
+        timestamp_ns = max(
+            1, round(self._sequence * float(self.env.physics_dt) * 1e9)
+        )
         base_state = _cpu64(data.root_state_w[env])
         joint_pos = data.joint_pos[env]
         joint_vel = data.joint_vel[env]
@@ -454,18 +488,22 @@ class M1DualPandaO6SnapshotAdapter:
             left_arm=self._arm_state("left", self.left_arm_ids, self.left_palm_id),
             right_arm=self._arm_state("right", self.right_arm_ids, self.right_palm_id),
             left_hand=self._hand_state(
+                "left",
                 self.left_hand_ids,
                 self.left_contact_body_id_candidates,
                 self.left_contact_sensor_id_candidates,
                 "o6_contacts",
+                self.left_filtered_sensor_names,
                 self.left_hand_generalized_ids,
                 self.left_mimic_specs,
             ),
             right_hand=self._hand_state(
+                "right",
                 self.right_hand_ids,
                 self.right_contact_body_id_candidates,
                 self.right_contact_sensor_id_candidates,
                 "right_o6_contacts",
+                self.right_filtered_sensor_names,
                 self.right_hand_generalized_ids,
                 self.right_mimic_specs,
             ),
@@ -477,6 +515,30 @@ class M1DualPandaO6SnapshotAdapter:
                 supported=bool(box_position[2] <= 1.205),
             ),
         )
+
+
+@dataclass
+class BimanualLaneController:
+    env_index: int
+    adapter: M1DualPandaO6SnapshotAdapter
+    runtime: BimanualRuntime
+    teacher: FullActionTeacher
+    safety: SafetyProjection
+    latent_runtime: LatentRuntime | None = None
+    baseline_command: BimanualCommand | None = None
+    last_snapshot: BimanualSnapshot | None = None
+    last_dynamics: FullDynamicsState | None = None
+    last_teacher_solution: object | None = None
+    last_safety_result: object | None = None
+    last_command: BimanualCommand | None = None
+    base_reference_w: torch.Tensor | None = None
+    preload_arm_q: torch.Tensor | None = None
+    left_hand_contact_q: torch.Tensor = field(
+        default_factory=lambda: torch.full((6,), torch.nan, dtype=torch.float64)
+    )
+    right_hand_contact_q: torch.Tensor = field(
+        default_factory=lambda: torch.full((6,), torch.nan, dtype=torch.float64)
+    )
 
 
 class M1DualPandaO6BimanualWrapper:
@@ -493,57 +555,82 @@ class M1DualPandaO6BimanualWrapper:
         if mode not in {"teacher", "latent"}:
             raise ValueError("mode must be 'teacher' or 'latent'")
         self.env = env
-        self.adapter = M1DualPandaO6SnapshotAdapter(env)
-        self.runtime = BimanualRuntime() if runtime is None else runtime
         self.mode = mode
-        self.teacher = FullActionTeacher(fixed_base=True)
-        self.safety = SafetyProjection(
-            joint_position_margin_rad=0.02,
-            joint_velocity_margin_fraction=0.1,
-            externally_servoed_hand=True,
-        )
         self._effort_limits = effort_limits()
-        self._baseline_command: BimanualCommand | None = None
-        self.latent_runtime: LatentRuntime | None = None
-        if mode == "latent":
-            selected_artifact = latent_artifact or os.environ.get(
-                "M1_BIMANUAL_LATENT_ARTIFACT"
+        raw = self.env.unwrapped
+        self.lanes = [
+            BimanualLaneController(
+                env_index=index,
+                adapter=M1DualPandaO6SnapshotAdapter(env, env_index=index),
+                runtime=(runtime if index == 0 and runtime is not None else BimanualRuntime()),
+                teacher=FullActionTeacher(fixed_base=True),
+                safety=SafetyProjection(
+                    joint_position_margin_rad=0.02,
+                    joint_velocity_margin_fraction=0.1,
+                    externally_servoed_hand=True,
+                ),
             )
+            for index in range(raw.num_envs)
+        ]
+        selected_artifact = latent_artifact or os.environ.get(
+            "M1_BIMANUAL_LATENT_ARTIFACT"
+        )
+        if mode == "latent":
             if selected_artifact is None:
                 raise FileNotFoundError(
                     "latent model path is required through M1_BIMANUAL_LATENT_ARTIFACT"
                 )
-            self.latent_runtime = LatentRuntime.from_artifact(
-                Path(selected_artifact),
-                action_order=tuple(M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES),
-                teacher=self.teacher,
-                safety=self.safety,
-                effort_limits=self._effort_limits,
-                safety_input_provider=self._safety_input,
-            )
-        self.last_snapshot: BimanualSnapshot | None = None
-        self.last_dynamics: FullDynamicsState | None = None
-        self.last_teacher_solution = None
-        self.last_safety_result = None
-        self.last_command = None
+            for lane in self.lanes:
+                lane.latent_runtime = LatentRuntime.from_artifact(
+                    Path(selected_artifact),
+                    action_order=tuple(M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES),
+                    teacher=lane.teacher,
+                    safety=lane.safety,
+                    effort_limits=self._effort_limits,
+                    safety_input_provider=lambda snapshot, dynamics, candidate,
+                    index=lane.env_index: self._safety_input(
+                        self.lanes[index], snapshot, dynamics, candidate
+                    ),
+                )
         self.startup_complete = False
-        self.base_reference_w: torch.Tensor | None = None
-        self._preload_arm_q: torch.Tensor | None = None
-        self._left_hand_contact_q = torch.full((6,), torch.nan, dtype=torch.float64)
-        self._right_hand_contact_q = torch.full((6,), torch.nan, dtype=torch.float64)
+        self.last_actions: torch.Tensor | None = None
         self._step = 0
+        self._sync_legacy_aliases()
+
+    def _sync_legacy_aliases(self) -> None:
+        """Keep the single-lane probe API mapped to lane zero."""
+
+        lane = self.lanes[0]
+        self.adapter = lane.adapter
+        self.runtime = lane.runtime
+        self.teacher = lane.teacher
+        self.safety = lane.safety
+        self.latent_runtime = lane.latent_runtime
+        self._baseline_command = lane.baseline_command
+        self.last_snapshot = lane.last_snapshot
+        self.last_dynamics = lane.last_dynamics
+        self.last_teacher_solution = lane.last_teacher_solution
+        self.last_safety_result = lane.last_safety_result
+        self.last_command = lane.last_command
+        self.base_reference_w = lane.base_reference_w
+        self._preload_arm_q = lane.preload_arm_q
+        self._left_hand_contact_q = lane.left_hand_contact_q
+        self._right_hand_contact_q = lane.right_hand_contact_q
 
     def _stabilize_preload_arms(
-        self, snapshot: BimanualSnapshot, command: BimanualCommand
+        self,
+        lane: BimanualLaneController,
+        snapshot: BimanualSnapshot,
+        command: BimanualCommand,
     ) -> BimanualCommand:
-        if self.runtime.mission.phase is not BimanualPhase.PRELOAD:
-            self._preload_arm_q = None
+        if lane.runtime.mission.phase is not BimanualPhase.PRELOAD:
+            lane.preload_arm_q = None
             return command
-        if self._preload_arm_q is None:
-            self._preload_arm_q = torch.cat(
+        if lane.preload_arm_q is None:
+            lane.preload_arm_q = torch.cat(
                 (snapshot.left_arm.q, snapshot.right_arm.q)
             )
-        object_solution = self.runtime.latest_solutions["object"]
+        object_solution = lane.runtime.latest_solutions["object"]
         if object_solution is None:
             return command
         effort = command.effort.clone()
@@ -551,7 +638,7 @@ class M1DualPandaO6BimanualWrapper:
             (slice(17, 24), slice(0, 7), snapshot.left_arm, snapshot.left_hand, object_solution.left_palm_pose[-1]),
             (slice(24, 31), slice(7, 14), snapshot.right_arm, snapshot.right_hand, object_solution.right_palm_pose[-1]),
         ):
-            target = self._preload_arm_q[target_slice]
+            target = lane.preload_arm_q[target_slice]
             if not bool(hand.contact_mask.any()):
                 cartesian_error = palm_target - state.palm_pose_b
                 target = state.q + damped_cartesian_joint_delta(
@@ -560,10 +647,10 @@ class M1DualPandaO6BimanualWrapper:
                     damping=0.05,
                     max_abs_joint_delta=0.12,
                 )
-                self._preload_arm_q[target_slice] = target
+                lane.preload_arm_q[target_slice] = target
             elif bool(hand.contact_mask.any()):
                 target = state.q.clone()
-                self._preload_arm_q[target_slice] = target
+                lane.preload_arm_q[target_slice] = target
             effort[output] = (
                 state.bias + 20.0 * (target - state.q) - 8.0 * state.qd
             )
@@ -574,32 +661,37 @@ class M1DualPandaO6BimanualWrapper:
             fallback_reasons=command.fallback_reasons,
         )
 
-    def _active_q_qd(self) -> tuple[torch.Tensor, torch.Tensor]:
-        data = self.adapter.robot.data
-        ids = list(self.adapter.active_joint_ids)
-        return _cpu64(data.joint_pos[0, ids]), _cpu64(data.joint_vel[0, ids])
+    def _active_q_qd(
+        self, lane: BimanualLaneController
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        data = lane.adapter.robot.data
+        ids = list(lane.adapter.active_joint_ids)
+        env = lane.env_index
+        return _cpu64(data.joint_pos[env, ids]), _cpu64(data.joint_vel[env, ids])
 
     def _safety_input(
         self,
+        lane: BimanualLaneController,
         snapshot: BimanualSnapshot,
         dynamics: FullDynamicsState,
         candidate: torch.Tensor,
     ) -> SafetyInput:
-        if self._baseline_command is None or self.base_reference_w is None:
+        if lane.baseline_command is None or lane.base_reference_w is None:
             raise RuntimeError("baseline command and base reference must exist")
-        active_q, active_qd = self._active_q_qd()
-        data = self.adapter.robot.data
-        ids = list(self.adapter.active_joint_ids)
-        limits = _cpu64(data.soft_joint_pos_limits[0, ids])
-        velocity_limits = _cpu64(data.soft_joint_vel_limits[0, ids])
-        current_root = _cpu64(data.root_state_w[0])
+        active_q, active_qd = self._active_q_qd(lane)
+        data = lane.adapter.robot.data
+        ids = list(lane.adapter.active_joint_ids)
+        env = lane.env_index
+        limits = _cpu64(data.soft_joint_pos_limits[env, ids])
+        velocity_limits = _cpu64(data.soft_joint_vel_limits[env, ids])
+        current_root = _cpu64(data.root_state_w[env])
         base_error = pose_in_base(
-            self.base_reference_w[:3],
-            self.base_reference_w[3:7],
+            lane.base_reference_w[:3],
+            lane.base_reference_w[3:7],
             current_root[:3],
             current_root[3:7],
         )
-        latest_wbc = self.runtime.latest_solutions["wbc"]
+        latest_wbc = lane.runtime.latest_solutions["wbc"]
         closure = (
             1.0
             if latest_wbc is None
@@ -607,10 +699,10 @@ class M1DualPandaO6BimanualWrapper:
         )
         return SafetyInput(
             candidate_effort=candidate,
-            safe_effort=self._baseline_command.effort,
+            safe_effort=lane.baseline_command.effort,
             dynamics=dynamics,
             active_generalized_ids=torch.tensor(
-                [index + 6 for index in self.adapter.active_joint_ids],
+                [index + 6 for index in lane.adapter.active_joint_ids],
                 dtype=torch.int64,
             ),
             active_q=active_q,
@@ -623,7 +715,7 @@ class M1DualPandaO6BimanualWrapper:
             collision_jacobian=torch.zeros((1, 43), dtype=torch.float64),
             base_error=base_error,
             force_closure_margin=float(closure),
-            phase=self.runtime.mission.phase,
+            phase=lane.runtime.mission.phase,
         )
 
     def _write_default_physics_state(self) -> None:
@@ -666,26 +758,65 @@ class M1DualPandaO6BimanualWrapper:
         raw.sim.forward()
         raw.scene.update(dt=0.0)
 
-        self.adapter = M1DualPandaO6SnapshotAdapter(self.env)
-        self.runtime.reset()
-        if self.latent_runtime is not None:
-            self.latent_runtime.reset()
-        self.last_command = None
-        self.last_teacher_solution = None
-        self.last_safety_result = None
-        self.last_snapshot = self.adapter.snapshot()
-        self.last_dynamics = self.adapter.dynamics()
-        self.base_reference_w = _cpu64(
-            raw.scene["robot"].data.default_root_state[0, :7]
-        )
-        self._preload_arm_q = None
-        self._left_hand_contact_q.fill_(torch.nan)
-        self._right_hand_contact_q.fill_(torch.nan)
+        for lane in self.lanes:
+            lane.adapter = M1DualPandaO6SnapshotAdapter(
+                self.env, env_index=lane.env_index
+            )
+            lane.runtime.reset()
+            if lane.latent_runtime is not None:
+                lane.latent_runtime.reset()
+            lane.baseline_command = None
+            lane.last_command = None
+            lane.last_teacher_solution = None
+            lane.last_safety_result = None
+            lane.last_snapshot = lane.adapter.snapshot()
+            lane.last_dynamics = lane.adapter.dynamics()
+            lane.base_reference_w = _cpu64(
+                raw.scene["robot"].data.default_root_state[lane.env_index, :7]
+            )
+            lane.preload_arm_q = None
+            lane.left_hand_contact_q.fill_(torch.nan)
+            lane.right_hand_contact_q.fill_(torch.nan)
         self.startup_complete = True
         self._step = 0
-        return self.last_snapshot
+        self.last_actions = None
+        self._sync_legacy_aliases()
+        return self.lanes[0].last_snapshot
 
-    def step(self):
+    def reset_lanes(
+        self, done_mask: torch.Tensor, *, seeds: Sequence[int] | None = None
+    ) -> None:
+        """Clear temporal state only for lanes reset by the IsaacLab environment."""
+
+        if done_mask.dtype != torch.bool or done_mask.shape != (len(self.lanes),):
+            raise ValueError("done_mask must be bool with shape (num_envs,)")
+        if seeds is not None and len(seeds) != len(self.lanes):
+            raise ValueError("seeds must contain one value per lane")
+        raw = self.env.unwrapped
+        for lane, done in zip(self.lanes, done_mask.tolist(), strict=True):
+            if not done:
+                continue
+            lane.adapter = M1DualPandaO6SnapshotAdapter(
+                self.env, env_index=lane.env_index
+            )
+            lane.runtime.reset()
+            if lane.latent_runtime is not None:
+                lane.latent_runtime.reset()
+            lane.baseline_command = None
+            lane.last_snapshot = None
+            lane.last_dynamics = None
+            lane.last_teacher_solution = None
+            lane.last_safety_result = None
+            lane.last_command = None
+            lane.base_reference_w = _cpu64(
+                raw.scene["robot"].data.root_state_w[lane.env_index, :7]
+            )
+            lane.preload_arm_q = None
+            lane.left_hand_contact_q.fill_(torch.nan)
+            lane.right_hand_contact_q.fill_(torch.nan)
+        self._sync_legacy_aliases()
+
+    def _legacy_step(self):
         if not self.startup_complete:
             raise RuntimeError("wrapper.reset(seed=...) must complete before step()")
         snapshot = self.adapter.snapshot()
@@ -747,7 +878,7 @@ class M1DualPandaO6BimanualWrapper:
             self.last_teacher_solution = self.latent_runtime.last_teacher_solution
             self.last_safety_result = self.latent_runtime.last_safety_result
         action = command.effort.to(device=self.env.unwrapped.device, dtype=torch.float32)
-        action = action.unsqueeze(0).repeat(self.env.unwrapped.num_envs, 1)
+        action = action.unsqueeze(0).expand(self.env.unwrapped.num_envs, -1)
         left_hand_solution = self.runtime.latest_solutions["left_hand"]
         right_hand_solution = self.runtime.latest_solutions["right_hand"]
         left_hand_target = left_hand_solution.q_ref
@@ -771,19 +902,138 @@ class M1DualPandaO6BimanualWrapper:
         self.adapter.robot.set_joint_position_target(
             left_hand_target.to(
                 device=self.env.unwrapped.device, dtype=torch.float32
-            ).unsqueeze(0).repeat(self.env.unwrapped.num_envs, 1),
+            ).unsqueeze(0).expand(self.env.unwrapped.num_envs, -1),
             joint_ids=list(self.adapter.left_hand_ids),
         )
         self.adapter.robot.set_joint_position_target(
             right_hand_target.to(
                 device=self.env.unwrapped.device, dtype=torch.float32
-            ).unsqueeze(0).repeat(self.env.unwrapped.num_envs, 1),
+            ).unsqueeze(0).expand(self.env.unwrapped.num_envs, -1),
             joint_ids=list(self.adapter.right_hand_ids),
         )
         self.last_snapshot = snapshot
         self.last_command = command
         self._step += 1
         return self.env.step(action)
+
+    def _compute_lane_command(
+        self,
+        lane: BimanualLaneController,
+        snapshot: BimanualSnapshot,
+        dynamics: FullDynamicsState,
+        teacher_input,
+    ) -> BimanualCommand:
+        if self.mode == "latent":
+            if lane.latent_runtime is None:
+                raise RuntimeError("latent runtime was not initialized")
+            command = lane.latent_runtime.compute(snapshot, dynamics, teacher_input)
+            lane.last_teacher_solution = lane.latent_runtime.last_teacher_solution
+            lane.last_safety_result = lane.latent_runtime.last_safety_result
+            return command
+        if self._step % 8 == 0 or lane.last_teacher_solution is None:
+            lane.last_teacher_solution = lane.teacher.plan(teacher_input)
+        teacher_solution = lane.last_teacher_solution
+        candidate = (
+            lane.baseline_command.effort
+            if lane.teacher.fixed_base
+            else teacher_solution.action_trajectory[0]
+            if teacher_solution.diagnostics.feasible
+            else lane.baseline_command.effort
+        )
+        lane.last_safety_result = lane.safety.project(
+            self._safety_input(lane, snapshot, dynamics, candidate)
+        )
+        fallback_reasons: list[str] = []
+        if not teacher_solution.diagnostics.feasible:
+            fallback_reasons.append(
+                teacher_solution.diagnostics.fallback_reason or "teacher_infeasible"
+            )
+        if not lane.last_safety_result.feasible:
+            fallback_reasons.append(
+                lane.last_safety_result.fallback_reason or "safety_infeasible"
+            )
+        projected_effort = lane.last_safety_result.effort.clone()
+        projected_effort[31:43] = 0.0
+        return BimanualCommand(
+            timestamp_ns=snapshot.timestamp_ns,
+            effort=projected_effort,
+            feasible=bool(
+                teacher_solution.diagnostics.feasible
+                and lane.last_safety_result.feasible
+            ),
+            fallback_reasons=tuple(fallback_reasons),
+        )
+
+    def _lane_hand_targets(
+        self, lane: BimanualLaneController, snapshot: BimanualSnapshot
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        left_solution = lane.runtime.latest_solutions["left_hand"]
+        right_solution = lane.runtime.latest_solutions["right_hand"]
+        left_target = left_solution.q_ref
+        right_target = right_solution.q_ref
+        if lane.runtime.mission.phase is BimanualPhase.APPROACH:
+            lane.left_hand_contact_q.fill_(torch.nan)
+            lane.right_hand_contact_q.fill_(torch.nan)
+        elif lane.runtime.mission.phase is BimanualPhase.PRELOAD:
+            lane.left_hand_contact_q, left_target = latch_contact_joint_targets(
+                snapshot.left_hand.q,
+                snapshot.left_hand.contact_mask,
+                lane.left_hand_contact_q,
+                left_target,
+            )
+            lane.right_hand_contact_q, right_target = latch_contact_joint_targets(
+                snapshot.right_hand.q,
+                snapshot.right_hand.contact_mask,
+                lane.right_hand_contact_q,
+                right_target,
+            )
+        return left_target, right_target
+
+    def step(self):
+        if not self.startup_complete:
+            raise RuntimeError("wrapper.reset(seed=...) must complete before step()")
+        commands: list[BimanualCommand] = []
+        left_targets: list[torch.Tensor] = []
+        right_targets: list[torch.Tensor] = []
+        for lane in self.lanes:
+            snapshot = lane.adapter.snapshot()
+            dynamics = lane.adapter.dynamics()
+            lane.baseline_command = self._stabilize_preload_arms(
+                lane, snapshot, lane.runtime.compute(snapshot)
+            )
+            teacher_input = build_teacher_input(
+                snapshot=snapshot,
+                dynamics=dynamics,
+                task_jacobian=lane.adapter.teacher_task_jacobian(),
+                baseline_command=lane.baseline_command,
+                latest_solutions=lane.runtime.latest_solutions,
+                effort_limits=self._effort_limits,
+            )
+            command = self._compute_lane_command(
+                lane, snapshot, dynamics, teacher_input
+            )
+            left_target, right_target = self._lane_hand_targets(lane, snapshot)
+            commands.append(command)
+            left_targets.append(left_target)
+            right_targets.append(right_target)
+            lane.last_snapshot = snapshot
+            lane.last_dynamics = dynamics
+            lane.last_command = command
+        raw = self.env.unwrapped
+        self.last_actions = stack_lane_actions(commands, device=raw.device)
+        robot = self.lanes[0].adapter.robot
+        robot.set_joint_position_target(
+            torch.stack(left_targets).to(device=raw.device, dtype=torch.float32),
+            joint_ids=list(self.lanes[0].adapter.left_hand_ids),
+        )
+        robot.set_joint_position_target(
+            torch.stack(right_targets).to(device=raw.device, dtype=torch.float32),
+            joint_ids=list(self.lanes[0].adapter.right_hand_ids),
+        )
+        result = self.env.step(self.last_actions)
+        self._step += 1
+        self._sync_legacy_aliases()
+        return result
 
     def close(self) -> None:
         self.env.close()

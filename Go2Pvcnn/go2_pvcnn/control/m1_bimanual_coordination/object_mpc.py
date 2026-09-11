@@ -75,13 +75,14 @@ class ObjectMpcCfg:
     per_hand_normal_force_max: float = 15.0
     preload_normal_force: float = 2.0
     grasp_half_width_m: float = 0.09
-    palm_lateral_offset_m: float = 0.15
+    palm_lateral_offset_m: float = 0.20
     palm_reach_offset_m: float = 0.20
     preload_palm_inward_speed_m_s: float = 0.025
     left_preload_inward_limit_m: float = 0.04
-    right_preload_inward_limit_m: float = 0.075
+    right_preload_inward_limit_m: float = 0.115
     preload_forward_limit_m: float = 0.025
-    right_palm_height_offset_m: float = 0.015
+    right_palm_height_offset_m: float = 0.0
+    right_preload_height_offset_m: float = 0.045
     platform_yaw_limit_rad: float = math.pi / 2.0
     platform_velocity_limit_rad_s: float = 0.25
     max_target_translation_m: float = 0.5
@@ -114,7 +115,7 @@ class ObjectMpcCfg:
             "left_preload_inward_limit_m",
             "right_preload_inward_limit_m",
             "preload_forward_limit_m",
-            "right_palm_height_offset_m",
+            "right_preload_height_offset_m",
             "platform_yaw_limit_rad",
             "platform_velocity_limit_rad_s",
             "max_target_translation_m",
@@ -123,6 +124,13 @@ class ObjectMpcCfg:
             "qp_tolerance",
         ):
             _real_positive(name, getattr(self, name))
+        if (
+            isinstance(self.right_palm_height_offset_m, bool)
+            or not isinstance(self.right_palm_height_offset_m, (int, float))
+            or not math.isfinite(float(self.right_palm_height_offset_m))
+            or float(self.right_palm_height_offset_m) < 0.0
+        ):
+            raise ValueError("right_palm_height_offset_m must be finite and non-negative")
         if self.per_hand_normal_force_min >= self.per_hand_normal_force_max:
             raise ValueError("per-hand normal force minimum must be below maximum")
         if self.preload_normal_force >= self.per_hand_normal_force_min:
@@ -704,6 +712,11 @@ class BimanualObjectMpc:
             right_target = self._preload_palm_targets[1].clone()
             left_target[1] -= self._preload_inward_travel[0]
             right_target[1] += self._preload_inward_travel[1]
+            right_target[2] += self.cfg.right_preload_height_offset_m * min(
+                1.0,
+                self._preload_inward_travel[1]
+                / self.cfg.right_preload_inward_limit_m,
+            )
             left_target[0] += self.cfg.preload_forward_limit_m * min(
                 1.0,
                 self._preload_inward_travel[0]

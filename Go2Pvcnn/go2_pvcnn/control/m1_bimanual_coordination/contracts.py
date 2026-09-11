@@ -71,6 +71,7 @@ class SideHandState:
     fingertip_positions_b: torch.Tensor
     fingertip_jacobian_b: torch.Tensor
     contact_mask: torch.Tensor
+    contact_consistent: bool = True
 
     def __post_init__(self) -> None:
         for name, shape in (
@@ -84,6 +85,8 @@ class SideHandState:
         object.__setattr__(
             self, "contact_mask", _bool("contact_mask", self.contact_mask, (5,))
         )
+        if not isinstance(self.contact_consistent, bool):
+            raise TypeError("contact_consistent must be bool")
 
 
 @dataclass(frozen=True)

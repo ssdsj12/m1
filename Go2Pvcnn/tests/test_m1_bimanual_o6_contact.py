@@ -45,7 +45,7 @@ def test_preload_closes_uncontacted_fingers_and_freezes_contacted_digits() -> No
     controller = PrecontactHandController()
     assert torch.allclose(
         controller.preload_q[2:],
-        1.20 * torch.ones(4, dtype=DTYPE),
+        0.70 * torch.ones(4, dtype=DTYPE),
     )
     q = torch.zeros(6, dtype=DTYPE)
     contact_mask = torch.tensor([True, True, False, False, False])

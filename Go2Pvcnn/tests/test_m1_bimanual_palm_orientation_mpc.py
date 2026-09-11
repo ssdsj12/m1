@@ -4,7 +4,12 @@ import pytest
 import torch
 
 from go2_pvcnn.control.m1_bimanual_coordination.palm_orientation_mpc import (
-    compose_orientation_horizon, matrix_to_rotvec, rotvec_to_matrix,
+    compose_orientation_horizon,
+    interpolate_orientation,
+    matrix_to_rotvec,
+    rotvec_to_matrix,
+    spatial_angular_velocity,
+    spatial_orientation_error,
 )
 
 DTYPE = torch.float64
@@ -20,6 +25,48 @@ def test_so3_roundtrip(angle):
          [-axis[1], axis[0], 0.]], dtype=DTYPE) * angle), atol=1.e-10, rtol=0.)
     assert torch.allclose(rotvec_to_matrix(matrix_to_rotvec(rotation)), rotation,
                           atol=1.e-8, rtol=0.)
+
+
+def test_spatial_orientation_error_uses_group_relative_rotation():
+    measured = torch.tensor([1.237889, 1.983522, .331056], dtype=DTYPE)
+    target = torch.tensor([1.19, 1.91, .49], dtype=DTYPE)
+    actual = spatial_orientation_error(target, measured)
+    expected = matrix_to_rotvec(
+        rotvec_to_matrix(target) @ rotvec_to_matrix(measured).T
+    )
+    assert torch.allclose(actual, expected, atol=1.e-12, rtol=0.)
+    assert not torch.allclose(actual, target - measured, atol=1.e-3, rtol=0.)
+    assert torch.allclose(
+        spatial_orientation_error(measured, measured),
+        torch.zeros(3, dtype=DTYPE),
+        atol=1.e-12,
+        rtol=0.,
+    )
+
+
+def test_so3_interpolation_preserves_nonidentity_endpoints_and_short_path():
+    axis = torch.tensor([1., -2., .5], dtype=DTYPE)
+    axis /= axis.norm()
+    start = axis * (math.pi - 1.e-4)
+    end = -axis * (math.pi - 2.e-4)
+    at_start = interpolate_orientation(start, end, 0.)
+    halfway = interpolate_orientation(start, end, .5)
+    at_end = interpolate_orientation(start, end, 1.)
+    assert torch.allclose(rotvec_to_matrix(at_start), rotvec_to_matrix(start), atol=1.e-10)
+    assert torch.allclose(rotvec_to_matrix(at_end), rotvec_to_matrix(end), atol=1.e-10)
+    full_error = spatial_orientation_error(end, start)
+    half_error = spatial_orientation_error(halfway, start)
+    assert torch.linalg.vector_norm(full_error).item() < 4.e-4
+    assert torch.allclose(half_error, .5 * full_error, atol=1.e-8, rtol=0.)
+
+
+def test_spatial_angular_velocity_matches_relative_rotation_log():
+    previous = torch.tensor([.7, -.3, .2], dtype=DTYPE)
+    target_error = torch.tensor([.02, -.03, .01], dtype=DTYPE)
+    next_rotation = rotvec_to_matrix(target_error) @ rotvec_to_matrix(previous)
+    following = matrix_to_rotvec(next_rotation)
+    velocity = spatial_angular_velocity(previous, following, .02)
+    assert torch.allclose(velocity, target_error / .02, atol=1.e-10, rtol=0.)
 
 
 def test_compose_one_and_three_axis_bases():

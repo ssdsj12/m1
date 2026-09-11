@@ -75,6 +75,10 @@ class BimanualWbcDiagnostics:
     force_closure_margin: float
     support_margin: float
     fallback_reason: str | None
+    failure_category: str | None = None
+    max_constraint_violation: float = 0.0
+    active_bound_indices: tuple[int, ...] = ()
+    slack_norm: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -193,6 +197,25 @@ class BimanualWholeBodyQp:
             if self._last_safe is None
             else self._last_safe.effort
         )
+        failure_category = reason
+        max_violation = 0.0
+        if constraints is not None:
+            collision_violation = max(
+                0.0,
+                self.constraint_cfg.minimum_collision_distance_m
+                - constraints.min_collision_distance,
+            )
+            closure_violation = max(0.0, -constraints.force_closure_margin)
+            if collision_violation > 0.0:
+                failure_category = "collision_constraint"
+                max_violation = collision_violation
+            elif closure_violation > 0.0:
+                failure_category = "force_closure_constraint"
+                max_violation = closure_violation
+            elif reason == "qp_infeasible":
+                failure_category = "qp_solver"
+        elif reason.endswith("_mpc_infeasible"):
+            failure_category = "source_plan"
         return BimanualWbcSolution(
             effort=effort,
             feasible=False,
@@ -211,6 +234,8 @@ class BimanualWholeBodyQp:
                 ),
                 support_margin=_support_margin(request),
                 fallback_reason=reason,
+                failure_category=failure_category,
+                max_constraint_violation=max_violation,
             ),
         )
 
@@ -238,6 +263,18 @@ class BimanualWholeBodyQp:
                 force_closure_margin=constraints.force_closure_margin,
                 support_margin=_support_margin(request),
                 fallback_reason=None,
+                active_bound_indices=tuple(
+                    int(index)
+                    for index in torch.nonzero(
+                        torch.isclose(
+                            result.solution.abs(),
+                            constraints.upper_effort,
+                            atol=1.0e-6,
+                            rtol=0.0,
+                        ),
+                        as_tuple=False,
+                    ).flatten()
+                ),
             ),
         )
         self._last_safe = BimanualWbcSolution(

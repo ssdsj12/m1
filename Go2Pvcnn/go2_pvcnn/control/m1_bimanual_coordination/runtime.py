@@ -18,6 +18,7 @@ from .contracts import (
 )
 from .dual_arm_mpc import DualArmMpcCoordinator, DualArmMpcInput, DualArmMpcSolution
 from .hand_mpc import HandMpcInput, HandMpcSolution, O6HandMpc
+from .motion_primitives import BimanualMotionPrimitive, ManipulationTarget
 from .object_mpc import (
     BimanualObjectMpc,
     ObjectMpcInput,
@@ -123,6 +124,7 @@ class BimanualRuntime:
         arm_input_provider: ArmInputProvider | None = None,
         hand_input_provider: HandInputProvider | None = None,
         collision_provider: CollisionProvider | None = None,
+        motion_primitive: BimanualMotionPrimitive | None = None,
     ) -> None:
         self.object_mpc = BimanualObjectMpc() if object_mpc is None else object_mpc
         self.arm_mpc = DualArmMpcCoordinator() if arm_mpc is None else arm_mpc
@@ -130,6 +132,9 @@ class BimanualRuntime:
         self.right_hand_mpc = O6HandMpc() if right_hand_mpc is None else right_hand_mpc
         self.wbc = BimanualWholeBodyQp() if wbc is None else wbc
         self.mission = BimanualMission() if mission is None else mission
+        self.motion_primitive = (
+            BimanualMotionPrimitive() if motion_primitive is None else motion_primitive
+        )
         for name in ("object_mpc", "arm_mpc", "left_hand_mpc", "right_hand_mpc"):
             if not callable(getattr(getattr(self, name), "plan", None)):
                 raise TypeError(f"{name} must expose plan()")
@@ -148,6 +153,7 @@ class BimanualRuntime:
         self._last_right_hand: HandMpcSolution | None = None
         self._last_command: BimanualCommand | None = None
         self._initial_box_pose: torch.Tensor | None = None
+        self._latest_motion_target: ManipulationTarget | None = None
         self._latest_solutions = {
             "object": None,
             "arm": None,
@@ -166,11 +172,16 @@ class BimanualRuntime:
 
         return dict(self._latest_solutions)
 
+    @property
+    def latest_motion_target(self) -> ManipulationTarget | None:
+        return self._latest_motion_target
+
     def reset(self) -> None:
         """Clear temporal caches and object-planner state for deterministic replay."""
         reset_object = getattr(self.object_mpc, 'reset', None)
         if callable(reset_object):
             reset_object()
+        self.motion_primitive.reset()
 
         self.mission = BimanualMission(cfg=self.mission.cfg)
         self._step = 0
@@ -182,6 +193,7 @@ class BimanualRuntime:
         self._last_right_hand = None
         self._last_command = None
         self._initial_box_pose = None
+        self._latest_motion_target = None
         self._latest_solutions = {
             "object": None,
             "arm": None,
@@ -193,20 +205,12 @@ class BimanualRuntime:
     def _object_input(self, snapshot: BimanualSnapshot) -> ObjectMpcInput:
         if self._object_input_provider is not None:
             return self._object_input_provider(snapshot, self.mission.phase, self._last_object)
-        if self._initial_box_pose is None:
-            self._initial_box_pose = snapshot.box.pose_b.clone()
-        target_pose = self._initial_box_pose.clone()
-        if self.mission.phase in {
-            BimanualPhase.LIFT,
-            BimanualPhase.HOLD,
-            BimanualPhase.HOLD_SAFE,
-        }:
-            target_pose[2] += self.mission.cfg.lift_height_m
-        fractions = torch.linspace(0.0, 1.0, 25, dtype=torch.float64).unsqueeze(1)
-        target = snapshot.box.pose_b + fractions * (target_pose - snapshot.box.pose_b)
+        self._latest_motion_target = self.motion_primitive.target(
+            self.mission.phase, snapshot
+        )
         return ObjectMpcInput(
             snapshot=snapshot,
-            target_box_pose_b=target,
+            target_box_pose_b=self._latest_motion_target.box_pose_b,
             phase=self.mission.phase,
             previous_solution=self._last_object,
         )
@@ -258,10 +262,9 @@ class BimanualRuntime:
                 snapshot.right_arm.palm_pose_b[:3] - object_solution.right_palm_pose[-1, :3]
             ),
         )
-        bilateral_contact = bool(
-            snapshot.left_hand.contact_mask.any()
-            and snapshot.right_hand.contact_mask.any()
-        )
+        left_contact = bool(snapshot.left_hand.contact_mask.any())
+        right_contact = bool(snapshot.right_hand.contact_mask.any())
+        bilateral_contact = left_contact and right_contact
         slip = 0.0
         if self._last_snapshot is not None and bilateral_contact:
             for side in ("left", "right"):
@@ -279,6 +282,18 @@ class BimanualRuntime:
             palms_reached=bool(
                 max(float(value) for value in palm_errors)
                 <= self.mission.cfg.palm_position_tolerance_m
+            ),
+            left_palm_reached=bool(
+                float(palm_errors[0]) <= self.mission.cfg.palm_position_tolerance_m
+            ),
+            right_palm_reached=bool(
+                float(palm_errors[1]) <= self.mission.cfg.palm_position_tolerance_m
+            ),
+            left_contact=left_contact,
+            right_contact=right_contact,
+            contact_consistent=bool(
+                snapshot.left_hand.contact_consistent
+                and snapshot.right_hand.contact_consistent
             ),
             bilateral_contact=bilateral_contact,
             force_closure_margin=wbc_solution.diagnostics.force_closure_margin,

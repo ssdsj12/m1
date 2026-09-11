@@ -46,7 +46,9 @@ def test_env_is_200_hz_fixed_condition_and_43_effort():
     assert 'for name in ("left_o6", "right_o6")' in source
     assert "stiffness=80.0" in source
     assert "damping=5.0" in source
-    assert source.count('filter_prim_paths_expr=["{ENV_REGEX_NS}/Box"]') >= 2
+    assert "def _box_contact_sensor(" in source
+    assert source.count('filter_prim_paths_expr=["{ENV_REGEX_NS}/Box"]') == 1
+    assert source.count("= _box_contact_sensor(") == 18
     assert "articulation_props.fix_root_link = True" in source
 
 

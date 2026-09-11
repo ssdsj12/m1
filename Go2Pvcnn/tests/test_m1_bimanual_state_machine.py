@@ -15,6 +15,11 @@ def _diagnostics(**overrides) -> BimanualMissionDiagnostics:
     values = {
         "command_accepted": True,
         "palms_reached": False,
+        "left_palm_reached": False,
+        "right_palm_reached": False,
+        "left_contact": False,
+        "right_contact": False,
+        "contact_consistent": True,
         "bilateral_contact": False,
         "force_closure_margin": 0.0,
         "relative_palm_slip_m": 0.0,
@@ -25,6 +30,9 @@ def _diagnostics(**overrides) -> BimanualMissionDiagnostics:
         "support_margin_m": 0.1,
         "subsystem_failure": None,
     }
+    if overrides.get("palms_reached"):
+        overrides.setdefault("left_palm_reached", True)
+        overrides.setdefault("right_palm_reached", True)
     values.update(overrides)
     return BimanualMissionDiagnostics(**values)
 
@@ -42,21 +50,46 @@ def test_normal_phase_sequence_requires_contact_lift_hold_and_support():
             approach_dwell_steps=1,
             preload_dwell_steps=1,
             grasp_dwell_steps=1,
-            hold_steps=2,
+            hold_duration_s=0.01,
         )
     )
-    assert mission.update(_snapshot(), _diagnostics(palms_reached=True)).phase is BimanualPhase.PRELOAD
     assert mission.update(
-        _snapshot(),
-        _diagnostics(bilateral_contact=True, force_closure_margin=1.0),
+        replace(_snapshot(), timestamp_ns=5_000_000),
+        _diagnostics(palms_reached=True),
+    ).phase is BimanualPhase.PRELOAD
+    assert mission.update(
+        replace(_snapshot(), timestamp_ns=10_000_000),
+        _diagnostics(
+            left_contact=True,
+            right_contact=True,
+            bilateral_contact=True,
+            force_closure_margin=1.0,
+        ),
     ).phase is BimanualPhase.GRASP
     assert mission.update(
-        _snapshot(),
-        _diagnostics(bilateral_contact=True, force_closure_margin=1.0),
+        replace(_snapshot(), timestamp_ns=15_000_000),
+        _diagnostics(
+            left_contact=True,
+            right_contact=True,
+            bilateral_contact=True,
+            force_closure_margin=1.0,
+        ),
     ).phase is BimanualPhase.LIFT
-    assert mission.update(_lifted(0.10), _diagnostics()).phase is BimanualPhase.HOLD
-    assert mission.update(_lifted(0.10), _diagnostics()).phase is BimanualPhase.HOLD
-    assert mission.update(_lifted(0.10), _diagnostics()).phase is BimanualPhase.LOWER
+    stable = _diagnostics(
+        left_contact=True,
+        right_contact=True,
+        bilateral_contact=True,
+        force_closure_margin=1.0,
+    )
+    assert mission.update(
+        replace(_lifted(0.10), timestamp_ns=20_000_000), stable
+    ).phase is BimanualPhase.HOLD
+    assert mission.update(
+        replace(_lifted(0.10), timestamp_ns=25_000_000), stable
+    ).phase is BimanualPhase.HOLD
+    assert mission.update(
+        replace(_lifted(0.10), timestamp_ns=30_000_000), stable
+    ).phase is BimanualPhase.LOWER
     supported = _lifted(0.0, supported=True)
     assert mission.update(
         supported, _diagnostics(box_supported=True, box_twist_norm=0.001)
@@ -72,8 +105,71 @@ def test_default_hold_is_exactly_three_seconds_at_200_hz():
     assert cfg.physics_dt == 0.005
     assert cfg.approach_dwell_steps == 4
     assert cfg.palm_position_tolerance_m == 0.03
-    assert cfg.hold_steps == 600
+    assert cfg.hold_duration_s == 3.0
     assert cfg.lift_height_m == 0.10
+
+
+def test_preload_requires_each_side_contact_to_remain_stable():
+    mission = BimanualMission(
+        BimanualMissionCfg(
+            approach_dwell_steps=1,
+            preload_dwell_steps=2,
+            grasp_dwell_steps=1,
+        )
+    )
+    mission.update(
+        replace(_snapshot(), timestamp_ns=5_000_000),
+        _diagnostics(palms_reached=True),
+    )
+    mission.update(
+        replace(_snapshot(), timestamp_ns=10_000_000),
+        _diagnostics(
+            left_contact=True,
+            right_contact=True,
+            bilateral_contact=True,
+            force_closure_margin=1.0,
+        ),
+    )
+    state = mission.update(
+        replace(_snapshot(), timestamp_ns=15_000_000),
+        _diagnostics(
+            left_contact=True,
+            right_contact=False,
+            bilateral_contact=True,
+            force_closure_margin=1.0,
+        ),
+    )
+    assert state.phase is BimanualPhase.PRELOAD
+
+
+def test_hold_uses_three_seconds_of_simulation_time_and_stable_grasp():
+    mission = BimanualMission(
+        BimanualMissionCfg(
+            approach_dwell_steps=1,
+            preload_dwell_steps=1,
+            grasp_dwell_steps=1,
+            hold_duration_s=3.0,
+        )
+    )
+    ready = _diagnostics(
+        palms_reached=True,
+        left_contact=True,
+        right_contact=True,
+        bilateral_contact=True,
+        force_closure_margin=1.0,
+    )
+    mission.update(replace(_snapshot(), timestamp_ns=1_000_000), ready)
+    mission.update(replace(_snapshot(), timestamp_ns=2_000_000), ready)
+    mission.update(replace(_snapshot(), timestamp_ns=3_000_000), ready)
+    mission.update(replace(_lifted(0.10), timestamp_ns=4_000_000), ready)
+    almost = mission.update(
+        replace(_lifted(0.10), timestamp_ns=3_003_999_999), ready
+    )
+    assert almost.phase is BimanualPhase.HOLD
+    exact = mission.update(
+        replace(_lifted(0.10), timestamp_ns=3_004_000_000), ready
+    )
+    assert exact.phase is BimanualPhase.LOWER
 
 
 def test_normal_transition_is_not_committed_when_command_is_rejected():
@@ -93,12 +189,19 @@ def test_preload_requires_contact_force_closure_and_slip_margin_together():
 
     no_closure = mission.update(
         _snapshot(),
-        _diagnostics(bilateral_contact=True, force_closure_margin=0.0),
+        _diagnostics(
+            left_contact=True,
+            right_contact=True,
+            bilateral_contact=True,
+            force_closure_margin=0.0,
+        ),
     )
     assert no_closure.phase is BimanualPhase.PRELOAD
     excessive_slip = mission.update(
         _snapshot(),
         _diagnostics(
+            left_contact=True,
+            right_contact=True,
             bilateral_contact=True,
             force_closure_margin=1.0,
             relative_palm_slip_m=0.006,
@@ -109,6 +212,8 @@ def test_preload_requires_contact_force_closure_and_slip_margin_together():
     ready = mission.update(
         _snapshot(),
         _diagnostics(
+            left_contact=True,
+            right_contact=True,
             bilateral_contact=True,
             force_closure_margin=1.0,
             relative_palm_slip_m=0.001,
@@ -141,3 +246,22 @@ def test_repeated_subsystem_failure_enters_safe_path():
     assert mission.update(
         supported, replace(failed, box_supported=True)
     ).phase is BimanualPhase.SAFE_RELEASE
+
+
+def test_approach_latches_each_palm_after_independent_consecutive_reach() -> None:
+    mission = BimanualMission(BimanualMissionCfg(approach_dwell_steps=2))
+    snapshot = _snapshot()
+
+    for _ in range(2):
+        state = mission.update(
+            snapshot,
+            _diagnostics(left_palm_reached=True, right_palm_reached=False),
+        )
+    assert state.phase is BimanualPhase.APPROACH
+
+    for _ in range(2):
+        state = mission.update(
+            snapshot,
+            _diagnostics(left_palm_reached=False, right_palm_reached=True),
+        )
+    assert state.phase is BimanualPhase.PRELOAD

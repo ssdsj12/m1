@@ -14,7 +14,7 @@ class BimanualMissionCfg:
     approach_dwell_steps: int = 4
     preload_dwell_steps: int = 20
     grasp_dwell_steps: int = 20
-    hold_steps: int = 600
+    hold_duration_s: float = 3.0
     safe_hold_steps: int = 20
     max_consecutive_failures: int = 3
     palm_position_tolerance_m: float = 0.03
@@ -29,6 +29,7 @@ class BimanualMissionCfg:
             "lift_height_m",
             "max_relative_palm_slip_m",
             "supported_twist_tolerance",
+            "hold_duration_s",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -39,7 +40,6 @@ class BimanualMissionCfg:
             "approach_dwell_steps",
             "preload_dwell_steps",
             "grasp_dwell_steps",
-            "hold_steps",
             "safe_hold_steps",
             "max_consecutive_failures",
         ):
@@ -52,6 +52,11 @@ class BimanualMissionCfg:
 class BimanualMissionDiagnostics:
     command_accepted: bool
     palms_reached: bool
+    left_palm_reached: bool
+    right_palm_reached: bool
+    left_contact: bool
+    right_contact: bool
+    contact_consistent: bool
     bilateral_contact: bool
     force_closure_margin: float
     relative_palm_slip_m: float
@@ -66,6 +71,11 @@ class BimanualMissionDiagnostics:
         for name in (
             "command_accepted",
             "palms_reached",
+            "left_palm_reached",
+            "right_palm_reached",
+            "left_contact",
+            "right_contact",
+            "contact_consistent",
             "bilateral_contact",
             "box_supported",
             "hands_open",
@@ -114,14 +124,20 @@ class BimanualMission:
         self._step = 0
         self._phase_steps = 0
         self._dwell_steps = 0
+        self._approach_side_dwell = [0, 0]
+        self._approach_side_ready = [False, False]
         self._consecutive_failures = 0
         self._initial_box_height: float | None = None
         self._fallback_reason: str | None = None
+        self._previous_timestamp_ns: int | None = None
+        self._hold_elapsed_ns = 0
 
     def _transition(self, phase: BimanualPhase) -> None:
         self.phase = phase
         self._phase_steps = 0
         self._dwell_steps = 0
+        if phase is BimanualPhase.HOLD:
+            self._hold_elapsed_ns = 0
 
     def _supported(self, diagnostics: BimanualMissionDiagnostics) -> bool:
         return diagnostics.box_supported and (
@@ -165,6 +181,11 @@ class BimanualMission:
             raise TypeError("diagnostics must be BimanualMissionDiagnostics")
         if self._initial_box_height is None:
             self._initial_box_height = float(snapshot.box.pose_b[2].item())
+        elapsed_ns = 0
+        if self._previous_timestamp_ns is not None:
+            elapsed_ns = max(0, snapshot.timestamp_ns - self._previous_timestamp_ns)
+        if self._previous_timestamp_ns is None or snapshot.timestamp_ns > self._previous_timestamp_ns:
+            self._previous_timestamp_ns = snapshot.timestamp_ns
         self._step += 1
         self._phase_steps += 1
         if diagnostics.subsystem_failure is not None or not diagnostics.command_accepted:
@@ -193,12 +214,22 @@ class BimanualMission:
                 self._transition(BimanualPhase.TERMINATED)
         elif self.phase not in {BimanualPhase.DONE, BimanualPhase.TERMINATED} and diagnostics.command_accepted:
             if self.phase is BimanualPhase.APPROACH:
-                self._dwell_steps = self._dwell_steps + 1 if diagnostics.palms_reached else 0
-                if self._dwell_steps >= self.cfg.approach_dwell_steps:
+                for index, reached in enumerate(
+                    (diagnostics.left_palm_reached, diagnostics.right_palm_reached)
+                ):
+                    self._approach_side_dwell[index] = (
+                        self._approach_side_dwell[index] + 1 if reached else 0
+                    )
+                    if self._approach_side_dwell[index] >= self.cfg.approach_dwell_steps:
+                        self._approach_side_ready[index] = True
+                if all(self._approach_side_ready):
                     self._transition(BimanualPhase.PRELOAD)
             elif self.phase is BimanualPhase.PRELOAD:
                 contact_ready = (
-                    diagnostics.bilateral_contact
+                    diagnostics.left_contact
+                    and diagnostics.right_contact
+                    and diagnostics.contact_consistent
+                    and diagnostics.bilateral_contact
                     and diagnostics.force_closure_margin > 0.0
                     and diagnostics.relative_palm_slip_m
                     <= self.cfg.max_relative_palm_slip_m
@@ -207,7 +238,13 @@ class BimanualMission:
                 if self._dwell_steps >= self.cfg.preload_dwell_steps:
                     self._transition(BimanualPhase.GRASP)
             elif self.phase is BimanualPhase.GRASP:
-                closed = diagnostics.bilateral_contact and diagnostics.force_closure_margin > 0.0
+                closed = (
+                    diagnostics.left_contact
+                    and diagnostics.right_contact
+                    and diagnostics.contact_consistent
+                    and diagnostics.bilateral_contact
+                    and diagnostics.force_closure_margin > 0.0
+                )
                 self._dwell_steps = self._dwell_steps + 1 if closed else 0
                 if self._dwell_steps >= self.cfg.grasp_dwell_steps:
                     self._transition(BimanualPhase.LIFT)
@@ -215,7 +252,19 @@ class BimanualMission:
                 if self.lift_height(snapshot) >= self.cfg.lift_height_m - 1.0e-9:
                     self._transition(BimanualPhase.HOLD)
             elif self.phase is BimanualPhase.HOLD:
-                if self._phase_steps >= self.cfg.hold_steps:
+                stable_grasp = (
+                    diagnostics.left_contact
+                    and diagnostics.right_contact
+                    and diagnostics.contact_consistent
+                    and diagnostics.bilateral_contact
+                    and diagnostics.force_closure_margin > 0.0
+                    and diagnostics.relative_palm_slip_m
+                    <= self.cfg.max_relative_palm_slip_m
+                )
+                self._hold_elapsed_ns = (
+                    self._hold_elapsed_ns + elapsed_ns if stable_grasp else 0
+                )
+                if self._hold_elapsed_ns >= round(self.cfg.hold_duration_s * 1e9):
                     self._transition(BimanualPhase.LOWER)
             elif self.phase is BimanualPhase.LOWER:
                 if self._supported(diagnostics):

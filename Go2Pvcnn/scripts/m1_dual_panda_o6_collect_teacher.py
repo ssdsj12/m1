@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +16,7 @@ parser.add_argument("--seeds", nargs="+", type=int, required=True)
 parser.add_argument("--trials-per-seed", type=int, default=10)
 parser.add_argument("--steps", type=int, default=4000)
 parser.add_argument("--output-dir", type=Path, required=True)
+parser.add_argument("--tracking-angular-rate-max-rad-s", type=float, default=0.35)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 app_launcher = AppLauncher(args)
@@ -32,6 +35,12 @@ from go2_pvcnn.control.m1_bimanual_coordination.latent_contracts import (  # noq
     TASK_FEATURE_DIM,
     pack_state_features,
     pack_teacher_task_features,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.dual_arm_mpc import (  # noqa: E402
+    DualArmMpcCoordinator,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.runtime import (  # noqa: E402
+    BimanualRuntime,
 )
 from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_env_cfg import (  # noqa: E402
     M1DualPandaO6BimanualEnvCfg,
@@ -76,20 +85,37 @@ def _stack_failures(rows: list[dict[str, object]]) -> dict[str, np.ndarray]:
 def main() -> int:
     if args.trials_per_seed <= 0 or args.steps <= 0:
         parser.error("trials and steps must be positive")
+    if (
+        not math.isfinite(args.tracking_angular_rate_max_rad_s)
+        or args.tracking_angular_rate_max_rad_s <= 0.0
+    ):
+        parser.error("tracking angular rate must be finite and positive")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     cfg = M1DualPandaO6BimanualEnvCfg()
     cfg.scene.num_envs = 1
     env = gym.make("Isaac-M1-DualPanda-O6-Bimanual-Lift-v0", cfg=cfg)
     successes: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
+    executed_steps = 0
+    terminal_reasons: list[str] = []
     try:
         for seed in args.seeds:
             for trial in range(args.trials_per_seed):
-                wrapper = M1DualPandaO6BimanualWrapper(env)
+                wrapper = M1DualPandaO6BimanualWrapper(
+                    env,
+                    runtime=BimanualRuntime(
+                        arm_mpc=DualArmMpcCoordinator(
+                            first_target_angular_rate_max_rad_s=(
+                                args.tracking_angular_rate_max_rad_s
+                            )
+                        )
+                    ),
+                )
                 wrapper.reset(seed=seed)
                 trial_rows: list[dict[str, object]] = []
                 for step in range(args.steps):
                     wrapper.step()
+                    executed_steps += 1
                     if step % 8 != 0:
                         continue
                     teacher = wrapper.last_teacher_solution
@@ -110,6 +136,7 @@ def main() -> int:
                         failures.append(row)
                     if wrapper.runtime.mission.phase.name in {"DONE", "TERMINATED"}:
                         break
+                terminal_reasons.append(wrapper.runtime.mission.phase.name)
                 if wrapper.runtime.mission.phase.name == "DONE":
                     successes.extend(trial_rows)
                 else:
@@ -119,6 +146,18 @@ def main() -> int:
         )
         np.savez_compressed(
             args.output_dir / "teacher_failures.npz", **_stack_failures(failures)
+        )
+        report = {
+            "requested_steps": args.steps * len(args.seeds) * args.trials_per_seed,
+            "executed_steps": executed_steps,
+            "successful_rows": len(successes),
+            "failure_rows": len(failures),
+            "terminal_reasons": terminal_reasons,
+            "tracking_angular_rate_max_rad_s": args.tracking_angular_rate_max_rad_s,
+        }
+        (args.output_dir / "collection_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
     finally:
         env.close()

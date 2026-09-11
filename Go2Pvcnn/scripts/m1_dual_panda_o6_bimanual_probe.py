@@ -13,7 +13,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 
 GYM_ID = "Isaac-M1-DualPanda-O6-Bimanual-Lift-v0"
@@ -90,13 +90,14 @@ def _source_sha256(root: Path) -> str:
 
 
 def _git_ref(root: Path) -> str:
-    return subprocess.run(
+    result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=root.parent,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
-    ).stdout.strip()
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
 def _atomic_json(path: Path, value: dict[str, object]) -> None:
@@ -106,6 +107,19 @@ def _atomic_json(path: Path, value: dict[str, object]) -> None:
         stream.write("\n")
         temporary = Path(stream.name)
     os.replace(temporary, path)
+
+
+def _write_progress(
+    path: Path | None, *, executed_physics_steps: int, num_envs: int
+) -> None:
+    if path is not None:
+        _atomic_json(
+            path,
+            {
+                "executed_physics_steps": int(executed_physics_steps),
+                "num_envs": int(num_envs),
+            },
+        )
 
 
 def _atomic_jsonl(path: Path, rows: Sequence[dict[str, object]]) -> None:
@@ -187,15 +201,23 @@ def _run_trial(
     steps: int,
     mode: str,
     latent_artifact: Path | None,
+    runtime_factory: Callable[[], object],
+    progress_path: Path | None = None,
 ) -> dict[str, object]:
     import torch
 
     wrapper = wrapper_type(
         env,
+        runtime=runtime_factory(),
         mode=mode,
         latent_artifact=latent_artifact,
     )
     initial = wrapper.reset(seed=seed)
+    _write_progress(
+        progress_path,
+        executed_physics_steps=1,
+        num_envs=int(env.unwrapped.num_envs),
+    )
     initial_box_pose = initial.box.pose_b.clone()
     initial_fingertip_palm_offsets_m: dict[str, list[list[float]]] = {}
     initial_fingertip_box_ray_projections_m: dict[str, list[float]] = {}
@@ -284,6 +306,11 @@ def _run_trial(
 
     for step_index in range(steps):
         _, _, terminated, truncated, _ = wrapper.step()
+        _write_progress(
+            progress_path,
+            executed_physics_steps=step_index + 2,
+            num_envs=int(env.unwrapped.num_envs),
+        )
         snapshot = wrapper.last_snapshot
         orientation_diagnostics = wrapper.runtime.object_mpc.right_orientation_mpc.last_diagnostics
         if orientation_diagnostics is not None:
@@ -375,23 +402,20 @@ def _run_trial(
                 min_fingertip_box_distances_m[f"{side}_o6"],
                 float(fingertip_distance.item()),
             )
-            sensor_name = "o6_contacts" if side == "left" else "right_o6_contacts"
-            sensor = wrapper.env.unwrapped.scene[sensor_name]
-            body_forces = torch.linalg.vector_norm(
-                sensor.data.force_matrix_w[0, :, 0], dim=1
-            )
+            summary = wrapper.adapter.contact_summaries[side]
+            body_forces = torch.linalg.vector_norm(summary.filtered_forces_w, dim=1)
             body_index = int(torch.argmax(body_forces).item())
             body_force = float(body_forces[body_index].item())
             key = f"{side}_o6"
             event = {
                 "step": step_index,
                 "phase": phase,
-                "link": sensor.body_names[body_index],
+                "link": summary.selected_names[body_index],
                 "force_n": body_force,
                 "body_contact_forces_n": {
                     name: float(force)
                     for name, force in zip(
-                        sensor.body_names,
+                        summary.selected_names,
                         body_forces.detach().cpu().tolist(),
                         strict=True,
                     )
@@ -423,7 +447,7 @@ def _run_trial(
                         'step': step_index, 'orientation': right_palm_orientation_mpc}
             if body_force > max_o6_body_contact_forces_n[key]:
                 max_o6_body_contact_forces_n[key] = body_force
-                max_o6_body_contact_links[key] = sensor.body_names[body_index]
+                max_o6_body_contact_links[key] = summary.selected_names[body_index]
                 max_o6_body_contact_events[key] = event
             if bool(getattr(snapshot, f"{side}_hand").contact_mask.any()):
                 timing = contact_timing_steps[key]
@@ -693,6 +717,13 @@ def _run_trial(
     return row
 
 
+def _positive_finite_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0.0:
+        raise argparse.ArgumentTypeError("value must be finite and positive")
+    return parsed
+
+
 def _parser():
     from isaaclab.app import AppLauncher
 
@@ -703,10 +734,17 @@ def _parser():
     parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument("--trials-per-seed", type=int, default=DEFAULT_TRIALS_PER_SEED)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--progress", type=Path)
     parser.add_argument("--jsonl", type=Path)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
     parser.add_argument("--latent-artifact", type=Path)
+    parser.add_argument(
+        "--tracking-angular-rate-max-rad-s",
+        type=_positive_finite_float,
+        default=0.35,
+        help="SO(3) target tracking rate cap applied by both arm MPCs",
+    )
     # AppLauncher supplies the standard --headless flag.
     AppLauncher.add_app_launcher_args(parser)
     return parser
@@ -731,16 +769,16 @@ def main() -> int:
     from go2_pvcnn.assets.m1_dual_panda_o6 import M1_DUAL_PANDA_O6_USD_PATH
     from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_env_cfg import M1DualPandaO6BimanualEnvCfg
     from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_wrapper import M1DualPandaO6BimanualWrapper
+    from go2_pvcnn.control.m1_bimanual_coordination.dual_arm_mpc import DualArmMpcCoordinator
+    from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
 
     root = Path(__file__).resolve().parents[1]
     seeds = tuple(args.seeds) if formal else (args.seed,)
     trials_per_seed = args.trials_per_seed if formal else 1
     steps = args.steps if args.steps is not None else (DEFAULT_FORMAL_STEPS if formal else 1)
-    if args.num_envs != 1:
-        parser.error("formal snapshot/MPC execution currently requires --num-envs 1")
     torch.manual_seed(seeds[0])
     cfg = M1DualPandaO6BimanualEnvCfg()
-    cfg.scene.num_envs = 1
+    cfg.scene.num_envs = args.num_envs
     cfg.seed = seeds[0]
     env = gym.make(GYM_ID, cfg=cfg)
     trials = [
@@ -752,6 +790,14 @@ def main() -> int:
             steps=steps,
             mode=args.mode,
             latent_artifact=args.latent_artifact,
+            runtime_factory=lambda: BimanualRuntime(
+                arm_mpc=DualArmMpcCoordinator(
+                    first_target_angular_rate_max_rad_s=(
+                        args.tracking_angular_rate_max_rad_s
+                    )
+                )
+            ),
+            progress_path=args.progress,
         )
         for seed in seeds
         for index in range(trials_per_seed)
@@ -770,12 +816,15 @@ def main() -> int:
         "git_ref": _git_ref(root),
         "isaac_version": importlib.metadata.version("isaacsim"),
         "command": " ".join(sys.argv),
+        "tracking_angular_rate_max_rad_s": args.tracking_angular_rate_max_rad_s,
     }
     report: dict[str, Any] = {
         "schema_version": 1,
         "mode": args.mode,
         "acceptance_mode": "formal" if formal else "smoke",
         "action_dim": int(env.unwrapped.action_manager.total_action_dim),
+        "num_envs": int(args.num_envs),
+        "reset_physics_steps_per_trial": 1,
         "finite_snapshot": all(row["nonfinite_count"] == 0 for row in trials),
         "unexpected_reset_count": sum(int(row["reset_count"]) for row in trials),
         "trials": trials,

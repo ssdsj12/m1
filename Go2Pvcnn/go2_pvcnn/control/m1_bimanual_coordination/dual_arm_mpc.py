@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import math
+from numbers import Real
 from typing import Callable, Protocol
 
 import torch
@@ -19,6 +21,11 @@ from go2_pvcnn.control.m1_panda_coordination.arm_mpc import (
 )
 
 from .object_mpc import OBJECT_MPC_DT, ObjectMpcSolution
+from .palm_orientation_mpc import (
+    interpolate_orientation,
+    spatial_angular_velocity,
+    spatial_orientation_error,
+)
 
 
 class _ArmPlanner(Protocol):
@@ -61,9 +68,16 @@ class DualArmMpcSolution:
 
 
 def _resample_object_pose(
-    current_pose: torch.Tensor, object_pose: torch.Tensor
+    current_pose: torch.Tensor,
+    object_pose: torch.Tensor,
+    angular_rate_max_rad_s: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Linearly resample 25 Hz object targets onto the frozen 50 Hz arm grid."""
+    """Resample 25 Hz object targets onto the frozen 50 Hz arm grid.
+
+    Translation remains linear. Rotation follows the shortest SO(3) path and
+    angular feedforward is expressed in the same base-frame spatial axes as the
+    Arm MPC Jacobian.
+    """
 
     source_times = OBJECT_MPC_DT * torch.arange(
         0, object_pose.shape[0] + 1, dtype=torch.float64
@@ -82,18 +96,43 @@ def _resample_object_pose(
         fraction = (time - source_times[lower]) / (
             source_times[upper] - source_times[lower]
         )
-        # Rotational coordinates are the canonical-base small-angle SO(3)
-        # linearization used by the existing ArmMpcInput contract.
-        target[index] = source_pose[lower] + fraction * (
-            source_pose[upper] - source_pose[lower]
+        target[index, :3] = source_pose[lower, :3] + fraction * (
+            source_pose[upper, :3] - source_pose[lower, :3]
         )
-    previous = torch.cat((current_pose.unsqueeze(0), target[:-1]), dim=0)
-    target_twist = (target - previous) / ARM_MPC_DT
+        target[index, 3:] = interpolate_orientation(
+            source_pose[lower, 3:],
+            source_pose[upper, 3:],
+            float(fraction),
+        )
+    target_twist = torch.empty_like(target)
+    previous_pose = current_pose
+    for index in range(ARM_MPC_HORIZON_STEPS):
+        if angular_rate_max_rad_s is not None:
+            error = spatial_orientation_error(target[index, 3:], previous_pose[3:])
+            error_angle = float(torch.linalg.vector_norm(error).item())
+            max_angle = angular_rate_max_rad_s * ARM_MPC_DT
+            if error_angle > max_angle:
+                target[index, 3:] = interpolate_orientation(
+                    previous_pose[3:], target[index, 3:], max_angle / error_angle
+                )
+        target_twist[index, :3] = (
+            target[index, :3] - previous_pose[:3]
+        ) / ARM_MPC_DT
+        target_twist[index, 3:] = spatial_angular_velocity(
+            previous_pose[3:], target[index, 3:], ARM_MPC_DT
+        )
+        previous_pose = target[index]
     return target, target_twist
 
 
-def _route_target(sample: ArmMpcInput, object_pose: torch.Tensor) -> ArmMpcInput:
-    target_pose, target_twist = _resample_object_pose(sample.ee_pose_b, object_pose)
+def _route_target(
+    sample: ArmMpcInput,
+    object_pose: torch.Tensor,
+    angular_rate_max_rad_s: float,
+) -> ArmMpcInput:
+    target_pose, target_twist = _resample_object_pose(
+        sample.ee_pose_b, object_pose, angular_rate_max_rad_s
+    )
     return replace(
         sample,
         target_pose_b=target_pose,
@@ -162,10 +201,25 @@ class DualArmMpcCoordinator:
     """Commit both arm plans together or hold both at their last safe solution."""
 
     def __init__(
-        self, planner_factory: Callable[[], _ArmPlanner] = LinearizedArmMpc
+        self,
+        planner_factory: Callable[[], _ArmPlanner] = LinearizedArmMpc,
+        first_target_angular_rate_max_rad_s: float = 0.35,
     ) -> None:
         if not callable(planner_factory):
             raise TypeError("planner_factory must be callable")
+        if isinstance(first_target_angular_rate_max_rad_s, bool) or not isinstance(
+            first_target_angular_rate_max_rad_s, Real
+        ):
+            raise TypeError("first_target_angular_rate_max_rad_s must be a real number")
+        if not math.isfinite(first_target_angular_rate_max_rad_s) or (
+            first_target_angular_rate_max_rad_s <= 0.0
+        ):
+            raise ValueError(
+                "first_target_angular_rate_max_rad_s must be finite and positive"
+            )
+        self.first_target_angular_rate_max_rad_s = float(
+            first_target_angular_rate_max_rad_s
+        )
         self.left = planner_factory()
         self.right = planner_factory()
         if not callable(getattr(self.left, "plan", None)) or not callable(
@@ -195,8 +249,16 @@ class DualArmMpcCoordinator:
             raise TypeError("sample must be DualArmMpcInput")
         if not sample.object_solution.diagnostics.feasible:
             return self._synchronized_hold(sample, "object_mpc_infeasible")
-        left_input = _route_target(sample.left, sample.object_solution.left_palm_pose)
-        right_input = _route_target(sample.right, sample.object_solution.right_palm_pose)
+        left_input = _route_target(
+            sample.left,
+            sample.object_solution.left_palm_pose,
+            self.first_target_angular_rate_max_rad_s,
+        )
+        right_input = _route_target(
+            sample.right,
+            sample.object_solution.right_palm_pose,
+            self.first_target_angular_rate_max_rad_s,
+        )
         left = self.left.plan(left_input)
         right = self.right.plan(right_input)
         if left.diagnostics.feasible and right.diagnostics.feasible:

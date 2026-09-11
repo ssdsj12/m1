@@ -146,13 +146,14 @@ def test_default_cfg_freezes_25_hz_one_second_horizon():
     assert cfg.per_hand_normal_force_min == pytest.approx(8.0)
     assert cfg.per_hand_normal_force_max == pytest.approx(15.0)
     assert cfg.grasp_half_width_m == pytest.approx(0.09)
-    assert cfg.palm_lateral_offset_m == pytest.approx(0.15)
+    assert cfg.palm_lateral_offset_m == pytest.approx(0.20)
     assert cfg.palm_reach_offset_m == pytest.approx(0.20)
     assert cfg.preload_palm_inward_speed_m_s == pytest.approx(0.025)
     assert cfg.left_preload_inward_limit_m == pytest.approx(0.04)
-    assert cfg.right_preload_inward_limit_m == pytest.approx(0.075)
+    assert cfg.right_preload_inward_limit_m == pytest.approx(0.115)
     assert cfg.preload_forward_limit_m == pytest.approx(0.025)
-    assert cfg.right_palm_height_offset_m == pytest.approx(0.015)
+    assert cfg.right_palm_height_offset_m == pytest.approx(0.0)
+    assert cfg.right_preload_height_offset_m == pytest.approx(0.045)
 
 
 def test_static_box_solution_balances_gravity_and_is_mirrored():
@@ -199,6 +200,20 @@ def test_approach_plans_palms_without_requesting_unavailable_object_wrench() -> 
     assert solution.right_palm_pose[-1, 2].item() == pytest.approx(
         snapshot.box.pose_b[2].item()
         + BimanualObjectMpc().cfg.right_palm_height_offset_m
+    )
+
+
+def test_approach_stays_outside_box_until_preload_and_uses_symmetric_height() -> None:
+    snapshot = _snapshot()
+
+    solution = BimanualObjectMpc().plan(
+        _input(snapshot=snapshot, phase=BimanualPhase.APPROACH)
+    )
+
+    assert solution.left_palm_pose[-1, 1].item() == pytest.approx(0.20)
+    assert solution.right_palm_pose[-1, 1].item() == pytest.approx(-0.20)
+    assert solution.left_palm_pose[-1, 2].item() == pytest.approx(
+        solution.right_palm_pose[-1, 2].item()
     )
 
 
@@ -252,6 +267,14 @@ def test_preload_moves_preclosed_noncontacting_palms_inward() -> None:
     )
     assert solution.right_palm_pose[-1, 1].item() == pytest.approx(
         snapshot.right_arm.palm_pose_b[1].item() + travel
+    )
+    expected_right_height = (
+        ObjectMpcCfg().right_preload_height_offset_m
+        * travel
+        / ObjectMpcCfg().right_preload_inward_limit_m
+    )
+    assert solution.right_palm_pose[-1, 2].item() == pytest.approx(
+        snapshot.right_arm.palm_pose_b[2].item() + expected_right_height
     )
     left_forward = ObjectMpcCfg().preload_forward_limit_m * (
         travel / ObjectMpcCfg().left_preload_inward_limit_m

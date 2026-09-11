@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 import torch
 
 from go2_pvcnn.control.m1_bimanual_coordination.dual_arm_mpc import (
     DualArmMpcCoordinator,
     DualArmMpcInput,
+    _resample_object_pose,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.palm_orientation_mpc import (
+    rotvec_to_matrix,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.object_mpc import (
     ObjectMpcDiagnostics,
@@ -129,6 +135,61 @@ def test_object_palm_targets_are_resampled_to_each_50_hz_arm_input():
     assert left_target[-1, 0].item() == pytest.approx(0.4)
     assert right_target[-1, 0].item() == pytest.approx(0.8)
     assert torch.allclose(planners[0].samples[0].target_twist_b[:, 0], torch.ones(20, dtype=DTYPE))
+
+
+def test_orientation_resampling_uses_short_so3_path_across_pi():
+    current = torch.zeros(6, dtype=DTYPE)
+    current[5] = math.radians(170.0)
+    object_pose = current.repeat(25, 1)
+    object_pose[:, 5] = math.radians(-170.0)
+
+    target, twist = _resample_object_pose(current, object_pose)
+
+    expected_mid = torch.tensor([0.0, 0.0, math.pi], dtype=DTYPE)
+    assert torch.allclose(
+        rotvec_to_matrix(target[0, 3:]),
+        rotvec_to_matrix(expected_mid),
+        atol=1.0e-10,
+        rtol=0.0,
+    )
+    expected_rate = math.radians(10.0) / 0.02
+    assert twist[0, 5].item() == pytest.approx(expected_rate)
+    assert twist[1, 5].item() == pytest.approx(expected_rate)
+    assert torch.allclose(twist[:2, 3:5], torch.zeros(2, 2, dtype=DTYPE))
+    assert torch.allclose(twist[2:, 3:], torch.zeros(18, 3, dtype=DTYPE))
+
+
+def test_coordinator_limits_orientation_tracking_from_measured_pose():
+    planners: list[_FakePlanner] = []
+
+    def factory():
+        planner = _FakePlanner()
+        planners.append(planner)
+        return planner
+
+    object_solution = _object_solution()
+    object_solution.right_palm_pose[:, 3:] = torch.tensor(
+        [0.4, -0.3, 0.2], dtype=DTYPE
+    )
+    coordinator = DualArmMpcCoordinator(
+        planner_factory=factory,
+        first_target_angular_rate_max_rad_s=0.35,
+    )
+    coordinator.plan(DualArmMpcInput(_arm_input(), _arm_input(), object_solution))
+
+    routed = planners[1].samples[0]
+    first_step_angle = torch.linalg.vector_norm(routed.target_twist_b[0, 3:]) * 0.02
+    assert first_step_angle.item() <= 0.35 * 0.02 + 1.0e-10
+    assert torch.all(
+        torch.linalg.vector_norm(routed.target_twist_b[:, 3:], dim=1)
+        <= 0.35 + 1.0e-10
+    )
+
+
+@pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), True])
+def test_coordinator_rejects_invalid_tracking_rate(bad):
+    with pytest.raises((TypeError, ValueError)):
+        DualArmMpcCoordinator(first_target_angular_rate_max_rad_s=bad)
 
 
 def test_one_side_failure_holds_both_last_safe_solutions():

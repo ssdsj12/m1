@@ -47,6 +47,18 @@ for name in ("left_o6", "right_o6"):
     )
 
 
+def _box_contact_sensor(body_name: str) -> ContactSensorCfg:
+    """Create an Isaac Lab-supported one-body-to-Box filtered sensor."""
+
+    side = body_name.split("_", 1)[0]
+    return ContactSensorCfg(
+        prim_path=f"{{ENV_REGEX_NS}}/Robot/{side}_arm/{side}_o6/{body_name}",
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Box"],
+        history_length=3,
+        track_air_time=False,
+    )
+
+
 @configclass
 class M1DualPandaO6BimanualSceneCfg(M1SmokeSceneCfg):
     """Combined robot, fixed support, dynamic box, and explicit contact groups."""
@@ -85,16 +97,34 @@ class M1DualPandaO6BimanualSceneCfg(M1SmokeSceneCfg):
 
     o6_contacts = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/left_arm/left_o6/.*",
-        filter_prim_paths_expr=["{ENV_REGEX_NS}/Box"],
+        filter_prim_paths_expr=[],
         history_length=3,
         track_air_time=False,
     )
     right_o6_contacts = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/right_arm/right_o6/.*",
-        filter_prim_paths_expr=["{ENV_REGEX_NS}/Box"],
+        filter_prim_paths_expr=[],
         history_length=3,
         track_air_time=False,
     )
+    left_thumb_distal_box_contact = _box_contact_sensor("left_thumb_distal")
+    left_index_proximal_box_contact = _box_contact_sensor("left_index_proximal")
+    left_index_distal_box_contact = _box_contact_sensor("left_index_distal")
+    left_middle_proximal_box_contact = _box_contact_sensor("left_middle_proximal")
+    left_middle_distal_box_contact = _box_contact_sensor("left_middle_distal")
+    left_ring_proximal_box_contact = _box_contact_sensor("left_ring_proximal")
+    left_ring_distal_box_contact = _box_contact_sensor("left_ring_distal")
+    left_pinky_proximal_box_contact = _box_contact_sensor("left_pinky_proximal")
+    left_pinky_distal_box_contact = _box_contact_sensor("left_pinky_distal")
+    right_thumb_distal_box_contact = _box_contact_sensor("right_thumb_distal")
+    right_index_proximal_box_contact = _box_contact_sensor("right_index_proximal")
+    right_index_distal_box_contact = _box_contact_sensor("right_index_distal")
+    right_middle_proximal_box_contact = _box_contact_sensor("right_middle_proximal")
+    right_middle_distal_box_contact = _box_contact_sensor("right_middle_distal")
+    right_ring_proximal_box_contact = _box_contact_sensor("right_ring_proximal")
+    right_ring_distal_box_contact = _box_contact_sensor("right_ring_distal")
+    right_pinky_proximal_box_contact = _box_contact_sensor("right_pinky_proximal")
+    right_pinky_distal_box_contact = _box_contact_sensor("right_pinky_distal")
     palm_contacts = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/left_arm/left_o6/left_hand_base_link", history_length=3
     )
@@ -194,5 +224,23 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
             "platform_contacts",
             "base_contacts",
             "box_contacts",
+            "left_thumb_distal_box_contact",
+            "left_index_proximal_box_contact",
+            "left_index_distal_box_contact",
+            "left_middle_proximal_box_contact",
+            "left_middle_distal_box_contact",
+            "left_ring_proximal_box_contact",
+            "left_ring_distal_box_contact",
+            "left_pinky_proximal_box_contact",
+            "left_pinky_distal_box_contact",
+            "right_thumb_distal_box_contact",
+            "right_index_proximal_box_contact",
+            "right_index_distal_box_contact",
+            "right_middle_proximal_box_contact",
+            "right_middle_distal_box_contact",
+            "right_ring_proximal_box_contact",
+            "right_ring_distal_box_contact",
+            "right_pinky_proximal_box_contact",
+            "right_pinky_distal_box_contact",
         ):
             getattr(self.scene, sensor_name).update_period = PHYSICS_DT

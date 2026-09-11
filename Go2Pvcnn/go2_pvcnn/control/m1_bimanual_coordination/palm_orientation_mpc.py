@@ -72,6 +72,45 @@ def matrix_to_rotvec(matrix: torch.Tensor) -> torch.Tensor:
     return skew * (theta / sine)
 
 
+def spatial_orientation_error(target_rotvec_b: torch.Tensor,
+                              measured_rotvec_b: torch.Tensor) -> torch.Tensor:
+    """Return the base-frame spatial error ``Log(R_target R_measured.T)``."""
+
+    _tensor(target_rotvec_b, (3,), 'target_rotvec_b')
+    _tensor(measured_rotvec_b, (3,), 'measured_rotvec_b')
+    target = rotvec_to_matrix(target_rotvec_b)
+    measured = rotvec_to_matrix(measured_rotvec_b)
+    return matrix_to_rotvec(target @ measured.T)
+
+
+def interpolate_orientation(start_rotvec_b: torch.Tensor,
+                            end_rotvec_b: torch.Tensor,
+                            fraction: float) -> torch.Tensor:
+    """Interpolate two base-frame orientations along the shortest SO(3) path."""
+
+    _tensor(start_rotvec_b, (3,), 'start_rotvec_b')
+    _tensor(end_rotvec_b, (3,), 'end_rotvec_b')
+    if (isinstance(fraction, bool) or not isinstance(fraction, (int, float))
+
+            or not math.isfinite(fraction) or not 0. <= fraction <= 1.):
+        raise ValueError('fraction must be finite and in [0, 1]')
+    start = rotvec_to_matrix(start_rotvec_b)
+    end = rotvec_to_matrix(end_rotvec_b)
+    relative = matrix_to_rotvec(end @ start.T)
+    return matrix_to_rotvec(rotvec_to_matrix(relative * float(fraction)) @ start)
+
+
+def spatial_angular_velocity(previous_rotvec_b: torch.Tensor,
+                             next_rotvec_b: torch.Tensor,
+                             dt: float) -> torch.Tensor:
+    """Return the geometric base-frame angular rate between adjacent poses."""
+
+    if (isinstance(dt, bool) or not isinstance(dt, (int, float))
+            or not math.isfinite(dt) or dt <= 0.):
+        raise ValueError('dt must be finite and positive')
+    return spatial_orientation_error(next_rotvec_b, previous_rotvec_b) / float(dt)
+
+
 def compose_orientation_horizon(entry_rotvec_b: torch.Tensor,
                                 basis_local: torch.Tensor,
                                 coefficients: torch.Tensor) -> torch.Tensor:

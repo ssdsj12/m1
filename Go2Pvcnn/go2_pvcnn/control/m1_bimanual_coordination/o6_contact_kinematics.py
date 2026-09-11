@@ -89,7 +89,7 @@ class PrecontactHandController:
             else open_q.detach().to(device="cpu", dtype=torch.float64).clone()
         )
         self.preload_q = (
-            torch.tensor([0.42, 0.55, 1.20, 1.20, 1.20, 1.20], dtype=torch.float64)
+            torch.tensor([0.42, 0.55, 0.70, 0.70, 0.70, 0.70], dtype=torch.float64)
             if preload_q is None
             else preload_q.detach().to(device="cpu", dtype=torch.float64).clone()
         )

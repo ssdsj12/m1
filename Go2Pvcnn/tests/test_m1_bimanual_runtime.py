@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import torch
 
+from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualPhase
 from go2_pvcnn.control.m1_bimanual_coordination.dual_arm_mpc import DualArmMpcSolution
 from go2_pvcnn.control.m1_bimanual_coordination.hand_mpc import O6HandMpc
 from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
@@ -148,3 +149,21 @@ def test_mission_reach_check_uses_final_palm_goal_not_first_waypoint():
     )
 
     assert not diagnostics.palms_reached
+
+
+def test_runtime_uses_bounded_closed_loop_lift_target():
+    runtime = _runtime()
+    runtime.mission.phase = BimanualPhase.LIFT
+    snapshot = _snapshot()
+    contact = torch.tensor([True, False, False, False, False])
+    snapshot = replace(
+        snapshot,
+        left_hand=replace(snapshot.left_hand, contact_mask=contact),
+        right_hand=replace(snapshot.right_hand, contact_mask=contact),
+    )
+
+    sample = runtime._object_input(snapshot)
+
+    assert sample.target_box_pose_b[0, 2] > snapshot.box.pose_b[2]
+    assert sample.target_box_pose_b[-1, 2] < snapshot.box.pose_b[2] + 0.10
+    assert runtime.latest_motion_target.recovery_side is None

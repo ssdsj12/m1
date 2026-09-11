@@ -106,6 +106,10 @@ def test_unrecoverable_collision_uses_last_safe_command():
     assert bad.fallback_used
     assert torch.equal(bad.effort, safe.effort)
     assert bad.diagnostics.fallback_reason == "qp_infeasible"
+    assert bad.diagnostics.failure_category == "collision_constraint"
+    assert bad.diagnostics.max_constraint_violation == pytest.approx(0.02)
+    assert bad.diagnostics.active_bound_indices == ()
+    assert bad.diagnostics.slack_norm == 0.0
 
 
 def test_constraint_set_covers_effort_collision_and_force_closure():
