@@ -4,6 +4,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- T500 GitHub 同名分支已从 `d761df0` 快进合入到 `037595b`；本机 `go2` 环境重新验证 `224 passed`，README 命令已改为可移植相对路径。见 [本地合入验证](log/2026-09-11-t500-remote-fast-forward-local-verification.md)。
+
 - T500 GitHub 根 README 已补齐已完成改进、验证边界、常用入口和未完成验收清单；入口见 [README](../README.md) 与 [记录](log/2026-09-11-t500-readme-status.md)。
 
 - T500 2026-09-11 上传候选：SO(3)、接触摘要、举升动作原语和固定步数训练链已整理到 `265fbcf`；专项 `224 passed`，正式 30/30 物理验收仍待执行。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [上传验证日志](log/2026-09-11-t500-github-upload-verification.md)。

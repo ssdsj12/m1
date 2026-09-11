@@ -57,8 +57,9 @@
 当前功能提交为 `265fbcf`，验证记录提交为 `7c6701d`。
 
 ```bash
+conda activate go2
 cd Go2Pvcnn
-/home/hexinkun/miniconda3/envs/m1/bin/python -m pytest -q \
+PYTHONPATH="$PWD" python -m pytest -q \
   tests/test_m1_bimanual_*.py tests/test_m1_dual_panda_o6_*.py
 ```
 
@@ -76,18 +77,19 @@ cd Go2Pvcnn
 ## 常用入口
 
 ```bash
-cd /home/hexinkun/m1/Go2Pvcnn
+conda activate go2
+cd Go2Pvcnn
 
 # 查看物理诊断参数
-/home/hexinkun/miniconda3/envs/m1/bin/python \
+PYTHONPATH="$PWD" python \
   scripts/m1_dual_panda_o6_bimanual_probe.py --help
 
 # 查看演示/Play 参数
-/home/hexinkun/miniconda3/envs/m1/bin/python \
+PYTHONPATH="$PWD" python \
   scripts/m1_dual_panda_o6_bimanual_play.py --help
 
 # 查看固定步数运行器参数
-/home/hexinkun/miniconda3/envs/m1/bin/python \
+PYTHONPATH="$PWD" python \
   scripts/m1_dual_panda_o6_40k_runner.py --help
 ```
 

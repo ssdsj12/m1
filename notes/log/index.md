@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-11：[T500 远端快进合入与本地验证](2026-09-11-t500-remote-fast-forward-local-verification.md)：远端领先 3 个提交并快进至 `037595b`；本机 `go2` 环境专项 `224 passed`，正式物理验收仍待执行。
+
 - 2026-09-11：[T500 根 README 状态说明](2026-09-11-t500-readme-status.md)：分支首页补充改进、验证证据、入口和未完成物理/WebRTC 边界。
 
 - 2026-09-11：[T500 GitHub 上传验证](2026-09-11-t500-github-upload-verification.md)：SO(3)、接触、动作原语和固定步数训练链整理为 `265fbcf`；T500 专项 `224 passed`，正式 30/30 物理验收未执行。
