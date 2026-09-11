@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-11：[T500 DexManipNet 指尖先验设计](2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)：完整 FAVOR + OakInk V2 经源手 FK 转为掌坐标五指尖概率先验；只作为 O6 Hand MPC 可退让软代价，尚未下载或实施。
+
 - 2026-09-11：[T500 远端快进合入与本地验证](2026-09-11-t500-remote-fast-forward-local-verification.md)：远端领先 3 个提交并快进至 `037595b`；本机 `go2` 环境专项 `224 passed`，正式物理验收仍待执行。
 
 - 2026-09-11：[T500 根 README 状态说明](2026-09-11-t500-readme-status.md)：分支首页补充改进、验证证据、入口和未完成物理/WebRTC 边界。
