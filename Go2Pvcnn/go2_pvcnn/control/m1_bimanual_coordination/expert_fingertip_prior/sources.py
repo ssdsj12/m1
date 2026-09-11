@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from types import MappingProxyType
 
 
 @dataclass(frozen=True)
@@ -16,11 +17,11 @@ class SourceHandSpec:
     fingertip_links: tuple[str, str, str, str, str]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not self.name:
+        if type(self.name) is not str or not self.name.strip():
             raise ValueError("name must be a non-empty string")
-        if self.side not in {"rh", "lh"}:
+        if type(self.side) is not str or self.side not in {"rh", "lh"}:
             raise ValueError("side must be 'rh' or 'lh'")
-        if not isinstance(self.urdf_relpath, str):
+        if type(self.urdf_relpath) is not str:
             raise ValueError("urdf_relpath must be a relative URDF path")
         path = PurePosixPath(self.urdf_relpath)
         if (
@@ -30,15 +31,17 @@ class SourceHandSpec:
             or path.suffix != ".urdf"
         ):
             raise ValueError("urdf_relpath must be a relative URDF path")
-        if not self.joint_order or any(not isinstance(name, str) or not name for name in self.joint_order):
+        if type(self.joint_order) is not tuple:
+            raise TypeError("joint_order must be a tuple")
+        if not self.joint_order or any(type(name) is not str or not name.strip() for name in self.joint_order):
             raise ValueError("joint_order must contain non-empty names")
         if len(set(self.joint_order)) != len(self.joint_order):
             raise ValueError("joint_order must contain unique names")
-        if not isinstance(self.palm_link, str) or not self.palm_link:
+        if type(self.palm_link) is not str or not self.palm_link.strip():
             raise ValueError("palm_link must be a non-empty string")
-        if len(self.fingertip_links) != 5 or any(
-            not isinstance(name, str) or not name for name in self.fingertip_links
-        ):
+        if type(self.fingertip_links) is not tuple:
+            raise TypeError("fingertip_links must be a tuple")
+        if len(self.fingertip_links) != 5 or any(type(name) is not str or not name.strip() for name in self.fingertip_links):
             raise ValueError("fingertip_links must contain five non-empty names")
         if len(set(self.fingertip_links)) != 5:
             raise ValueError("fingertip_links must contain five unique names")
@@ -85,7 +88,7 @@ _SHADOW_JOINT_ORDER = (
 
 # Copied from ManipTrans commit a3d08cfe3c3a5868a7f057533bcaf759c5af4705:
 # maniptrans_envs/lib/envs/dexhands/{inspire,shadow}.py and their referenced URDFs.
-SOURCE_HANDS = {
+SOURCE_HANDS = MappingProxyType({
     "inspire_rh": SourceHandSpec(
         name="inspire",
         side="rh",
@@ -118,7 +121,7 @@ SOURCE_HANDS = {
         palm_link="palm",
         fingertip_links=("thtip", "fftip", "mftip", "rftip", "lftip"),
     ),
-}
+})
 
 
 __all__ = ["SOURCE_HANDS", "SourceHandSpec"]

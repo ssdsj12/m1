@@ -17,6 +17,13 @@ MIXTURE_COMPONENTS = 4
 PRIOR_HORIZON = 20
 PRIOR_DT = 0.01
 STUDENT_ARTIFACT_FORMAT_VERSION = 1
+MODEL_INPUT_FIELD_ORDER = (
+    "fingertip_position_palm",
+    "fingertip_velocity_palm",
+    "contact_mask",
+    "phase_one_hot",
+)
+MIXTURE_OUTPUT_AXIS_ORDER = ("mixture_component", "horizon", "finger", "xyz")
 
 
 class PriorPhase(IntEnum):
@@ -30,7 +37,7 @@ class PriorPhase(IntEnum):
 
 
 PHASE_ORDER = tuple(PriorPhase)
-LEFT_REFLECTION = torch.diag(torch.tensor((1.0, -1.0, 1.0), dtype=torch.float32))
+LEFT_REFLECTION = ((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0))
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 
@@ -47,8 +54,29 @@ def _validate_float_tensor(name: str, value: torch.Tensor, shape: tuple[int, ...
 
 
 def _validate_sha256(name: str, value: str) -> None:
-    if not isinstance(value, str) or _SHA256_RE.fullmatch(value) is None:
+    if type(value) is not str or _SHA256_RE.fullmatch(value) is None:
         raise ValueError(f"{name} must be a lowercase SHA-256")
+
+
+def _validate_frozen_int(name: str, value: object, required: int) -> None:
+    if type(value) is not int:
+        raise TypeError(f"{name} must be an integer")
+    if value != required:
+        raise ValueError(f"{name} must equal {required}")
+
+
+def _validate_frozen_order(
+    name: str,
+    value: object,
+    required: tuple[object, ...],
+    item_type: type[object],
+) -> None:
+    if type(value) is not tuple:
+        raise TypeError(f"{name} must be a tuple")
+    if any(type(item) is not item_type for item in value):
+        raise TypeError(f"{name} has incompatible item types")
+    if value != required:
+        raise ValueError(f"{name} does not match the frozen order")
 
 
 @dataclass(frozen=True)
@@ -87,7 +115,7 @@ class ExpertWindow:
         )
         if len({value.device for value in tensors}) != 1:
             raise ValueError("expert window tensors must share a device")
-        if not isinstance(self.source_group, str) or not self.source_group:
+        if type(self.source_group) is not str or not self.source_group:
             raise ValueError("source_group must be a non-empty string")
         _validate_sha256("source_sha256", self.source_sha256)
 
@@ -162,36 +190,39 @@ class StudentArtifactMetadata:
     code_commit: str
     weight_sha256: str
     hidden: tuple[int, ...]
+    input_field_order: tuple[str, ...]
+    output_axis_order: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        expected = (
-            ("format_version", self.format_version, STUDENT_ARTIFACT_FORMAT_VERSION),
-            ("input_dim", self.input_dim, MODEL_INPUT_DIM),
-            ("mixture_components", self.mixture_components, MIXTURE_COMPONENTS),
-            ("horizon", self.horizon, PRIOR_HORIZON),
-        )
-        for name, value, required in expected:
-            if value != required:
-                raise ValueError(f"{name} must equal {required}")
-        if not isinstance(self.dt, float) or self.dt != PRIOR_DT:
+        _validate_frozen_int("format_version", self.format_version, STUDENT_ARTIFACT_FORMAT_VERSION)
+        _validate_frozen_int("input_dim", self.input_dim, MODEL_INPUT_DIM)
+        _validate_frozen_int("mixture_components", self.mixture_components, MIXTURE_COMPONENTS)
+        _validate_frozen_int("horizon", self.horizon, PRIOR_HORIZON)
+        if type(self.dt) is not float or self.dt != PRIOR_DT:
             raise ValueError(f"dt must equal {PRIOR_DT}")
-        if self.finger_order != FINGER_ORDER:
-            raise ValueError("finger_order does not match the frozen order")
-        if self.phase_order != PHASE_ORDER:
-            raise ValueError("phase_order does not match the frozen order")
+        _validate_frozen_order("finger_order", self.finger_order, FINGER_ORDER, str)
+        _validate_frozen_order("phase_order", self.phase_order, PHASE_ORDER, PriorPhase)
+        _validate_frozen_order(
+            "input_field_order", self.input_field_order, MODEL_INPUT_FIELD_ORDER, str
+        )
+        _validate_frozen_order(
+            "output_axis_order", self.output_axis_order, MIXTURE_OUTPUT_AXIS_ORDER, str
+        )
         _validate_float_tensor("mirror_matrix", self.mirror_matrix, (3, 3))
-        if not torch.equal(self.mirror_matrix, LEFT_REFLECTION):
+        if not torch.equal(
+            self.mirror_matrix,
+            torch.tensor(LEFT_REFLECTION, dtype=torch.float32, device=self.mirror_matrix.device),
+        ):
             raise ValueError("mirror_matrix does not match the frozen left reflection")
         for name in ("dataset_aggregate_sha256", "teacher_ensemble_manifest_sha256", "weight_sha256"):
             _validate_sha256(name, getattr(self, name))
-        if not isinstance(self.code_commit, str) or _COMMIT_RE.fullmatch(self.code_commit) is None:
+        if type(self.code_commit) is not str or _COMMIT_RE.fullmatch(self.code_commit) is None:
             raise ValueError("code_commit must be a lowercase 40-character commit SHA")
         for name in ("teacher_seed", "distillation_seed"):
-            if isinstance(getattr(self, name), bool) or not isinstance(getattr(self, name), int):
+            if type(getattr(self, name)) is not int:
                 raise TypeError(f"{name} must be an integer")
-        if not self.hidden or any(
-            isinstance(value, bool) or not isinstance(value, int) or value <= 0
-            for value in self.hidden
+        if type(self.hidden) is not tuple or not self.hidden or any(
+            type(value) is not int or value <= 0 for value in self.hidden
         ):
             raise ValueError("hidden must contain positive integer widths")
 
@@ -202,7 +233,9 @@ __all__ = [
     "LEFT_REFLECTION",
     "MANIPTRANS_COMMIT",
     "MIXTURE_COMPONENTS",
+    "MIXTURE_OUTPUT_AXIS_ORDER",
     "MODEL_INPUT_DIM",
+    "MODEL_INPUT_FIELD_ORDER",
     "PHASE_ORDER",
     "PRIOR_DT",
     "PRIOR_HORIZON",
