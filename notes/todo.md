@@ -4,7 +4,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
-- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Task 1 已冻结 pin、精确 input/output layout、几何窗口、严格 float32 四分量分布、不可变 artifact/source registry；Task 2 已加入固定 revision/commit 的可续传下载、原子安全解压和严格只读 `--verify-only` 边界，且拒绝被修改、未跟踪或 ignored 的 ManipTrans checkout。Task 1–2 合同共 `36 passed`，未下载 8.31 GB 原始数据；下一步为 Task 3 源手 FK。见 [下载验证](log/2026-09-11-t500-dexmanipnet-fetcher.md)。
+- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Tasks 1–2 已冻结合同与固定下载边界；Task 3 已加入仅 stdlib XML + NumPy 的严格单根 URDF tree、稳定拓扑、批量 FK、mimic 展开及掌坐标五指尖转换。Task 1–3 合同共 `56 passed`，未下载 8.31 GB 原始数据或真实固定 URDF；下一步为 Task 4 sequence 审计。见 [FK 验证](log/2026-09-11-t500-dexmanipnet-urdf-fk.md)。
 
 - T500.5 DexManipNet 指尖运动先验设计已获用户批准：完整 FAVOR + OakInk V2 只蒸馏掌坐标五指尖短时分布，经 O6 真实 Jacobian 作为 Hand MPC 可退让软代价；不输入任务/对象 ID，不决定掌、物体、机械臂或底盘轨迹。当前只完成设计，尚未下载/训练/接线。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [设计记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)。
 

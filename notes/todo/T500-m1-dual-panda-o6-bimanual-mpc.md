@@ -10,8 +10,10 @@ OakInk V2 将经源手 URDF FK 转为掌坐标五指尖短时概率分布，先�
 registry；Task 2 已实现固定 DexManipNet revision、固定 ManipTrans commit、archive SHA/size
 manifest、路径/设备/越界链接拒绝、临时 sibling 解压后原子安装，以及不联网且不改写 evidence
 的 `--verify-only`。source checkout 在复用和 verify 时均以 no-optional-lock Git status 拒绝 tracked、
-untracked 和 ignored 漂移。Task 1–2 合同共 `36 passed`；尚未下载 8.31 GB 数据、训练模型或修改运行时。
-见[下载验证](../log/2026-09-11-t500-dexmanipnet-fetcher.md)。
+untracked 和 ignored 漂移。Task 3 已实现严格单根 URDF tree、稳定拓扑、fixed/revolute/continuous/
+prismatic 批量 FK、递归 mimic 展开和掌坐标五指尖转换，保持 stdlib XML + NumPy 且不依赖 Isaac。
+Task 1–3 合同共 `56 passed`；尚未下载 8.31 GB 数据、用固定真实 URDF 做兼容验证、训练模型或修改运行时。
+见[FK 验证](../log/2026-09-11-t500-dexmanipnet-urdf-fk.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -32,7 +34,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Task 1 合同与 Task 2 安全下载已完成，下一步为 Task 3 源手 FK。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–3 合同、下载边界与源手 FK 已完成，下一步为 Task 4 sequence 审计。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -45,6 +47,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-11 DexManipNet Isaac-independent URDF FK](../log/2026-09-11-t500-dexmanipnet-urdf-fk.md)
 
 - [2026-09-11 DexManipNet 指尖先验实施计划](../log/2026-09-11-t500-dexmanipnet-fingertip-prior-plan.md)
 
@@ -66,8 +70,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `c78d442`（DexManipNet 指尖先验 Task 2 source checkout cleanliness）
-- Last Verified Commit: `c78d442`（Task 1–2 合同共 `36 passed`，含 help/pycompile/diff）
+- Last Feature Commit: `27dc96f`（DexManipNet 指尖先验 Task 3 Isaac-independent URDF FK）
+- Last Verified Commit: `27dc96f`（Task 1–3 合同共 `56 passed`，含 pycompile/diff）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
@@ -79,7 +83,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-由用户选择 T500.5 Subagent-Driven 或 Inline Execution 后，从合同 RED 开始执行 12 任务计划；运行时物理主线仍需在
+从 T500.5 Task 4 的 DexManipNet sequence 审计 RED 开始继续 12 任务计划；运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。
