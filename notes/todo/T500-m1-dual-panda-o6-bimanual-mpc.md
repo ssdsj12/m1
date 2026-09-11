@@ -27,7 +27,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；交互设计已批准，等待书面规格复核与实施计划。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；书面规格已确认，12 任务 TDD 实施计划已写入，等待执行方式选择。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -40,6 +40,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-11 DexManipNet 指尖先验实施计划](../log/2026-09-11-t500-dexmanipnet-fingertip-prior-plan.md)
 
 - [2026-09-11 DexManipNet 指尖先验设计](../log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)
 
@@ -59,6 +61,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - Last Verified Commit: `037595b`（本机 T500 专项静态/纯控制测试）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
+  - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
   - [DexManipNet 指尖先验设计](../../docs/superpowers/specs/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)
   - [设计文档](../../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)
   - [实施计划](../../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md)
@@ -67,7 +70,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-先由用户复核 T500.5 书面规格，再编写逐文件 TDD 实施计划；运行时物理主线仍需在
+由用户选择 T500.5 Subagent-Driven 或 Inline Execution 后，从合同 RED 开始执行 12 任务计划；运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。

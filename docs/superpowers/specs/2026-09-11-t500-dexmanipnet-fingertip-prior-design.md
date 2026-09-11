@@ -210,14 +210,16 @@ seed、代码 commit 和学生权重 SHA。
 
 现有 Hand MPC 默认行为保持不变。只有显式配置并通过 artifact 校验后才启用先验：
 
-1. 构建并求解当前无先验 Hand QP，得到同周期 baseline `qdot_base`。
+1. `APPROACH/PRELOAD` 先运行当前确定性闭指控制得到同周期 baseline；其余阶段构建并求解
+   当前无先验 Hand QP，得到同周期 baseline `qdot_base`。
 2. 运行冻结先验，计算四组未来分布。
 3. 用第一节点均值与 `J qdot_base` 的受限 Mahalanobis 距离选择一个混合分量；不使用任务 ID。
 4. 对未接触或尚未锁定的手指加入局部二次软代价：
 
    `(J qdot - mu)^T W (J qdot - mu)`
 
-5. 重新求解同一个带原有限位、摩擦锥、接触力和 wrench 目标的 QP。
+5. `APPROACH/PRELOAD` 求解六维有界速度投影 QP，同时保留原闭指参考跟踪项和接触锁定轴；
+   其余阶段重新求解同一个带原有限位、摩擦锥、接触力和 wrench 目标的 QP。
 
 `W` 由预测方差倒数得到，并同时具有配置的最小/最大特征值及全局权重。已接触并锁定的指轴
 权重降为零，避免先验与接触等式冲突。只消费第一节点是现有 100 Hz receding-horizon 接口的

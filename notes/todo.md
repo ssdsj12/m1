@@ -4,6 +4,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：从固定 pin/合同 RED 开始，依次完成安全下载、源手 FK、全量转换、教师 ensemble、学生蒸馏、原子 Hand QP 和 GPU0/未见操作门；当前等待执行方式选择。见 [计划记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-plan.md)。
+
 - T500.5 DexManipNet 指尖运动先验设计已获用户批准：完整 FAVOR + OakInk V2 只蒸馏掌坐标五指尖短时分布，经 O6 真实 Jacobian 作为 Hand MPC 可退让软代价；不输入任务/对象 ID，不决定掌、物体、机械臂或底盘轨迹。当前只完成设计，尚未下载/训练/接线。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [设计记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)。
 
 - T500 GitHub 同名分支已从 `d761df0` 快进合入到 `037595b`；本机 `go2` 环境重新验证 `224 passed`，README 命令已改为可移植相对路径。见 [本地合入验证](log/2026-09-11-t500-remote-fast-forward-local-verification.md)。
