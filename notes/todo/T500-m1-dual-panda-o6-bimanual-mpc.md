@@ -28,7 +28,7 @@ large residual MLP mixture ensemble：训练在读取前重新验证 aggregate�
 ensemble/component predictive mixture（同时含 aleatoric 与成员间 epistemic 不确定性）的精确 80% quantile coverage，
 终点以 `0.01 s` 积分 20 节点。合成 two-epoch smoke 有限但 first/endpoint 零基线改善仅 `4.46%/4.59%`、coverage
 `1.0`；nonproduction synthetic provenance 写入 verified aggregate 且无论数值如何都不会标记为 production deployable；
-resume 在读取 member facts 前验证 writer-identical canonical manifest self-hash，随后验证 selected checkpoint SHA、member/seed、architecture 和 aggregate。Tasks 1–6 `117 passed`。尚未下载 8.31 GB
+resume 在读取 member facts 前验证 writer-identical canonical manifest self-hash，随后验证 selected checkpoint SHA、member/seed、architecture 和 aggregate。Tasks 1–6 `117 passed`。Task 7 已实现 compact student fixed-teacher-sample distillation，严格 staged four-file artifact（metadata self-hash、weight SHA、exact state/architecture/pin/provenance/load checks）和 offline comparison gate；real export 同时检查 NLL delta、teacher-relative endpoint RMSE、zero baseline 和 100 warmup/1000 measure CPU p99。two-epoch synthetic artifact 可 reload 且 p99 `0.109395 ms`，但其 `production_approved=false` 不可提升；Tasks 1–7 `125 passed`。尚未下载 8.31 GB
 数据、验证真实全量 schema/对象 mesh 接受率、训练真实模型或修改运行时。见 [Task 6 ensemble 验证](../log/2026-09-11-t500-dexmanipnet-expert-ensemble.md)。
 [deterministic shard 验证](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)。
 
@@ -51,7 +51,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–6 合同、下载边界、源手 FK、sequence 审计、deterministic shards 和 offline ensemble 已完成，下一步为 Task 7 student distillation。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–7 合同、下载边界、源手 FK、sequence 审计、deterministic shards、offline ensemble 和 compact student artifact 已完成，下一步为 Task 8 runtime-only adapter；真实数据/ensemble/student production 门仍未运行。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -70,6 +70,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - [2026-09-11 DexManipNet shard review hardening](../log/2026-09-11-t500-dexmanipnet-shard-review-hardening.md)
 
 - [2026-09-11 DexManipNet offline expert ensemble](../log/2026-09-11-t500-dexmanipnet-expert-ensemble.md)
+
+- [2026-09-11 DexManipNet compact student distillation](../log/2026-09-11-t500-dexmanipnet-student-distillation.md)
 
 - [2026-09-11 DexManipNet sequence 审计与 rollout 选优](../log/2026-09-11-t500-dexmanipnet-sequence-audit.md)
 
@@ -95,8 +97,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `9d31877`（DexManipNet Task 6 resumed manifest self-hash verification）
-- Last Verified Commit: `9d31877`（focused `9 passed`；Tasks 1–6 `117 passed`；CLI help、pycompile/diff）
+- Last Feature Commit: Task 7 pending commit from `f770402` (compact student artifact)
+- Last Verified Commit: Task 7 pending commit from `f770402`（focused `8 passed`；Tasks 1–7 `125 passed`；CLI help、pycompile）
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
@@ -108,7 +110,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-从 T500.5 Task 7 的 compact student distillation RED 开始继续 12 任务计划；运行时物理主线仍需在
+从 T500.5 Task 8 的 runtime-only adapter RED 开始继续 12 任务计划；运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。

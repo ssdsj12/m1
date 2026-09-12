@@ -477,7 +477,7 @@ git commit -m "feat: train fingertip expert ensemble"
 - Consumes: deployable ensemble manifest and Task 6 distribution API.
 - Produces: `distribution_distillation_loss`, `save_student_artifact`, `load_student_artifact`, `accept_prior_comparison(metrics)`, SHA-pinned metadata, metrics and CPU latency report.
 
-- [ ] **Step 1: Write distillation and tamper RED tests**
+- [x] **Step 1: Write distillation and tamper RED tests**
 
 ```python
 def test_distillation_is_component_permutation_invariant():
@@ -496,13 +496,13 @@ def test_artifact_rejects_weight_tampering(tmp_path):
         load_student_artifact(artifact.root)
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_distill.py tests/test_m1_bimanual_expert_prior_artifact.py`
 
 Expected: missing distillation/artifact APIs.
 
-- [ ] **Step 3: Implement fixed-sample distribution distillation and strict artifact loading**
+- [x] **Step 3: Implement fixed-sample distribution distillation and strict artifact loading**
 
 ```python
 def distribution_distillation_loss(student: MixtureDistribution, teacher_samples: torch.Tensor) -> torch.Tensor:
@@ -520,13 +520,13 @@ def load_student_artifact(root: Path) -> LoadedStudent:
 
 Train the compact student on real labels plus fixed Monte-Carlo teacher samples. Gate export on `student_nll - teacher_nll <= 0.05 nat/dim`, endpoint RMSE increase `<=5%`, both zero-baseline improvements `>=10%`, deterministic repeated artifact SHA, and CPU p99 `<2 ms` over 1000 measured runs after 100 warm-ups.
 
-- [ ] **Step 4: Run GREEN and synthetic distillation smoke**
+- [x] **Step 4: Run GREEN and synthetic distillation smoke**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_distill.py tests/test_m1_bimanual_expert_prior_artifact.py && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --synthetic-smoke --output-dir /tmp/t500-student-smoke --epochs 2`
 
 Expected: tests pass; smoke artifact reloads and emits finite metrics without production approval.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/artifact.py Go2Pvcnn/scripts/m1_dual_panda_o6_distill_fingertip_prior.py Go2Pvcnn/scripts/m1_dual_panda_o6_eval_fingertip_prior.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_distill.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_artifact.py
