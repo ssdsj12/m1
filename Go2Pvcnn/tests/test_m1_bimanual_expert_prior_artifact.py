@@ -139,15 +139,22 @@ def test_artifact_requires_metadata_self_hash_before_trusting_weights(tmp_path: 
         load_student_artifact(root)
 
 
-def test_artifact_integrity_binds_reports_and_recomputes_nonproduction_approval(tmp_path: Path):
+def test_artifact_integrity_binds_reports_and_recomputes_nonproduction_approval(tmp_path: Path, monkeypatch):
     root = _write(tmp_path / "artifact")
     metrics_path = root / "metrics.json"
     document = json.loads(metrics_path.read_text(encoding="utf-8"))
     document["metrics"]["production_approved"] = True
     metrics_path.write_text(json.dumps(document), encoding="utf-8")
 
+    calls = 0
+    def forbidden_load(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("report tampering reached torch.load")
+    monkeypatch.setattr("go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact.torch.load", forbidden_load)
     with pytest.raises(ValueError, match="metrics SHA"):
         load_student_artifact(root)
+    assert calls == 0
 
     # A coordinated metadata rewrite cannot make synthetic provenance production-approved either.
     _rewrite_metadata(root, lambda metadata: metadata.update({

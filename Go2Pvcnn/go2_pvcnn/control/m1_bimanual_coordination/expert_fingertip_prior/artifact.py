@@ -278,6 +278,12 @@ def load_student_artifact(root: str | Path) -> LoadedStudent:
     _regular(weights_path, label="student weights")
     if sha256_file(weights_path) != metadata.weight_sha256:
         raise ValueError("student weight SHA mismatch")
+    metrics_path, latency_path = artifact / "metrics.json", artifact / "latency.json"
+    metrics = _json_document(metrics_path, label="artifact metrics")
+    latency = _json_document(latency_path, label="artifact latency")
+    _validate_reports(metrics, latency)
+    _validate_provenance(metrics, metadata)
+    _metadata_integrity(metadata_document, metrics_path.read_bytes(), latency_path.read_bytes(), metrics, metadata)
     model = FingertipMixtureNet(hidden=metadata.hidden)
     try:
         state = torch.load(weights_path, map_location="cpu", weights_only=True)
@@ -285,12 +291,6 @@ def load_student_artifact(root: str | Path) -> LoadedStudent:
         raise ValueError("student weights could not be safely loaded") from error
     model.load_state_dict(_validate_state(model, state), strict=True)
     model.eval()
-    metrics_path, latency_path = artifact / "metrics.json", artifact / "latency.json"
-    metrics = _json_document(metrics_path, label="artifact metrics")
-    latency = _json_document(latency_path, label="artifact latency")
-    _validate_reports(metrics, latency)
-    _validate_provenance(metrics, metadata)
-    _metadata_integrity(metadata_document, metrics_path.read_bytes(), latency_path.read_bytes(), metrics, metadata)
     return LoadedStudent(model=model, metadata=metadata, metrics=metrics["metrics"], latency=latency)
 
 

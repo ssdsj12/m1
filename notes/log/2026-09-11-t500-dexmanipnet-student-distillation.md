@@ -80,3 +80,11 @@ reports with matching positive trial counts. RED covered absent self-hash, repor
 tampering, missing bindings, temporal contribution, and nonsensical comparison values; focused
 final result was `13 passed`, Tasks 1--7 were `130 passed in 13.04s`, and a two-epoch synthetic
 repeat reloaded with p99 `0.113534 ms` and `production_approved=false`.
+
+## Loader Ordering And Comparison Provenance Correction
+
+Report JSON is now schema/pin/SHA/byte-count/approval-validated after mandatory metadata and
+weight SHA checks but before model construction or `torch.load`; a spy RED test proves report
+tampering produces zero deserialization calls. Prior-off/on comparison now requires equal canonical
+evaluation-manifest, scenario, ordered trial-set, safety-definition, and controller-contract SHA
+provenance; only the prior artifact/config is allowed to differ outside this comparability object.

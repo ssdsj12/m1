@@ -126,6 +126,25 @@ def test_comparison_gate_rejects_negative_or_unversioned_report_values():
     assert result.reason == "invalid_metrics"
 
 
+def test_comparison_gate_requires_matching_evaluation_provenance_not_only_counts():
+    module = _eval_module()
+    provenance = {
+        "evaluation_manifest_sha256": "a" * 64,
+        "scenario_definition_sha256": "b" * 64,
+        "trial_set_sha256": "c" * 64,
+        "safety_definition_sha256": "d" * 64,
+        "controller_contract_sha256": "e" * 64,
+    }
+    metrics = {
+        "comparison_format_version": 1, "provenance_format_version": 1, "trial_count": 3,
+        "nll_improvement_fraction": 0.2, "prior_off_jerk_p95": 1.0, "prior_on_jerk_p95": 0.9,
+        "prior_off_task_success": 1.0, "prior_on_task_success": 1.0,
+        "prior_off_safety_rejections": 0, "prior_on_safety_rejections": 0,
+        "prior_off_provenance": provenance, "prior_on_provenance": {**provenance, "trial_set_sha256": "f" * 64},
+    }
+    assert module.accept_prior_comparison(metrics).reason == "provenance_mismatch"
+
+
 def test_distill_help_is_offline_and_does_not_create_output(tmp_path: Path):
     import subprocess
     import sys

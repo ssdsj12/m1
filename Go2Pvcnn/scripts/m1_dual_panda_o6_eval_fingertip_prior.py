@@ -6,6 +6,7 @@ import argparse
 from dataclasses import asdict, dataclass
 import json
 import math
+import re
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -15,6 +16,9 @@ class PriorComparisonAcceptance:
     accepted: bool
     reason: str
 
+_P = {"evaluation_manifest_sha256", "scenario_definition_sha256", "trial_set_sha256", "safety_definition_sha256", "controller_contract_sha256"}
+_SHA = re.compile(r"[0-9a-f]{64}")
+
 
 def accept_prior_comparison(metrics: Mapping[str, object]) -> PriorComparisonAcceptance:
     """Apply the pure comparison gate; every safety/task regression is a rejection."""
@@ -23,13 +27,18 @@ def accept_prior_comparison(metrics: Mapping[str, object]) -> PriorComparisonAcc
         "comparison_format_version", "provenance_format_version", "trial_count",
         "nll_improvement_fraction", "prior_off_jerk_p95", "prior_on_jerk_p95",
         "prior_off_task_success", "prior_on_task_success", "prior_off_safety_rejections",
-        "prior_on_safety_rejections",
+        "prior_on_safety_rejections", "prior_off_provenance", "prior_on_provenance",
     }
-    numeric = required - {"comparison_format_version", "provenance_format_version", "trial_count"}
+    numeric = required - {"comparison_format_version", "provenance_format_version", "trial_count", "prior_off_provenance", "prior_on_provenance"}
     if set(metrics) != required or metrics.get("comparison_format_version") != 1 or metrics.get("provenance_format_version") != 1 or type(metrics.get("trial_count")) is not int or metrics["trial_count"] <= 0 or any(type(metrics[key]) not in (int, float) or not math.isfinite(float(metrics[key])) for key in numeric):
         return PriorComparisonAcceptance(False, "invalid_metrics")
     if any(float(metrics[key]) < 0.0 for key in ("prior_off_jerk_p95", "prior_on_jerk_p95", "prior_off_safety_rejections", "prior_on_safety_rejections")) or any(not 0.0 <= float(metrics[key]) <= 1.0 for key in ("prior_off_task_success", "prior_on_task_success")):
         return PriorComparisonAcceptance(False, "invalid_metrics")
+    off_p, on_p = metrics["prior_off_provenance"], metrics["prior_on_provenance"]
+    if type(off_p) is not dict or type(on_p) is not dict or set(off_p) != _P or set(on_p) != _P or any(type(x) is not str or _SHA.fullmatch(x) is None for x in (*off_p.values(), *on_p.values())):
+        return PriorComparisonAcceptance(False, "invalid_metrics")
+    if off_p != on_p:
+        return PriorComparisonAcceptance(False, "provenance_mismatch")
     if float(metrics["nll_improvement_fraction"]) < 0.10:
         return PriorComparisonAcceptance(False, "nll_improvement_gate")
     if float(metrics["prior_on_jerk_p95"]) > float(metrics["prior_off_jerk_p95"]):
@@ -48,7 +57,7 @@ def _report(path: str) -> dict[str, object]:
     value = json.loads(source.read_text(encoding="utf-8"))
     if type(value) is not dict:
         raise ValueError("report must be a JSON object")
-    required = {"report_format_version", "executed_fingertip_nll", "jerk_p95", "task_success", "safety_rejections", "trial_count"}
+    required = {"report_format_version", "executed_fingertip_nll", "jerk_p95", "task_success", "safety_rejections", "trial_count", "provenance"}
     if set(value) != required or value.get("report_format_version") != 1 or type(value.get("trial_count")) is not int or value["trial_count"] <= 0:
         raise ValueError("report schema is invalid")
     for key in ("executed_fingertip_nll", "jerk_p95", "task_success", "safety_rejections"):
@@ -56,6 +65,8 @@ def _report(path: str) -> dict[str, object]:
             raise ValueError("report values are invalid")
     if value["executed_fingertip_nll"] <= 0.0 or value["jerk_p95"] < 0.0 or value["safety_rejections"] < 0.0 or not 0.0 <= value["task_success"] <= 1.0:
         raise ValueError("report domains are invalid")
+    if type(value["provenance"]) is not dict or set(value["provenance"]) != _P or any(type(x) is not str or _SHA.fullmatch(x) is None for x in value["provenance"].values()):
+        raise ValueError("report provenance is invalid")
     return value
 
 
@@ -75,6 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     metrics = {
         "comparison_format_version": 1, "provenance_format_version": 1,
         "trial_count": off["trial_count"],
+        "prior_off_provenance": off["provenance"], "prior_on_provenance": on["provenance"],
         "nll_improvement_fraction": (float(off["executed_fingertip_nll"]) - float(on["executed_fingertip_nll"])) / float(off["executed_fingertip_nll"]),
         "prior_off_jerk_p95": off["jerk_p95"], "prior_on_jerk_p95": on["jerk_p95"],
         "prior_off_task_success": off["task_success"], "prior_on_task_success": on["task_success"],
