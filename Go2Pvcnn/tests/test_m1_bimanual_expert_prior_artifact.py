@@ -64,6 +64,7 @@ def _write(root: Path) -> Path:
             "endpoint_zero_rmse": 1.0,
             "endpoint_improvement": 0.2,
             "production_approved": False,
+            "deterministic_repeat_verified": True,
         },
         latency={"warmups": 100, "measurements": 1000, "p99_ms": 1.0},
         provenance={
@@ -172,4 +173,14 @@ def test_artifact_rejects_missing_report_binding_and_exposes_deterministic_finge
     _rewrite_metadata(root, lambda metadata: metadata.pop("metrics_sha256", None))
 
     with pytest.raises(ValueError, match="metadata fields"):
+        load_student_artifact(root)
+
+
+def test_artifact_rejects_bool_or_incoherent_derived_metric_fields(tmp_path: Path):
+    root = _write(tmp_path / "artifact")
+    report = root / "metrics.json"
+    document = json.loads(report.read_text(encoding="utf-8"))
+    document["metrics"]["endpoint_rmse"] = True
+    report.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(ValueError, match="metrics"):
         load_student_artifact(root)

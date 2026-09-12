@@ -135,9 +135,14 @@ def _validate_reports(metrics: dict[str, object], latency: dict[str, object]) ->
         raise ValueError("artifact metrics/provenance schema is invalid")
     values = metrics["metrics"]
     provenance = metrics["provenance"]
-    required_values = {"student_nll", "teacher_nll", "nll_delta_per_dim", "first_step_velocity_rmse", "first_step_zero_rmse", "first_step_improvement", "endpoint_rmse", "teacher_endpoint_rmse", "endpoint_zero_rmse", "endpoint_improvement", "production_approved"}
+    required_values = {"student_nll", "teacher_nll", "nll_delta_per_dim", "first_step_velocity_rmse", "first_step_zero_rmse", "first_step_improvement", "endpoint_rmse", "teacher_endpoint_rmse", "endpoint_zero_rmse", "endpoint_improvement", "production_approved", "deterministic_repeat_verified"}
     if set(values) != required_values or type(values.get("production_approved")) is not bool or not _finite_json(metrics):
         raise ValueError("artifact metrics/provenance is invalid")
+    numeric = required_values - {"production_approved", "deterministic_repeat_verified"}
+    if type(values["deterministic_repeat_verified"]) is not bool or any(type(values[key]) not in (int, float) or type(values[key]) is bool or not math.isfinite(float(values[key])) for key in numeric):
+        raise ValueError("artifact metrics are invalid")
+    if any(float(values[key]) <= 0.0 for key in ("first_step_velocity_rmse", "first_step_zero_rmse", "endpoint_rmse", "teacher_endpoint_rmse", "endpoint_zero_rmse")) or not math.isclose(values["nll_delta_per_dim"], (values["student_nll"] - values["teacher_nll"]) / 300.0, abs_tol=1e-8) or not math.isclose(values["first_step_improvement"], 1 - values["first_step_velocity_rmse"] / values["first_step_zero_rmse"], abs_tol=1e-8) or not math.isclose(values["endpoint_improvement"], 1 - values["endpoint_rmse"] / values["endpoint_zero_rmse"], abs_tol=1e-8):
+        raise ValueError("artifact derived metrics are inconsistent")
     if set(provenance) != {"nonproduction_synthetic", "dataset_aggregate_sha256", "teacher_ensemble_manifest_sha256"} or type(provenance.get("nonproduction_synthetic")) is not bool:
         raise ValueError("artifact provenance is invalid")
     if set(latency) != {"warmups", "measurements", "p99_ms"}:

@@ -16,7 +16,7 @@ class PriorComparisonAcceptance:
     accepted: bool
     reason: str
 
-_P = {"evaluation_manifest_sha256", "scenario_definition_sha256", "trial_set_sha256", "safety_definition_sha256", "controller_contract_sha256"}
+_P = {"evaluation_manifest_sha256", "scenario_definition_sha256", "trial_set_sha256", "safety_definition_sha256", "controller_contract_sha256", "prior_mode", "prior_config_sha256", "student_artifact_sha256"}
 _SHA = re.compile(r"[0-9a-f]{64}")
 
 
@@ -35,9 +35,12 @@ def accept_prior_comparison(metrics: Mapping[str, object]) -> PriorComparisonAcc
     if any(float(metrics[key]) < 0.0 for key in ("prior_off_jerk_p95", "prior_on_jerk_p95", "prior_off_safety_rejections", "prior_on_safety_rejections")) or any(not 0.0 <= float(metrics[key]) <= 1.0 for key in ("prior_off_task_success", "prior_on_task_success")):
         return PriorComparisonAcceptance(False, "invalid_metrics")
     off_p, on_p = metrics["prior_off_provenance"], metrics["prior_on_provenance"]
-    if type(off_p) is not dict or type(on_p) is not dict or set(off_p) != _P or set(on_p) != _P or any(type(x) is not str or _SHA.fullmatch(x) is None for x in (*off_p.values(), *on_p.values())):
+    shared = _P - {"prior_mode", "prior_config_sha256", "student_artifact_sha256"}
+    if type(off_p) is not dict or type(on_p) is not dict or set(off_p) != _P or set(on_p) != _P or any(type(p[key]) is not str or _SHA.fullmatch(p[key]) is None for p in (off_p, on_p) for key in shared):
         return PriorComparisonAcceptance(False, "invalid_metrics")
-    if off_p != on_p:
+    if off_p["prior_mode"] != "disabled" or off_p["prior_config_sha256"] != "0" * 64 or off_p["student_artifact_sha256"] != "0" * 64 or on_p["prior_mode"] != "enabled" or any(type(on_p[key]) is not str or _SHA.fullmatch(on_p[key]) is None or on_p[key] == "0" * 64 for key in ("prior_config_sha256", "student_artifact_sha256")):
+        return PriorComparisonAcceptance(False, "invalid_metrics")
+    if any(off_p[key] != on_p[key] for key in shared):
         return PriorComparisonAcceptance(False, "provenance_mismatch")
     if float(metrics["nll_improvement_fraction"]) < 0.10:
         return PriorComparisonAcceptance(False, "nll_improvement_gate")

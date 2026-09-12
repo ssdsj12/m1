@@ -140,9 +140,18 @@ def test_comparison_gate_requires_matching_evaluation_provenance_not_only_counts
         "nll_improvement_fraction": 0.2, "prior_off_jerk_p95": 1.0, "prior_on_jerk_p95": 0.9,
         "prior_off_task_success": 1.0, "prior_on_task_success": 1.0,
         "prior_off_safety_rejections": 0, "prior_on_safety_rejections": 0,
-        "prior_off_provenance": provenance, "prior_on_provenance": {**provenance, "trial_set_sha256": "f" * 64},
+        "prior_off_provenance": {**provenance, "prior_mode": "disabled", "prior_config_sha256": "0" * 64, "student_artifact_sha256": "0" * 64}, "prior_on_provenance": {**provenance, "trial_set_sha256": "f" * 64, "prior_mode": "enabled", "prior_config_sha256": "1" * 64, "student_artifact_sha256": "2" * 64},
     }
     assert module.accept_prior_comparison(metrics).reason == "provenance_mismatch"
+
+
+def test_comparison_gate_requires_explicit_disabled_and_enabled_prior_identity():
+    module = _eval_module()
+    shared = {"evaluation_manifest_sha256": "a" * 64, "scenario_definition_sha256": "b" * 64, "trial_set_sha256": "c" * 64, "safety_definition_sha256": "d" * 64, "controller_contract_sha256": "e" * 64}
+    metric = {"comparison_format_version": 1, "provenance_format_version": 1, "trial_count": 2, "nll_improvement_fraction": .2, "prior_off_jerk_p95": 1., "prior_on_jerk_p95": .9, "prior_off_task_success": 1., "prior_on_task_success": 1., "prior_off_safety_rejections": 0, "prior_on_safety_rejections": 0, "prior_off_provenance": {**shared, "prior_mode": "disabled", "prior_config_sha256": "0" * 64, "student_artifact_sha256": "0" * 64}, "prior_on_provenance": {**shared, "prior_mode": "enabled", "prior_config_sha256": "f" * 64, "student_artifact_sha256": "1" * 64}}
+    assert module.accept_prior_comparison(metric).accepted
+    metric["prior_on_provenance"].pop("prior_config_sha256")
+    assert module.accept_prior_comparison(metric).reason == "invalid_metrics"
 
 
 def test_distill_help_is_offline_and_does_not_create_output(tmp_path: Path):
