@@ -42,7 +42,9 @@ permanently poisons it through graceful-close, terminate/join, and kill/join fal
 context exit, and a self-free weakref finalizer reap the worker; target and close share one
 lifecycle lock, including the lock-acquisition deadline. Only `from_artifact()` is public
 construction, and tests patch the strict loader rather than inject a model API. Tasks 1–8 now pass
-`154` tests; Task 9 Hand MPC integration remains open. See the
+`151` tests; Task 9 Hand MPC integration remains open. The deadline re-review uses immediate
+termination plus one bounded daemon reaper so a 20 ms query returns before 60 ms while later
+joining verifies the child has exited. See the
 [lifecycle review log](../log/2026-09-12-t500-dexmanipnet-runtime-lifecycle-review.md).
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。

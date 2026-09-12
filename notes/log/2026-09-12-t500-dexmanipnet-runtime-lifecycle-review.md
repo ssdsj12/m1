@@ -76,3 +76,25 @@ DexManipNet-extraction, and URDF-FK runtime imports.
 Task 9 may consume only the finite returned target and must retain its same-cycle baseline when
 the prior or second QP is disabled. No production artifact or physical acceptance evidence was
 created by this review.
+
+## Deadline Re-review
+
+The earlier lifecycle path performed its graceful and forced joins on the caller thread, allowing a
+20 ms query deadline to spend roughly another `300 ms` in cleanup. A new RED test substitutes only
+the parent response transport of a real, strict, production-approved temporary artifact; it proves
+that the timeout diagnostic preserves at least `20 ms`, returns in under `60 ms`, bypasses the next
+query immediately, and the detached child later signals reaping.
+
+Timeout now atomically closes/poisons the adapter, calls `terminate()` immediately, and transfers
+the detached worker to one module-level daemon reaper with a bounded queue. That one reaper owns
+the bounded join/terminate/kill cleanup; target never waits for it. Queue/termination/finalizer
+errors are contained in `timeout_cleanup_error` diagnostics with the original elapsed time. The
+test artifact is written through `save_student_artifact()` and loaded through public
+`from_artifact()`; its deterministic weights expose the exact float32 `15 + 15 + 5 + 7` packed
+features in the worker response. No model-injection construction seam remains, including the former
+module-level factory.
+
+Focused runtime verification: `17 passed in 10.23s`. Tasks 1–8 regression: `151 passed in
+22.53s`. The lower count replaces four direct-model seam tests with strict-artifact worker tests;
+the review-specific wall-clock, eventual-reap, cleanup-containment, factory-forgery, and packing
+coverage are now explicit.
