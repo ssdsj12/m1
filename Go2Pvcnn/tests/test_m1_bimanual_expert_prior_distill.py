@@ -154,6 +154,17 @@ def test_comparison_gate_requires_explicit_disabled_and_enabled_prior_identity()
     assert module.accept_prior_comparison(metric).reason == "invalid_metrics"
 
 
+def test_evaluator_cli_accepts_valid_disabled_to_enabled_reports(tmp_path: Path):
+    import json, subprocess, os
+    shared = {"evaluation_manifest_sha256": "a" * 64, "scenario_definition_sha256": "b" * 64, "trial_set_sha256": "c" * 64, "safety_definition_sha256": "d" * 64, "controller_contract_sha256": "e" * 64}
+    off = {"report_format_version": 1, "executed_fingertip_nll": 2.0, "jerk_p95": 1.0, "task_success": 1.0, "safety_rejections": 0, "trial_count": 2, "provenance": {**shared, "prior_mode": "disabled", "prior_config_sha256": "0" * 64, "student_artifact_sha256": "0" * 64}}
+    on = {**off, "executed_fingertip_nll": 1.0, "jerk_p95": .9, "provenance": {**shared, "prior_mode": "enabled", "prior_config_sha256": "f" * 64, "student_artifact_sha256": "1" * 64}}
+    off_path, on_path, output = tmp_path / "off.json", tmp_path / "on.json", tmp_path / "result.json"
+    off_path.write_text(json.dumps(off)); on_path.write_text(json.dumps(on))
+    done = subprocess.run([sys.executable, str(EVAL_SCRIPT), "--prior-off-report", str(off_path), "--prior-on-report", str(on_path), "--output", str(output)], env={**os.environ, "PYTHONPATH": str(EVAL_SCRIPT.parents[1])}, capture_output=True, text=True)
+    assert done.returncode == 0 and json.loads(output.read_text())["acceptance"]["accepted"] is True
+
+
 def test_distill_help_is_offline_and_does_not_create_output(tmp_path: Path):
     import subprocess
     import sys

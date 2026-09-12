@@ -68,7 +68,9 @@ def _report(path: str) -> dict[str, object]:
             raise ValueError("report values are invalid")
     if value["executed_fingertip_nll"] <= 0.0 or value["jerk_p95"] < 0.0 or value["safety_rejections"] < 0.0 or not 0.0 <= value["task_success"] <= 1.0:
         raise ValueError("report domains are invalid")
-    if type(value["provenance"]) is not dict or set(value["provenance"]) != _P or any(type(x) is not str or _SHA.fullmatch(x) is None for x in value["provenance"].values()):
+    shared = _P - {"prior_mode", "prior_config_sha256", "student_artifact_sha256"}
+    provenance = value["provenance"]
+    if type(provenance) is not dict or set(provenance) != _P or provenance.get("prior_mode") not in {"disabled", "enabled"} or any(type(provenance[key]) is not str or _SHA.fullmatch(provenance[key]) is None for key in shared | {"prior_config_sha256", "student_artifact_sha256"}):
         raise ValueError("report provenance is invalid")
     return value
 
