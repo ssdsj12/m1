@@ -98,3 +98,24 @@ Focused runtime verification: `17 passed in 10.23s`. Tasks 1–8 regression: `15
 22.53s`. The lower count replaces four direct-model seam tests with strict-artifact worker tests;
 the review-specific wall-clock, eventual-reap, cleanup-containment, factory-forgery, and packing
 coverage are now explicit.
+
+## Bounded Ownership Re-review
+
+The daemon reaper now owns a process-wide `BoundedSemaphore` slot budget and a queue with the same
+capacity. A worker must acquire one slot before `spawn`; it releases that exact slot only after the
+child is demonstrably dead, its queue channels have closed, and its `reaped` event is set. Thus a
+timeout handoff cannot encounter a full queue: all active, queued, and currently-retrying workers
+already consume the finite slot budget.
+
+Reap failures retain ownership. The reaper repeats bounded join/terminate/kill passes after a
+short event-based backoff, without setting `reaped`, closing channels, or releasing the slot until
+`is_alive()` is false. Normal close and startup failure follow the same completion path. Every
+post-dispatch target fault—including transport failure, mismatched/malformed worker response,
+worker exception, timeout, and invalid output—now poisons/detaches asynchronously; target never
+runs the multi-join close path.
+
+Focused runtime verification: `20 passed in 13.07s`. Tasks 1–8 regression: `154 passed in
+26.10s`. New evidence includes a capacity-one saturation/release test, a simulated alive-first
+reap retry test, and a transport failure whose synchronous `close()` is deliberately blocked while
+the query still returns. Pycompile, import boundary, direct forbidden-import scan, and scoped diff
+checks passed.

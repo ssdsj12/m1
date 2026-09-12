@@ -66,123 +66,130 @@ def _worker(model: torch.nn.Module, requests: Any, responses: Any, ready: Any) -
                 out=model(value); payload=(out.logits.detach().cpu(),out.mean.detach().cpu(),out.log_std.detach().cpu())
             responses.put((ident,"ok",_ms(start),payload))
         except BaseException as error: responses.put((ident,"exception",_ms(start),type(error).__name__))
+class _ReaperController:
+    """Owns every spawned worker until it is demonstrably dead and its slot is released."""
+    def __init__(self, *, capacity: int):
+        if type(capacity) is not int or capacity < 1: raise ValueError("reaper capacity must be positive")
+        self._slots=threading.BoundedSemaphore(capacity)
+        self._queue: queue.Queue[Any]=queue.Queue(maxsize=capacity)
+        self._lock=threading.Lock()
+        self._thread: threading.Thread|None=None
+        self._backoff=threading.Event()
+    def acquire(self) -> bool: return self._slots.acquire(blocking=False)
+    def release(self) -> None: self._slots.release()
+    def enqueue(self, worker: Any) -> None:
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._thread=threading.Thread(target=self._loop,name="fingertip-prior-reaper",daemon=True)
+                self._thread.start()
+        self._queue.put_nowait(worker)
+    def _loop(self) -> None:
+        while True:
+            worker=self._queue.get()
+            try:
+                if not worker._reap_terminated():
+                    self._backoff.wait(timeout=0.01)
+                    self.enqueue(worker)
+            except BaseException:
+                self._backoff.wait(timeout=0.01)
+                self.enqueue(worker)
+            finally:
+                self._queue.task_done()
+
+
+_REAPER=_ReaperController(capacity=8)
+
+
 class _Worker:
     _STARTUP_TIMEOUT_S = 5.0
     _GRACEFUL_JOIN_S = 0.1
     _FORCED_JOIN_S = 0.1
 
     def __init__(self, model: torch.nn.Module):
-        self._closed = False
-        self.reaped = threading.Event()
-        self.requests: Any = None
-        self.responses: Any = None
-        self.process: Any = None
+        self._owner=_REAPER
+        self._slot_owned=False
+        self._closed=False
+        self.reaped=threading.Event()
+        self.requests: Any=None
+        self.responses: Any=None
+        self.process: Any=None
+        if not self._owner.acquire(): raise RuntimeError("prior worker capacity exhausted")
+        self._slot_owned=True
         try:
             context=mp.get_context("spawn")
             copied=copy.deepcopy(model).to("cpu")
             copied.eval()
-            self.requests=context.Queue(1)
-            self.responses=context.Queue(1)
-            ready=context.Queue(1)
+            self.requests=context.Queue(1); self.responses=context.Queue(1); ready=context.Queue(1)
             self.process=context.Process(target=_worker,args=(copied,self.requests,self.responses,ready),daemon=True)
             self.process.start()
-            if ready.get(timeout=self._STARTUP_TIMEOUT_S) is not True:
-                raise RuntimeError("worker did not become ready")
+            if ready.get(timeout=self._STARTUP_TIMEOUT_S) is not True: raise RuntimeError("worker did not become ready")
         except BaseException as error:
-            self.close()
+            try: self.close()
+            except BaseException: pass
             raise RuntimeError("prior worker initialization failed") from error
 
-    def _alive(self) -> bool:
-        try:
-            return self.process is not None and bool(self.process.is_alive())
-        except BaseException:
-            return False
-
-    def close(self):
-        if self._closed:
-            return
-        self._closed = True
-        if self._alive():
-            try: self.requests.put_nowait(None)
-            except BaseException: pass
-            self.process.join(timeout=self._GRACEFUL_JOIN_S)
-        if self._alive():
-            try: self.process.terminate()
-            except BaseException: pass
-            self.process.join(timeout=self._FORCED_JOIN_S)
-        if self._alive() and hasattr(self.process,"kill"):
-            try: self.process.kill()
-            except BaseException: pass
-            self.process.join(timeout=self._FORCED_JOIN_S)
-        if self._alive():
-            raise RuntimeError("prior worker could not be reaped")
+    def _dead(self) -> bool:
+        if self.process is None: return True
+        try: return not bool(self.process.is_alive())
+        except BaseException: return False
+    def _complete_reap(self) -> bool:
+        if not self._dead(): return False
         for channel in (self.requests,self.responses):
             if channel is not None:
                 try: channel.cancel_join_thread(); channel.close()
                 except BaseException: pass
-
-    def detach_for_timeout(self) -> str:
-        """Start termination without waiting; the singleton reaper owns the joins."""
-        if self._closed:
-            return "timeout"
-        self._closed = True
-        status = "timeout"
-        if self._alive():
+        if self._slot_owned:
+            self._owner.release(); self._slot_owned=False
+        self.reaped.set()
+        return True
+    def _request_reap(self) -> None:
+        self._owner.enqueue(self)
+    def close(self):
+        if self.reaped.is_set(): return
+        self._closed=True
+        if self._dead(): self._complete_reap(); return
+        try: self.requests.put_nowait(None)
+        except BaseException: pass
+        try: self.process.join(timeout=self._GRACEFUL_JOIN_S)
+        except BaseException: pass
+        if self._dead(): self._complete_reap(); return
+        try: self.process.terminate()
+        except BaseException: pass
+        try: self.process.join(timeout=self._FORCED_JOIN_S)
+        except BaseException: pass
+        if self._dead(): self._complete_reap(); return
+        if hasattr(self.process,"kill"):
+            try: self.process.kill()
+            except BaseException: pass
+            try: self.process.join(timeout=self._FORCED_JOIN_S)
+            except BaseException: pass
+        if self._dead(): self._complete_reap(); return
+        self._request_reap()
+        raise RuntimeError("prior worker pending asynchronous reap")
+    def detach_for_target(self) -> bool:
+        self._closed=True
+        cleanup_error=False
+        if not self._dead():
             try: self.process.terminate()
-            except BaseException: status = "timeout_cleanup_error"
-        try:
-            _enqueue_reap(self)
-        except BaseException:
-            self._closed = False
-            raise
-        return status
-
-    def _reap_terminated(self) -> None:
-        """Bounded background cleanup for a worker already detached by a timeout."""
-        try:
-            if self._alive():
-                self.process.join(timeout=self._FORCED_JOIN_S)
-            if self._alive():
-                try: self.process.terminate()
-                except BaseException: pass
-                self.process.join(timeout=self._FORCED_JOIN_S)
-            if self._alive() and hasattr(self.process,"kill"):
-                try: self.process.kill()
-                except BaseException: pass
-                self.process.join(timeout=self._FORCED_JOIN_S)
-            if self._alive():
-                raise RuntimeError("prior worker could not be reaped")
-        finally:
-            for channel in (self.requests,self.responses):
-                if channel is not None:
-                    try: channel.cancel_join_thread(); channel.close()
-                    except BaseException: pass
-            self.reaped.set()
-
-
-_REAP_QUEUE: queue.Queue[_Worker] = queue.Queue(maxsize=64)
-_REAPER_LOCK = threading.Lock()
-_REAPER_THREAD: threading.Thread|None = None
-
-
-def _reap_loop() -> None:
-    while True:
-        worker = _REAP_QUEUE.get()
-        try:
-            worker._reap_terminated()
-        except BaseException:
-            pass
-        finally:
-            _REAP_QUEUE.task_done()
-
-
-def _enqueue_reap(worker: _Worker) -> None:
-    global _REAPER_THREAD
-    with _REAPER_LOCK:
-        if _REAPER_THREAD is None or not _REAPER_THREAD.is_alive():
-            _REAPER_THREAD = threading.Thread(target=_reap_loop,name="fingertip-prior-reaper",daemon=True)
-            _REAPER_THREAD.start()
-    _REAP_QUEUE.put_nowait(worker)
+            except BaseException: cleanup_error=True
+        self._request_reap()
+        return cleanup_error
+    def _reap_terminated(self) -> bool:
+        if self._complete_reap(): return True
+        try: self.process.join(timeout=self._FORCED_JOIN_S)
+        except BaseException: pass
+        if self._complete_reap(): return True
+        try: self.process.terminate()
+        except BaseException: pass
+        try: self.process.join(timeout=self._FORCED_JOIN_S)
+        except BaseException: pass
+        if self._complete_reap(): return True
+        if hasattr(self.process,"kill"):
+            try: self.process.kill()
+            except BaseException: pass
+            try: self.process.join(timeout=self._FORCED_JOIN_S)
+            except BaseException: pass
+        return self._complete_reap()
 
 
 def _finalize_worker(worker: _Worker) -> None:
@@ -220,27 +227,20 @@ class FrozenO6FingertipPrior:
             self._finalizer()
     def __enter__(self): return self
     def __exit__(self,*unused): self.close(); return False
-    def _disable(self,reason: str,elapsed: float):
-        self._poisoned=(reason,float(elapsed))
-        try:
-            if self._worker is not None:self._worker.close()
-        except BaseException:
-            return _off(f"{reason}_cleanup_error",elapsed)
-        return _off(reason,elapsed)
-    def _timeout(self,elapsed: float):
+    def _poison_async(self,reason: str,elapsed: float):
         self._closed=True
-        self._poisoned=("timeout",float(elapsed))
+        self._poisoned=(reason,float(elapsed))
         worker=self._worker
-        if worker is None:return _off("timeout",elapsed)
+        if worker is None:return _off(reason,elapsed)
         try:
-            reason=worker.detach_for_timeout()
+            cleanup_error=worker.detach_for_target()
             self._worker=None
             self._finalizer.detach()
         except BaseException:
-            self._poisoned=("timeout_cleanup_error",float(elapsed))
-            return _off("timeout_cleanup_error",elapsed)
-        self._poisoned=(reason,float(elapsed))
-        return _off(reason,elapsed)
+            cleanup_error=True
+        final_reason=f"{reason}_cleanup_error" if cleanup_error else reason
+        self._poisoned=(final_reason,float(elapsed))
+        return _off(final_reason,elapsed)
     def _input(self,s: O6FingertipPriorInput):
         if not isinstance(s,O6FingertipPriorInput) or not _tensor(s.fingertip_positions_b,(5,3),torch.float64) or not _tensor(s.contact_jacobian,(15,6),torch.float64) or not _tensor(s.qd,(6,),torch.float64) or not isinstance(s.contact_mask,torch.Tensor) or s.contact_mask.shape!=(5,) or s.contact_mask.dtype!=torch.bool or s.contact_mask.device.type!="cpu" or not isinstance(s.phase,BimanualPhase): return None
         phase=_PHASE.get(s.phase)
@@ -259,29 +259,29 @@ class FrozenO6FingertipPrior:
             value=self._input(sample)
             if value is None or not _tensor(baseline_qd,(6,),torch.float64):return _off("invalid_input")
             elapsed=_ms(start)
-            if elapsed>self.cfg.inference_timeout_ms:return self._timeout(elapsed)
+            if elapsed>self.cfg.inference_timeout_ms:return self._poison_async("timeout",elapsed)
             ident=self._id; self._id+=1
             try: self._worker.requests.put_nowait((ident,value)); response=self._worker.responses.get(timeout=max(0.,(self.cfg.inference_timeout_ms-elapsed)/1000))
-            except queue.Empty:return self._timeout(_ms(start))
-            except BaseException:return self._disable("prior_exception",_ms(start))
+            except queue.Empty:return self._poison_async("timeout",_ms(start))
+            except BaseException:return self._poison_async("prior_exception",_ms(start))
             elapsed=_ms(start)
-            if not isinstance(response,tuple) or len(response)!=4 or response[0]!=ident:return self._disable("prior_exception",elapsed)
+            if not isinstance(response,tuple) or len(response)!=4 or response[0]!=ident:return self._poison_async("prior_exception",elapsed)
             if isinstance(response[2],(int,float)) and not isinstance(response[2],bool) and math.isfinite(float(response[2])) and response[2]>=0:elapsed=max(elapsed,float(response[2]))
-            if elapsed>self.cfg.inference_timeout_ms:return self._timeout(elapsed)
-            if response[1]!="ok":return _off("prior_exception",elapsed)
+            if elapsed>self.cfg.inference_timeout_ms:return self._poison_async("timeout",elapsed)
+            if response[1]!="ok":return self._poison_async("prior_exception",elapsed)
             payload=response[3]
-            if not isinstance(payload,tuple) or len(payload)!=3:return _off("invalid_prior",elapsed)
+            if not isinstance(payload,tuple) or len(payload)!=3:return self._poison_async("invalid_prior",elapsed)
             logits,means,std=payload; expect=(1,MIXTURE_COMPONENTS,PRIOR_HORIZON,5,3)
-            if any(not _tensor(x,shape,torch.float32) for x,shape in ((logits,(1,MIXTURE_COMPONENTS)),(means,expect),(std,expect))):return _off("nonfinite_prior",elapsed)
+            if any(not _tensor(x,shape,torch.float32) for x,shape in ((logits,(1,MIXTURE_COMPONENTS)),(means,expect),(std,expect))):return self._poison_async("nonfinite_prior",elapsed)
             precision=torch.exp(-2*std[:,:,0].clamp(self.cfg.log_std_min,self.cfg.log_std_max)).clamp(self.cfg.precision_min,self.cfg.precision_max)
-            if not torch.isfinite(precision).all().item() or not torch.all(precision>=self.cfg.precision_min).item() or not torch.all(precision<=self.cfg.precision_max).item():return _off("invalid_precision",elapsed)
+            if not torch.isfinite(precision).all().item() or not torch.all(precision>=self.cfg.precision_min).item() or not torch.all(precision<=self.cfg.precision_max).item():return self._poison_async("invalid_precision",elapsed)
             precision[:,:,sample.contact_mask,:]=0
             mean=means[:,:,0].reshape(MIXTURE_COMPONENTS,15).double(); precision=precision.reshape(MIXTURE_COMPONENTS,15).double(); probs=logits[0].log_softmax(-1).exp()
-            if not torch.isfinite(probs).all().item() or not torch.all(probs>=0).item() or not torch.isclose(probs.sum(),torch.tensor(1.,dtype=torch.float32),atol=1e-6,rtol=0).item():return _off("invalid_probabilities",elapsed)
+            if not torch.isfinite(probs).all().item() or not torch.all(probs>=0).item() or not torch.isclose(probs.sum(),torch.tensor(1.,dtype=torch.float32),atol=1e-6,rtol=0).item():return self._poison_async("invalid_probabilities",elapsed)
             score=(((sample.contact_jacobian@baseline_qd).reshape(1,15)-mean).square()*precision).sum(1)-float(self.cfg.logit_weight)*logits[0].log_softmax(-1).double()
             elapsed=_ms(start)
-            if elapsed>self.cfg.inference_timeout_ms:return self._timeout(elapsed)
-            if not torch.isfinite(score).all().item():return _off("invalid_precision",elapsed)
+            if elapsed>self.cfg.inference_timeout_ms:return self._poison_async("timeout",elapsed)
+            if not torch.isfinite(score).all().item():return self._poison_async("invalid_precision",elapsed)
             component=int(torch.argmin(score).item())
             return PriorQueryResult(FingertipPriorTarget(mean[component],precision[component],component,float(probs[component].item())),FingertipPriorDiagnostics(True,None,elapsed))
         finally:
