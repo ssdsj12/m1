@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 from typing import Any
+import weakref
 import torch
 from ..contracts import BimanualPhase
 from .artifact import load_student_artifact
@@ -40,6 +41,7 @@ class FingertipPriorTarget:
         for value in (self.mean_velocity,self.precision):
             if not isinstance(value,torch.Tensor) or value.dtype!=torch.float64 or value.device.type!="cpu" or value.shape!=(15,) or not torch.isfinite(value).all().item(): raise ValueError("target tensors must be finite CPU float64 (15,)")
         if not torch.all(self.precision>=0).item() or type(self.component) is not int or not 0<=self.component<MIXTURE_COMPONENTS or not isinstance(self.probability,float) or not math.isfinite(self.probability) or not 0<=self.probability<=1: raise ValueError("invalid target")
+        object.__setattr__(self,"mean_velocity",self.mean_velocity.clone()); object.__setattr__(self,"precision",self.precision.clone())
 @dataclass(frozen=True)
 class FingertipPriorDiagnostics:
     enabled: bool; reason: str|None; inference_ms: float
@@ -65,26 +67,95 @@ def _worker(model: torch.nn.Module, requests: Any, responses: Any, ready: Any) -
             responses.put((ident,"ok",_ms(start),payload))
         except BaseException as error: responses.put((ident,"exception",_ms(start),type(error).__name__))
 class _Worker:
+    _STARTUP_TIMEOUT_S = 5.0
+    _GRACEFUL_JOIN_S = 0.1
+    _FORCED_JOIN_S = 0.1
+
     def __init__(self, model: torch.nn.Module):
-        context=mp.get_context("fork"); copied=copy.deepcopy(model).to("cpu"); copied.eval(); self.requests=context.Queue(1); self.responses=context.Queue(1); ready=context.Queue(1)
-        self.process=context.Process(target=_worker,args=(copied,self.requests,self.responses,ready),daemon=True); self.process.start()
+        self._closed = False
+        self.requests: Any = None
+        self.responses: Any = None
+        self.process: Any = None
         try:
-            if ready.get(timeout=1.) is not True: raise RuntimeError
-        except BaseException: self.close(); raise RuntimeError("prior worker initialization failed")
+            context=mp.get_context("spawn")
+            copied=copy.deepcopy(model).to("cpu")
+            copied.eval()
+            self.requests=context.Queue(1)
+            self.responses=context.Queue(1)
+            ready=context.Queue(1)
+            self.process=context.Process(target=_worker,args=(copied,self.requests,self.responses,ready),daemon=True)
+            self.process.start()
+            if ready.get(timeout=self._STARTUP_TIMEOUT_S) is not True:
+                raise RuntimeError("worker did not become ready")
+        except BaseException as error:
+            self.close()
+            raise RuntimeError("prior worker initialization failed") from error
+
+    def _alive(self) -> bool:
+        try:
+            return self.process is not None and bool(self.process.is_alive())
+        except BaseException:
+            return False
+
     def close(self):
-        if self.process.is_alive(): self.process.terminate()
-        self.process.join(timeout=.05)
+        if self._closed:
+            return
+        self._closed = True
+        if self._alive():
+            try: self.requests.put_nowait(None)
+            except BaseException: pass
+            self.process.join(timeout=self._GRACEFUL_JOIN_S)
+        if self._alive():
+            try: self.process.terminate()
+            except BaseException: pass
+            self.process.join(timeout=self._FORCED_JOIN_S)
+        if self._alive() and hasattr(self.process,"kill"):
+            try: self.process.kill()
+            except BaseException: pass
+            self.process.join(timeout=self._FORCED_JOIN_S)
+        if self._alive():
+            raise RuntimeError("prior worker could not be reaped")
+        for channel in (self.requests,self.responses):
+            if channel is not None:
+                try: channel.cancel_join_thread(); channel.close()
+                except BaseException: pass
+
+
+def _finalize_worker(worker: _Worker) -> None:
+    try:
+        worker.close()
+    except BaseException:
+        pass
+
+
+def _new_prior(worker: _Worker,cfg: PriorRuntimeCfg) -> FrozenO6FingertipPrior:
+    self=object.__new__(FrozenO6FingertipPrior)
+    self.cfg=cfg
+    self._worker=worker
+    self._lock=threading.Lock()
+    self._id=0
+    self._poisoned=None
+    self._closed=False
+    self._finalizer=weakref.finalize(self,_finalize_worker,worker)
+    return self
+
 class FrozenO6FingertipPrior:
     """Production construction is restricted to from_artifact."""
-    def __init__(self, *, _worker: _Worker, cfg: PriorRuntimeCfg):
-        if not isinstance(_worker,_Worker) or not isinstance(cfg,PriorRuntimeCfg): raise TypeError("use FrozenO6FingertipPrior.from_artifact")
-        self.cfg=cfg; self._worker=_worker; self._lock=threading.Lock(); self._id=0; self._poisoned: tuple[str,float]|None=None
+    def __init__(self,*args,**kwargs): raise TypeError("use FrozenO6FingertipPrior.from_artifact")
     @classmethod
     def from_artifact(cls,path: str|Path,*,cfg: PriorRuntimeCfg|None=None):
         loaded=load_student_artifact(path)
         if loaded.metrics.get("production_approved") is not True: raise ValueError("runtime requires a production_approved student artifact")
-        return cls(_worker=_Worker(loaded.model),cfg=PriorRuntimeCfg() if cfg is None else cfg)
-    def close(self): self._worker.close()
+        if cfg is not None and not isinstance(cfg,PriorRuntimeCfg): raise TypeError("cfg must be PriorRuntimeCfg")
+        return _new_prior(_Worker(loaded.model),PriorRuntimeCfg() if cfg is None else cfg)
+    def close(self):
+        with self._lock:
+            if self._closed: return
+            self._closed=True
+            self._poisoned=("closed",0.)
+            self._finalizer()
+    def __enter__(self): return self
+    def __exit__(self,*unused): self.close(); return False
     def _disable(self,reason: str,elapsed: float):
         self._poisoned=(reason,float(elapsed)); self._worker.close(); return _off(reason,elapsed)
     def _input(self,s: O6FingertipPriorInput):
@@ -95,13 +166,19 @@ class FrozenO6FingertipPrior:
         v=torch.cat((s.fingertip_positions_b.reshape(-1),s.contact_jacobian@s.qd,s.contact_mask.to(torch.float64),hot))
         return v.float().unsqueeze(0) if v.shape==(MODEL_INPUT_DIM,) and torch.isfinite(v).all().item() else None
     def target(self,sample: O6FingertipPriorInput,baseline_qd: torch.Tensor):
-        if isinstance(sample,O6FingertipPriorInput) and isinstance(sample.phase,BimanualPhase) and sample.phase in self.cfg.safe_phases:return _off("safe_phase")
-        value=self._input(sample)
-        if value is None or not _tensor(baseline_qd,(6,),torch.float64):return _off("invalid_input")
-        with self._lock:
+        start=time.perf_counter_ns()
+        if not self._lock.acquire(timeout=self.cfg.inference_timeout_ms/1000):
+            return _off("timeout",_ms(start))
+        try:
+            if self._closed:return _off("closed")
             if self._poisoned is not None:return _off(*self._poisoned)
-            start=time.perf_counter_ns(); ident=self._id; self._id+=1
-            try: self._worker.requests.put_nowait((ident,value)); response=self._worker.responses.get(timeout=self.cfg.inference_timeout_ms/1000)
+            if isinstance(sample,O6FingertipPriorInput) and isinstance(sample.phase,BimanualPhase) and sample.phase in self.cfg.safe_phases:return _off("safe_phase")
+            value=self._input(sample)
+            if value is None or not _tensor(baseline_qd,(6,),torch.float64):return _off("invalid_input")
+            elapsed=_ms(start)
+            if elapsed>self.cfg.inference_timeout_ms:return self._disable("timeout",elapsed)
+            ident=self._id; self._id+=1
+            try: self._worker.requests.put_nowait((ident,value)); response=self._worker.responses.get(timeout=max(0.,(self.cfg.inference_timeout_ms-elapsed)/1000))
             except queue.Empty:return self._disable("timeout",_ms(start))
             except BaseException:return self._disable("prior_exception",_ms(start))
             elapsed=_ms(start)
@@ -124,7 +201,6 @@ class FrozenO6FingertipPrior:
             if not torch.isfinite(score).all().item():return _off("invalid_precision",elapsed)
             component=int(torch.argmin(score).item())
             return PriorQueryResult(FingertipPriorTarget(mean[component],precision[component],component,float(probs[component].item())),FingertipPriorDiagnostics(True,None,elapsed))
-def _test_only_prior(model: torch.nn.Module,*,cfg: PriorRuntimeCfg|None=None):
-    """Private test seam; production code must use from_artifact."""
-    return FrozenO6FingertipPrior(_worker=_Worker(model),cfg=PriorRuntimeCfg() if cfg is None else cfg)
+        finally:
+            self._lock.release()
 __all__=["FingertipPriorDiagnostics","FingertipPriorTarget","FrozenO6FingertipPrior","O6FingertipPriorInput","PriorQueryResult","PriorRuntimeCfg"]

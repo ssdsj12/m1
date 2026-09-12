@@ -36,10 +36,14 @@ resume 在读取 member facts 前验证 writer-identical canonical manifest self
 artifact, packs the exact 42 float32 geometry features from O6 measurements, selects the first
 future-node mixture component against baseline tip velocity, bounds precision, removes contacted
 rows, and returns finite CPU float64 QP terms. Safe phases, timeout, invalid input/output, and
-exceptions disable atomically without cached targets. Tasks 1–8 focused regression: `139 passed`;
-Task 9 Hand MPC integration remains open. Post-review hardening isolates inference in one private
-daemon model copy, permanently poisons it after deadline, and rejects forged `LoadedStudent`
-construction; Tasks 1–8 now pass `147` tests.
+exceptions disable atomically without cached targets. Review hardening now uses a persistent
+private `spawn` worker with a bounded ready handshake and pickling failure normalization; timeout
+permanently poisons it through graceful-close, terminate/join, and kill/join fallback. `close()`,
+context exit, and a self-free weakref finalizer reap the worker; target and close share one
+lifecycle lock, including the lock-acquisition deadline. Only `from_artifact()` is public
+construction, and tests patch the strict loader rather than inject a model API. Tasks 1–8 now pass
+`154` tests; Task 9 Hand MPC integration remains open. See the
+[lifecycle review log](../log/2026-09-12-t500-dexmanipnet-runtime-lifecycle-review.md).
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -75,6 +79,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 ## Related Logs
 
 - [2026-09-12 DexManipNet frozen O6 prior runtime](../log/2026-09-12-t500-dexmanipnet-fingertip-prior-runtime.md)
+
+- [2026-09-12 DexManipNet runtime lifecycle review](../log/2026-09-12-t500-dexmanipnet-runtime-lifecycle-review.md)
 
 - [2026-09-11 DexManipNet deterministic fingertip shards](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)
 

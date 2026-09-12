@@ -4,7 +4,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
-- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Tasks 1–8 已完成 strict artifact、runtime-only O6 adapter。production construction 仅经 strict artifact loader；private copied daemon worker 以可执行 deadline、永久 poison 和无 stale target 隔离模型。fixed float32 `42` 输入、Mahalanobis + positive logit 选分量、首 future node/bounded float64 QP target 均保持。Tasks 1–8 `147 passed`；下一步为 Task 9 Hand MPC atomic integration。见 [Task 8 runtime 验证](log/2026-09-12-t500-dexmanipnet-fingertip-prior-runtime.md)。
+- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Tasks 1–8 已完成 strict artifact、runtime-only O6 adapter。production construction 仅经 strict artifact loader；private copied daemon worker 使用 `spawn`、有界 ready handshake、硬 deadline 和永久 poison；weakref finalizer/context close 均会 reaping，close/query 以同一 lifecycle lock 串行。fixed float32 `42` 输入、Mahalanobis + positive logit 选分量、首 future node/bounded float64 QP target 均保持。Tasks 1–8 `154 passed`；下一步为 Task 9 Hand MPC atomic integration。见 [lifecycle review 验证](log/2026-09-12-t500-dexmanipnet-runtime-lifecycle-review.md)。
 
 - T500.5 DexManipNet 指尖运动先验设计已获用户批准：完整 FAVOR + OakInk V2 只蒸馏掌坐标五指尖短时分布，经 O6 真实 Jacobian 作为 Hand MPC 可退让软代价；不输入任务/对象 ID，不决定掌、物体、机械臂或底盘轨迹。离线实施已完成 Tasks 1–5，仍未下载完整数据、训练模型或接线运行时。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [设计记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)。
 
