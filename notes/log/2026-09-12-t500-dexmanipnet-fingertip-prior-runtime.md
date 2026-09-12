@@ -47,6 +47,21 @@ PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
 
 Result: `139 passed in 13.15s`.
 
+## Review Hardening
+
+The runtime import graph is now isolated even transitively: artifact hashing uses a local stdlib
+reader rather than the fetch/extraction module, and a fresh-process graph test rejects all offline
+data modules plus HF/HDF5/Isaac imports. Production construction accepts no caller-supplied model
+or `LoadedStudent`; only `from_artifact()` can create an adapter after strict loading. The private
+test seam is explicitly named `_test_only_prior`.
+
+Inference now runs in one persistent daemon fork worker with a deep-copied private model. A queue
+deadline returns immediately on a hung call, terminates and permanently poisons that worker, and
+subsequent queries bypass it. The worker catches every model-side `BaseException`; RuntimeError,
+IndexError, and AssertionError tests all return finite `prior_exception` diagnostics. Config now
+requires a finite, strictly positive logit weight. Focused result: `13 passed in 1.91s`; Tasks 1–8:
+`147 passed in 14.65s`.
+
 The runtime source scan found no forbidden direct import; a fresh-process import found no
 transitive `huggingface_hub`, `h5py`, or `isaacgym` module. `py_compile` for the adapter/test
 completed successfully. Repository-wide `git diff --check` remains blocked by the pre-existing

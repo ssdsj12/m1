@@ -37,7 +37,9 @@ artifact, packs the exact 42 float32 geometry features from O6 measurements, sel
 future-node mixture component against baseline tip velocity, bounds precision, removes contacted
 rows, and returns finite CPU float64 QP terms. Safe phases, timeout, invalid input/output, and
 exceptions disable atomically without cached targets. Tasks 1–8 focused regression: `139 passed`;
-Task 9 Hand MPC integration remains open.
+Task 9 Hand MPC integration remains open. Post-review hardening isolates inference in one private
+daemon model copy, permanently poisons it after deadline, and rejects forged `LoadedStudent`
+construction; Tasks 1–8 now pass `147` tests.
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -107,7 +109,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 ## Git Refs
 
 - Last Feature Commit: Task 8 frozen O6 prior runtime（this commit）
-- Last Verified Commit: Task 8 focused runtime plus Tasks 1–8 regression (`139 passed`), import boundary and pycompile
+- Last Verified Commit: Task 8 review-hardened runtime plus Tasks 1–8 regression (`147 passed`), import boundary and pycompile
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)

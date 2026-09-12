@@ -15,12 +15,21 @@ import tempfile
 import torch
 
 from .contracts import PriorPhase, StudentArtifactMetadata
-from .download import sha256_file
 from .model import FingertipMixtureNet
 
 
 _ARTIFACT_FILES = frozenset({"metadata.json", "student.pt", "metrics.json", "latency.json"})
 _DISTILLATION_CONFIG = {"label_nll_weight": 0.5, "teacher_sample_weight": 0.5, "acceleration_weight": 1e-5, "jerk_weight": 1e-7}
+
+
+def sha256_file(path: str | Path) -> str:
+    """Hash a regular artifact file without importing any fetch/extraction code."""
+
+    digest = sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _canonical_json(value: object) -> bytes:
