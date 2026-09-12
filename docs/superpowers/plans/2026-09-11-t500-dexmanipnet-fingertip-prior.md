@@ -543,7 +543,7 @@ git commit -m "feat: distill and validate fingertip prior student"
 - Consumes: loaded student, O6 `(5,3)` positions, `(15,6)` folded Jacobian, six-axis qd, contact mask, `BimanualPhase`, and baseline qdot.
 - Produces: `FrozenO6FingertipPrior.from_artifact(path)`, `FingertipPriorTarget(mean_velocity, precision, component, probability)`, `FingertipPriorDiagnostics`, and `PriorQueryResult(target, diagnostics)`; no training imports.
 
-- [ ] **Step 1: Write selection, variance, phase, and non-finite RED tests**
+- [x] **Step 1: Write selection, variance, phase, and non-finite RED tests**
 
 ```python
 def test_runtime_selects_component_nearest_baseline_tip_velocity():
@@ -561,13 +561,13 @@ def test_safe_phase_and_nonfinite_output_disable_prior():
     assert invalid.diagnostics.reason == "nonfinite_prior"
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_runtime.py`
 
 Expected: missing runtime adapter.
 
-- [ ] **Step 3: Implement runtime-only input packing and Mahalanobis selection**
+- [x] **Step 3: Implement runtime-only input packing and Mahalanobis selection**
 
 ```python
 tip_velocity = sample.contact_jacobian @ sample.qd
@@ -578,13 +578,13 @@ component = int(torch.argmin(distance - cfg.logit_weight * logits.log_softmax(-1
 
 Load only model/artifact modules, bound log std and precision, zero precision rows for contacted fingertips, measure inference duration, and return an explicit disabled diagnostic on safe phases, timeout, exception, shape mismatch, or non-finite output.
 
-- [ ] **Step 4: Run GREEN and import-boundary check**
+- [x] **Step 4: Run GREEN and import-boundary check**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_runtime.py && ! rg -n 'huggingface_hub|h5py|isaacgym|dexmanipnet.py|urdf_fk.py' go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/runtime.py`
 
 Expected: pass and no forbidden runtime import.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/runtime.py Go2Pvcnn/tests/test_m1_bimanual_expert_prior_runtime.py

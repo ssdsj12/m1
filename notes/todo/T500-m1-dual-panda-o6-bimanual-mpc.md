@@ -32,6 +32,13 @@ resume 在读取 member facts 前验证 writer-identical canonical manifest self
 数据、验证真实全量 schema/对象 mesh 接受率、训练真实模型或修改运行时。见 [Task 6 ensemble 验证](../log/2026-09-11-t500-dexmanipnet-expert-ensemble.md)。
 [deterministic shard 验证](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)。
 
+2026-09-12 更新：Task 8 adds a runtime-only frozen-student adapter. It rejects a non-approved
+artifact, packs the exact 42 float32 geometry features from O6 measurements, selects the first
+future-node mixture component against baseline tip velocity, bounds precision, removes contacted
+rows, and returns finite CPU float64 QP terms. Safe phases, timeout, invalid input/output, and
+exceptions disable atomically without cached targets. Tasks 1–8 focused regression: `139 passed`;
+Task 9 Hand MPC integration remains open.
+
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
 确认姿态坐标差与空间角位移存在不一致，且首目标相对实测姿态的误差增长。
@@ -51,7 +58,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–7 合同、下载边界、源手 FK、sequence 审计、deterministic shards、offline ensemble 和 compact student artifact 已完成，下一步为 Task 8 runtime-only adapter；真实数据/ensemble/student production 门仍未运行。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–8 合同、下载边界、源手 FK、sequence 审计、deterministic shards、offline ensemble、compact student artifact 和 fail-closed runtime adapter 已完成，下一步为 Task 9 Hand MPC atomic integration；真实数据/ensemble/student production 门仍未运行。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -64,6 +71,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-12 DexManipNet frozen O6 prior runtime](../log/2026-09-12-t500-dexmanipnet-fingertip-prior-runtime.md)
 
 - [2026-09-11 DexManipNet deterministic fingertip shards](../log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)
 
@@ -97,8 +106,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: `309a71f`（Task 7 prior mode/repeat gate hardening）
-- Last Verified Commit: `309a71f`（Task 7 final reviewed evidence: focused `16 passed`；Tasks 1–7 `133 passed`；CLI help、pycompile）
+- Last Feature Commit: Task 8 frozen O6 prior runtime（this commit）
+- Last Verified Commit: Task 8 focused runtime plus Tasks 1–8 regression (`139 passed`), import boundary and pycompile
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
@@ -110,7 +119,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-从 T500.5 Task 8 的 runtime-only adapter RED 开始继续 12 任务计划；运行时物理主线仍需在
+从 T500.5 Task 9 的 Hand MPC atomic integration 开始继续 12 任务计划；运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。
