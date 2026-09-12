@@ -27,7 +27,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.download import sha256_file
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.model import (
-    FingertipMixtureNet, mixture_log_prob, mixture_nll,
+    FingertipMixtureNet, mixture_log_prob, mixture_nll, temporal_regularizer,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.storage import verify_aggregate_manifest
 
@@ -38,6 +38,8 @@ from m1_dual_panda_o6_train_fingertip_expert import (
     GroupShardDataset, _canonical_json, _ensemble_manifest_sha256, _load_group_split,
     _resolve_manifest, _set_seed,
 )
+
+DISTILLATION_CONFIG = {"label_nll_weight": 0.5, "teacher_sample_weight": 0.5, "acceleration_weight": 1e-5, "jerk_weight": 1e-7}
 
 
 def sample_mixture(
@@ -80,6 +82,13 @@ def distribution_distillation_loss(student: MixtureDistribution, teacher_samples
         log_std=student.log_std.unsqueeze(1).expand(batch, samples, components, 20, 5, 3),
     )
     return -mixture_log_prob(expanded, teacher_samples).mean()
+
+
+def student_distillation_objective(student: MixtureDistribution, target: torch.Tensor, samples: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    label, sampled = mixture_nll(student, target), distribution_distillation_loss(student, samples)
+    acceleration, jerk = temporal_regularizer(student, dt=PRIOR_DT)
+    total = DISTILLATION_CONFIG["label_nll_weight"] * label + DISTILLATION_CONFIG["teacher_sample_weight"] * sampled + DISTILLATION_CONFIG["acceleration_weight"] * acceleration + DISTILLATION_CONFIG["jerk_weight"] * jerk
+    return total, label, sampled, acceleration, jerk
 
 
 @dataclass(frozen=True)
@@ -288,7 +297,7 @@ def _train_student(train: GroupShardDataset, ensemble: _Ensemble, *, hidden: tup
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, generator=generator, num_workers=0)
         model.train()
         for inputs, target, samples in loader:
-            loss = 0.5 * mixture_nll(model(inputs), target) + 0.5 * distribution_distillation_loss(model(inputs), samples)
+            loss, _, _, _, _ = student_distillation_objective(model(inputs), target, samples)
             if not torch.isfinite(loss).item():
                 raise FloatingPointError("student distillation loss is non-finite")
             optimizer.zero_grad(set_to_none=True)
@@ -368,9 +377,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         provenance = {"nonproduction_synthetic": bool(args.synthetic_smoke), "dataset_aggregate_sha256": document["aggregate_sha256"], "teacher_ensemble_manifest_sha256": ensemble.manifest_sha256}
         first = stage / "student"
         pinned = save_student_artifact(first, model=model, metadata=metadata, metrics=metrics, latency=latency, provenance=provenance)
-        repeat = save_student_artifact(stage / "repeat", model=model, metadata=metadata, metrics=metrics, latency=latency, provenance=provenance)
-        if pinned.weight_sha256 != repeat.weight_sha256:
-            raise RuntimeError("repeated deterministic student artifact SHA mismatch")
+        repeated_model = _train_student(train, ensemble, hidden=hidden, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate, samples_per_state=args.samples_per_state, seed=args.seed)
+        repeated_metrics = _metrics(repeated_model, ensemble, test)
+        repeated_metrics["production_approved"] = production_approved
+        repeat = save_student_artifact(stage / "repeat", model=repeated_model, metadata=metadata, metrics=repeated_metrics, latency=_latency(repeated_model), provenance=provenance)
+        first_metadata = json.loads((first / "metadata.json").read_text(encoding="utf-8"))
+        repeat_metadata = json.loads((stage / "repeat" / "metadata.json").read_text(encoding="utf-8"))
+        if pinned.weight_sha256 != repeat.weight_sha256 or first_metadata["reproducibility_fingerprint"] != repeat_metadata["reproducibility_fingerprint"]:
+            raise RuntimeError("independent deterministic student artifact fingerprint mismatch")
         shutil.rmtree(stage / "repeat")
         os.replace(first, destination)
         print(json.dumps({"artifact": str(destination), "weight_sha256": pinned.weight_sha256, "metrics": metrics, "latency": latency, "production_approved": production_approved}, sort_keys=True))

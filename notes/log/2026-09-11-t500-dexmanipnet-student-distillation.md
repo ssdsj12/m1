@@ -68,3 +68,15 @@ Tasks 1--7 regression result: `125 passed in 13.16s`. Both new CLI `--help` comm
 No real external data or deployable ensemble is available locally, so the real production gate is
 unverified. Task 8 may consume only a real gate-approved student artifact; the synthetic smoke
 artifact remains non-production by contract.
+
+## Review Hardening
+
+Post-Task-7 review made the metadata self-hash mandatory and added raw byte-count/SHA bindings for
+both reports. The loader recomputes approval from pinned metric/latency gates, synthetic provenance
+forces false, and metadata records fixed temporal-loss coefficients plus a latency-excluding
+reproducibility fingerprint. Distillation independently retrains with the same seed before it can
+approve a real artifact. The comparison evaluator now requires versioned, finite, domain-valid
+reports with matching positive trial counts. RED covered absent self-hash, report-only approval
+tampering, missing bindings, temporal contribution, and nonsensical comparison values; focused
+final result was `13 passed`, Tasks 1--7 were `130 passed in 13.04s`, and a two-epoch synthetic
+repeat reloaded with p99 `0.113534 ms` and `production_approved=false`.

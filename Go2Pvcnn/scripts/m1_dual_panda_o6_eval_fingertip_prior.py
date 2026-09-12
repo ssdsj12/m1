@@ -20,11 +20,15 @@ def accept_prior_comparison(metrics: Mapping[str, object]) -> PriorComparisonAcc
     """Apply the pure comparison gate; every safety/task regression is a rejection."""
 
     required = {
+        "comparison_format_version", "provenance_format_version", "trial_count",
         "nll_improvement_fraction", "prior_off_jerk_p95", "prior_on_jerk_p95",
         "prior_off_task_success", "prior_on_task_success", "prior_off_safety_rejections",
         "prior_on_safety_rejections",
     }
-    if set(metrics) != required or any(type(metrics[key]) not in (int, float) or not math.isfinite(float(metrics[key])) for key in required):
+    numeric = required - {"comparison_format_version", "provenance_format_version", "trial_count"}
+    if set(metrics) != required or metrics.get("comparison_format_version") != 1 or metrics.get("provenance_format_version") != 1 or type(metrics.get("trial_count")) is not int or metrics["trial_count"] <= 0 or any(type(metrics[key]) not in (int, float) or not math.isfinite(float(metrics[key])) for key in numeric):
+        return PriorComparisonAcceptance(False, "invalid_metrics")
+    if any(float(metrics[key]) < 0.0 for key in ("prior_off_jerk_p95", "prior_on_jerk_p95", "prior_off_safety_rejections", "prior_on_safety_rejections")) or any(not 0.0 <= float(metrics[key]) <= 1.0 for key in ("prior_off_task_success", "prior_on_task_success")):
         return PriorComparisonAcceptance(False, "invalid_metrics")
     if float(metrics["nll_improvement_fraction"]) < 0.10:
         return PriorComparisonAcceptance(False, "nll_improvement_gate")
@@ -44,6 +48,14 @@ def _report(path: str) -> dict[str, object]:
     value = json.loads(source.read_text(encoding="utf-8"))
     if type(value) is not dict:
         raise ValueError("report must be a JSON object")
+    required = {"report_format_version", "executed_fingertip_nll", "jerk_p95", "task_success", "safety_rejections", "trial_count"}
+    if set(value) != required or value.get("report_format_version") != 1 or type(value.get("trial_count")) is not int or value["trial_count"] <= 0:
+        raise ValueError("report schema is invalid")
+    for key in ("executed_fingertip_nll", "jerk_p95", "task_success", "safety_rejections"):
+        if type(value[key]) not in (int, float) or not math.isfinite(float(value[key])):
+            raise ValueError("report values are invalid")
+    if value["executed_fingertip_nll"] <= 0.0 or value["jerk_p95"] < 0.0 or value["safety_rejections"] < 0.0 or not 0.0 <= value["task_success"] <= 1.0:
+        raise ValueError("report domains are invalid")
     return value
 
 
@@ -58,7 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     off, on = _report(args.prior_off_report), _report(args.prior_on_report)
+    if off["trial_count"] != on["trial_count"]:
+        raise ValueError("comparison reports must have matching trial counts")
     metrics = {
+        "comparison_format_version": 1, "provenance_format_version": 1,
+        "trial_count": off["trial_count"],
         "nll_improvement_fraction": (float(off["executed_fingertip_nll"]) - float(on["executed_fingertip_nll"])) / float(off["executed_fingertip_nll"]),
         "prior_off_jerk_p95": off["jerk_p95"], "prior_on_jerk_p95": on["jerk_p95"],
         "prior_off_task_success": off["task_success"], "prior_on_task_success": on["task_success"],

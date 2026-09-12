@@ -20,6 +20,7 @@ from .model import FingertipMixtureNet
 
 
 _ARTIFACT_FILES = frozenset({"metadata.json", "student.pt", "metrics.json", "latency.json"})
+_DISTILLATION_CONFIG = {"label_nll_weight": 0.5, "teacher_sample_weight": 0.5, "acceleration_weight": 1e-5, "jerk_weight": 1e-7}
 
 
 def _canonical_json(value: object) -> bytes:
@@ -58,12 +59,11 @@ def _metadata_from_document(document: object) -> StudentArtifactMetadata:
         raise ValueError("artifact metadata must be a JSON object")
     body = dict(document)
     declared = body.pop("metadata_sha256", None)
-    required = set(_metadata_document(_metadata_for_schema()).keys())
+    required = set(_metadata_document(_metadata_for_schema()).keys()) | {"metrics_sha256", "metrics_bytes", "latency_sha256", "latency_bytes", "distillation_config", "reproducibility_fingerprint"}
     if set(body) != required:
         raise ValueError("artifact metadata fields do not match the frozen schema")
-    if declared is not None:
-        if type(declared) is not str or declared != sha256(_canonical_json(body)).hexdigest():
-            raise ValueError("artifact metadata SHA mismatch")
+    if type(declared) is not str or declared != sha256(_canonical_json(body)).hexdigest():
+        raise ValueError("artifact metadata SHA mismatch")
     try:
         phase_order = tuple(PriorPhase[name] for name in body["phase_order"])
         return StudentArtifactMetadata(
@@ -135,7 +135,8 @@ def _validate_reports(metrics: dict[str, object], latency: dict[str, object]) ->
         raise ValueError("artifact metrics/provenance schema is invalid")
     values = metrics["metrics"]
     provenance = metrics["provenance"]
-    if type(values.get("production_approved")) is not bool or not _finite_json(metrics):
+    required_values = {"student_nll", "teacher_nll", "nll_delta_per_dim", "first_step_velocity_rmse", "first_step_zero_rmse", "first_step_improvement", "endpoint_rmse", "teacher_endpoint_rmse", "endpoint_zero_rmse", "endpoint_improvement", "production_approved"}
+    if set(values) != required_values or type(values.get("production_approved")) is not bool or not _finite_json(metrics):
         raise ValueError("artifact metrics/provenance is invalid")
     if set(provenance) != {"nonproduction_synthetic", "dataset_aggregate_sha256", "teacher_ensemble_manifest_sha256"} or type(provenance.get("nonproduction_synthetic")) is not bool:
         raise ValueError("artifact provenance is invalid")
@@ -157,6 +158,21 @@ def _validate_provenance(reports: dict[str, object], metadata: StudentArtifactMe
         or provenance["teacher_ensemble_manifest_sha256"] != metadata.teacher_ensemble_manifest_sha256
     ):
         raise ValueError("artifact provenance does not match frozen metadata pins")
+
+
+def _metadata_integrity(document: dict[str, object], metrics_bytes: bytes, latency_bytes: bytes, reports: dict[str, object], metadata: StudentArtifactMetadata) -> None:
+    if document.get("distillation_config") != _DISTILLATION_CONFIG:
+        raise ValueError("artifact distillation configuration is invalid")
+    for label, raw in (("metrics", metrics_bytes), ("latency", latency_bytes)):
+        if document.get(f"{label}_sha256") != sha256(raw).hexdigest() or document.get(f"{label}_bytes") != len(raw):
+            raise ValueError(f"artifact {label} SHA mismatch")
+    values, provenance = reports["metrics"], reports["provenance"]
+    expected = (not provenance["nonproduction_synthetic"] and values["nll_delta_per_dim"] <= 0.05 and values["endpoint_rmse"] <= 1.05 * values["teacher_endpoint_rmse"] and values["first_step_improvement"] >= 0.10 and values["endpoint_improvement"] >= 0.10 and json.loads(latency_bytes)["p99_ms"] < 2.0)
+    if values["production_approved"] != expected:
+        raise ValueError("artifact production approval does not match gates")
+    fingerprint_body = {"metadata": _metadata_document(metadata), "distillation_config": _DISTILLATION_CONFIG, "metrics": reports}
+    if document.get("reproducibility_fingerprint") != sha256(_canonical_json(fingerprint_body)).hexdigest():
+        raise ValueError("artifact reproducibility fingerprint mismatch")
 
 
 def _state_for_save(model: FingertipMixtureNet) -> dict[str, torch.Tensor]:
@@ -227,12 +243,13 @@ def save_student_artifact(
             handle.flush()
             os.fsync(handle.fileno())
         pinned = replace(metadata, weight_sha256=sha256_file(weights_path))
-        metadata_body = _metadata_document(pinned)
+        metrics_bytes, latency_bytes = _canonical_json(reports), _canonical_json(latency_document)
+        metadata_body = {**_metadata_document(pinned), "metrics_sha256": sha256(metrics_bytes).hexdigest(), "metrics_bytes": len(metrics_bytes), "latency_sha256": sha256(latency_bytes).hexdigest(), "latency_bytes": len(latency_bytes), "distillation_config": _DISTILLATION_CONFIG}
+        metadata_body["reproducibility_fingerprint"] = sha256(_canonical_json({"metadata": _metadata_document(pinned), "distillation_config": _DISTILLATION_CONFIG, "metrics": reports})).hexdigest()
         metadata_document = {**metadata_body, "metadata_sha256": sha256(_canonical_json(metadata_body)).hexdigest()}
         for path, value in (
             (stage / "metadata.json", metadata_document),
-            (stage / "metrics.json", reports),
-            (stage / "latency.json", latency_document),
+            (stage / "metrics.json", reports), (stage / "latency.json", latency_document),
         ):
             with path.open("xb") as handle:
                 handle.write(_canonical_json(value))
@@ -268,10 +285,12 @@ def load_student_artifact(root: str | Path) -> LoadedStudent:
         raise ValueError("student weights could not be safely loaded") from error
     model.load_state_dict(_validate_state(model, state), strict=True)
     model.eval()
-    metrics = _json_document(artifact / "metrics.json", label="artifact metrics")
-    latency = _json_document(artifact / "latency.json", label="artifact latency")
+    metrics_path, latency_path = artifact / "metrics.json", artifact / "latency.json"
+    metrics = _json_document(metrics_path, label="artifact metrics")
+    latency = _json_document(latency_path, label="artifact latency")
     _validate_reports(metrics, latency)
     _validate_provenance(metrics, metadata)
+    _metadata_integrity(metadata_document, metrics_path.read_bytes(), latency_path.read_bytes(), metrics, metadata)
     return LoadedStudent(model=model, metadata=metadata, metrics=metrics["metrics"], latency=latency)
 
 

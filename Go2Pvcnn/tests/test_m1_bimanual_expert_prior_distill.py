@@ -14,10 +14,20 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.model imp
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_distill_fingertip_prior.py"
+EVAL_SCRIPT = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_eval_fingertip_prior.py"
 
 
 def _module():
     spec = importlib.util.spec_from_file_location("task7_distill", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _eval_module():
+    spec = importlib.util.spec_from_file_location("task7_eval", EVAL_SCRIPT)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -76,6 +86,44 @@ def test_ensemble_teacher_aggregation_keeps_each_member_four_component_contract(
     assert log_prob.shape == (2,)
     assert samples.shape == (2, 3, 20, 5, 3)
     assert torch.isfinite(log_prob).all() and torch.isfinite(samples).all()
+
+
+def test_student_objective_has_nonzero_temporal_acceleration_and_jerk_terms():
+    module = _module()
+    torch.manual_seed(9)
+    model = FingertipMixtureNet(hidden=(16, 16))
+    inputs = torch.zeros(2, 42, dtype=torch.float32)
+    target = torch.zeros(2, 20, 5, 3, dtype=torch.float32)
+    samples = torch.zeros(2, 2, 20, 5, 3, dtype=torch.float32)
+
+    total, label, sampled, acceleration, jerk = module.student_distillation_objective(
+        model(inputs), target, samples
+    )
+
+    assert acceleration > 0.0 and jerk > 0.0
+    torch.testing.assert_close(
+        total,
+        0.5 * label + 0.5 * sampled
+        + module.DISTILLATION_CONFIG["acceleration_weight"] * acceleration
+        + module.DISTILLATION_CONFIG["jerk_weight"] * jerk,
+    )
+
+
+def test_comparison_gate_rejects_negative_or_unversioned_report_values():
+    result = _eval_module().accept_prior_comparison(
+        {
+            "nll_improvement_fraction": 0.2,
+            "prior_off_jerk_p95": -1.0,
+            "prior_on_jerk_p95": -2.0,
+            "prior_off_task_success": 0.9,
+            "prior_on_task_success": 0.9,
+            "prior_off_safety_rejections": 0,
+            "prior_on_safety_rejections": 0,
+        }
+    )
+
+    assert not result.accepted
+    assert result.reason == "invalid_metrics"
 
 
 def test_distill_help_is_offline_and_does_not_create_output(tmp_path: Path):

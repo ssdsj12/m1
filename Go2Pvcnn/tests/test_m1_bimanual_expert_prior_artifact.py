@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import json
+from hashlib import sha256
 import pytest
 import torch
 
@@ -51,7 +52,19 @@ def _write(root: Path) -> Path:
         root,
         model=FingertipMixtureNet(hidden=(16, 16)),
         metadata=_metadata(),
-        metrics={"student_nll": 1.0, "teacher_nll": 1.0, "production_approved": False},
+        metrics={
+            "student_nll": 1.0,
+            "teacher_nll": 1.0,
+            "nll_delta_per_dim": 0.0,
+            "first_step_velocity_rmse": 0.8,
+            "first_step_zero_rmse": 1.0,
+            "first_step_improvement": 0.2,
+            "endpoint_rmse": 0.8,
+            "teacher_endpoint_rmse": 0.8,
+            "endpoint_zero_rmse": 1.0,
+            "endpoint_improvement": 0.2,
+            "production_approved": False,
+        },
         latency={"warmups": 100, "measurements": 1000, "p99_ms": 1.0},
         provenance={
             "nonproduction_synthetic": True,
@@ -100,4 +113,56 @@ def test_artifact_rejects_metrics_provenance_that_does_not_match_frozen_pins(tmp
     report.write_text(json.dumps(document), encoding="utf-8")
 
     with pytest.raises(ValueError, match="provenance"):
+        load_student_artifact(root)
+
+
+def _rewrite_metadata(root: Path, mutate) -> None:
+    path = root / "metadata.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    mutate(document)
+    body = dict(document)
+    body.pop("metadata_sha256", None)
+    document["metadata_sha256"] = sha256(
+        (json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode("utf-8")
+    ).hexdigest()
+    path.write_text(json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+
+
+def test_artifact_requires_metadata_self_hash_before_trusting_weights(tmp_path: Path):
+    root = _write(tmp_path / "artifact")
+    path = root / "metadata.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    del document["metadata_sha256"]
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metadata SHA"):
+        load_student_artifact(root)
+
+
+def test_artifact_integrity_binds_reports_and_recomputes_nonproduction_approval(tmp_path: Path):
+    root = _write(tmp_path / "artifact")
+    metrics_path = root / "metrics.json"
+    document = json.loads(metrics_path.read_text(encoding="utf-8"))
+    document["metrics"]["production_approved"] = True
+    metrics_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metrics SHA"):
+        load_student_artifact(root)
+
+    # A coordinated metadata rewrite cannot make synthetic provenance production-approved either.
+    _rewrite_metadata(root, lambda metadata: metadata.update({
+        "metrics_bytes": len(metrics_path.read_bytes()),
+        "metrics_sha256": sha256(metrics_path.read_bytes()).hexdigest(),
+    }))
+    with pytest.raises(ValueError, match="production approval"):
+        load_student_artifact(root)
+
+
+def test_artifact_rejects_missing_report_binding_and_exposes_deterministic_fingerprint(tmp_path: Path):
+    root = _write(tmp_path / "artifact")
+    document = json.loads((root / "metadata.json").read_text(encoding="utf-8"))
+    assert isinstance(document.get("reproducibility_fingerprint"), str)
+    _rewrite_metadata(root, lambda metadata: metadata.pop("metrics_sha256", None))
+
+    with pytest.raises(ValueError, match="metadata fields"):
         load_student_artifact(root)
