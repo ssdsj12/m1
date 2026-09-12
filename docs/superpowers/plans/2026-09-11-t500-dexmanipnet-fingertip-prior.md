@@ -603,7 +603,7 @@ git commit -m "feat: add frozen O6 fingertip prior runtime"
 - Consumes: Task 8 runtime target and existing O6 positions/Jacobian.
 - Produces: optional `prior_target` QP term, prior-enabled six-rate precontact projection, two-pass contact solve, same-cycle baseline fallback, extended diagnostics; default constructor semantics remain unchanged.
 
-- [ ] **Step 1: Write disabled-equivalence and regularized-QP RED tests**
+- [x] **Step 1: Write disabled-equivalence and regularized-QP RED tests**
 
 ```python
 def test_prior_disabled_is_exactly_existing_hand_solution():
@@ -630,13 +630,13 @@ def test_prior_precontact_projection_keeps_contact_latched_axes_and_rate_bounds(
     assert torch.all(result.qd_ref.abs() <= sample.qd_max)
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_hand_mpc.py tests/test_m1_bimanual_runtime.py`
 
 Expected: missing position/prior fields or constructor parameter.
 
-- [ ] **Step 3: Add the bounded quadratic term and atomic two-pass plan**
+- [x] **Step 3: Add the bounded quadratic term and atomic two-pass plan**
 
 ```python
 def add_fingertip_prior(problem, sample, target, weight):
@@ -678,13 +678,13 @@ return self._accept(self._solution(sample, regularized_result)) if regularized_r
 
 Add `fingertip_positions_b` to `HandMpcInput` and runtime providers. `_solve_precontact_projection` uses a strong quadratic tracking term around the existing `PrecontactHandController` rate plus the bounded `J qdot` prior term, applies current position/rate bounds, and fixes latched finger axes to zero; when prior is disabled it is never called. Extend diagnostics without changing feasibility meaning. Preserve precontact closure, contact latching, friction, rate/position bounds, force equalities, and `_last_safe`; invalid prior never mutates it before baseline acceptance.
 
-- [ ] **Step 4: Run GREEN and full Hand/QP regression**
+- [x] **Step 4: Run GREEN and full Hand/QP regression**
 
 Run: `cd Go2Pvcnn && PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_hand_mpc.py tests/test_m1_bimanual_runtime.py tests/test_m1_bimanual_full_action_teacher.py tests/test_m1_bimanual_o6_contact.py`
 
 Expected: pass; disabled path exact, prior path constraints satisfied.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/hand_mpc.py Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/runtime.py Go2Pvcnn/tests/test_m1_bimanual_hand_mpc.py Go2Pvcnn/tests/test_m1_bimanual_runtime.py

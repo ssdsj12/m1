@@ -6,6 +6,10 @@ import torch
 
 from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualPhase
 from go2_pvcnn.control.m1_bimanual_coordination.dual_arm_mpc import DualArmMpcSolution
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.runtime import (
+    FingertipPriorDiagnostics,
+    PriorQueryResult,
+)
 from go2_pvcnn.control.m1_bimanual_coordination.hand_mpc import O6HandMpc
 from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
 from go2_pvcnn.control.m1_bimanual_coordination.whole_body_qp import (
@@ -39,6 +43,18 @@ class _ArmController:
 class _HandController:
     def plan(self, _sample):
         return O6HandMpc().plan(_hand_input())
+
+
+class _RecordingUnavailablePrior:
+    def __init__(self):
+        self.calls = []
+
+    def target(self, sample, baseline_qd):
+        self.calls.append((sample, baseline_qd.clone()))
+        return PriorQueryResult(
+            target=None,
+            diagnostics=FingertipPriorDiagnostics(False, "test_unavailable", 0.0),
+        )
 
 
 class _WbcController:
@@ -167,3 +183,74 @@ def test_runtime_uses_bounded_closed_loop_lift_target():
     assert sample.target_box_pose_b[0, 2] > snapshot.box.pose_b[2]
     assert sample.target_box_pose_b[-1, 2] < snapshot.box.pose_b[2] + 0.10
     assert runtime.latest_motion_target.recovery_side is None
+
+
+def test_runtime_hand_inputs_keep_real_left_and_right_o6_measurements_isolated():
+    runtime = _runtime()
+    snapshot = _snapshot()
+    left = replace(
+        snapshot.left_hand,
+        q=torch.arange(6, dtype=torch.float64) / 10.0,
+        qd=torch.arange(6, dtype=torch.float64) / 20.0,
+        fingertip_positions_b=torch.arange(15, dtype=torch.float64).reshape(5, 3),
+        fingertip_jacobian_b=torch.arange(90, dtype=torch.float64).reshape(15, 6),
+        contact_mask=torch.tensor([True, False, True, False, True]),
+    )
+    right = replace(
+        snapshot.right_hand,
+        q=-torch.arange(6, dtype=torch.float64) / 10.0,
+        qd=-torch.arange(6, dtype=torch.float64) / 20.0,
+        fingertip_positions_b=-torch.arange(15, dtype=torch.float64).reshape(5, 3),
+        fingertip_jacobian_b=-torch.arange(90, dtype=torch.float64).reshape(15, 6),
+        contact_mask=torch.tensor([False, True, False, True, False]),
+    )
+    snapshot = replace(snapshot, left_hand=left, right_hand=right)
+    runtime.mission.phase = BimanualPhase.PRELOAD
+
+    left_sample = runtime._hand_input(snapshot, "left", torch.zeros(6, dtype=torch.float64))
+    right_sample = runtime._hand_input(snapshot, "right", torch.zeros(6, dtype=torch.float64))
+
+    for sample, state, arm in (
+        (left_sample, left, snapshot.left_arm),
+        (right_sample, right, snapshot.right_arm),
+    ):
+        assert sample.phase is BimanualPhase.PRELOAD
+        assert sample.q.dtype == sample.qd.dtype == torch.float64
+        assert sample.q.device.type == sample.qd.device.type == "cpu"
+        assert torch.equal(sample.q, state.q)
+        assert torch.equal(sample.qd, state.qd)
+        assert torch.equal(sample.fingertip_positions_b, state.fingertip_positions_b)
+        assert torch.equal(sample.contact_jacobian, state.fingertip_jacobian_b)
+        assert torch.equal(sample.contact_mask, state.contact_mask)
+        assert torch.equal(sample.palm_pose_b, arm.palm_pose_b)
+    assert not torch.equal(left_sample.fingertip_positions_b, right_sample.fingertip_positions_b)
+
+
+def test_runtime_queries_independent_hand_priors_with_their_own_side_measurements():
+    left_prior = _RecordingUnavailablePrior()
+    right_prior = _RecordingUnavailablePrior()
+    runtime = BimanualRuntime(
+        object_mpc=_ObjectController(),
+        arm_mpc=_ArmController(),
+        left_hand_mpc=O6HandMpc(expert_prior=left_prior),
+        right_hand_mpc=O6HandMpc(expert_prior=right_prior),
+        wbc=_WbcController(),
+    )
+    snapshot = _snapshot()
+    left_positions = torch.arange(15, dtype=torch.float64).reshape(5, 3)
+    right_positions = -left_positions - 1.0
+    snapshot = replace(
+        snapshot,
+        left_hand=replace(snapshot.left_hand, fingertip_positions_b=left_positions),
+        right_hand=replace(snapshot.right_hand, fingertip_positions_b=right_positions),
+    )
+    runtime.compute(snapshot)
+    assert len(left_prior.calls) == len(right_prior.calls) == 1
+    expected_left = left_positions - snapshot.left_arm.palm_pose_b[:3]
+    expected_right = right_positions - snapshot.right_arm.palm_pose_b[:3]
+    assert torch.equal(left_prior.calls[0][0].fingertip_positions_b, expected_left)
+    assert torch.equal(right_prior.calls[0][0].fingertip_positions_b, expected_right)
+    assert not torch.equal(
+        left_prior.calls[0][0].fingertip_positions_b,
+        right_prior.calls[0][0].fingertip_positions_b,
+    )

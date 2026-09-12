@@ -89,10 +89,12 @@ def _default_hand_input(
     snapshot: BimanualSnapshot, side: str, target_wrench: torch.Tensor
 ) -> HandMpcInput:
     state = snapshot.left_hand if side == "left" else snapshot.right_hand
+    arm_state = snapshot.left_arm if side == "left" else snapshot.right_arm
     return HandMpcInput(
         q=state.q,
         qd=state.qd,
         fingertip_forces_b=state.fingertip_forces_b,
+        fingertip_positions_b=state.fingertip_positions_b,
         contact_mask=state.contact_mask,
         contact_jacobian=state.fingertip_jacobian_b,
         wrench_map=_wrench_map(state.fingertip_positions_b),
@@ -101,6 +103,7 @@ def _default_hand_input(
         q_max=torch.tensor([0.58, 1.36, 1.60, 1.60, 1.60, 1.60], dtype=torch.float64),
         qd_max=torch.ones(6, dtype=torch.float64),
         phase=BimanualPhase.GRASP,
+        palm_pose_b=arm_state.palm_pose_b,
     )
 
 
@@ -230,6 +233,7 @@ class BimanualRuntime:
             q=sample.q,
             qd=sample.qd,
             fingertip_forces_b=sample.fingertip_forces_b,
+            fingertip_positions_b=sample.fingertip_positions_b,
             contact_mask=sample.contact_mask,
             contact_jacobian=sample.contact_jacobian,
             wrench_map=sample.wrench_map,
@@ -238,6 +242,7 @@ class BimanualRuntime:
             q_max=sample.q_max,
             qd_max=sample.qd_max,
             phase=self.mission.phase,
+            palm_pose_b=sample.palm_pose_b,
         )
 
     def _collision(self, snapshot: BimanualSnapshot) -> tuple[torch.Tensor, torch.Tensor]:

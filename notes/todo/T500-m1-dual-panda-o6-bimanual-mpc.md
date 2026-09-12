@@ -47,6 +47,13 @@ termination plus one bounded daemon reaper and a matching process-wide slot budg
 pending children cannot exceed capacity; retry ownership only releases after the child exits. See the
 [lifecycle review log](../log/2026-09-12-t500-dexmanipnet-runtime-lifecycle-review.md).
 
+2026-09-12 更新：Task 9 将 prior 以原子两阶段方式接入 Hand MPC。prior-off 保持原来的
+precontact 输出与单次 contact QP 精确相等；prior-on 先求同周期 baseline，再运行保留 position/rate/
+contact latch 的六速率 projection 或保持全部 contact hard constraints 的第二 QP。prior query、target
+validation 或第二 QP 失败均接受同周期 baseline；baseline infeasible 仍使用旧 `_last_safe` 且不查询。
+runtime 向左右控制器分别传递真实掌坐标 O6 positions 和 folded Jacobian。Tasks 1–9 相关回归
+`198 passed`；Task 10 wrapper artifact/config wiring 仍未开始。见 [Task 9 验证](../log/2026-09-12-t500-dexmanipnet-hand-mpc-prior-integration.md)。
+
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
 确认姿态坐标差与空间角位移存在不一致，且首目标相对实测姿态的误差增长。
@@ -66,7 +73,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–8 合同、下载边界、源手 FK、sequence 审计、deterministic shards、offline ensemble、compact student artifact 和 fail-closed runtime adapter 已完成，下一步为 Task 9 Hand MPC atomic integration；真实数据/ensemble/student production 门仍未运行。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–9 已完成至 atomic Hand MPC integration，下一步为 Task 10 wrapper artifact/config/diagnostics wiring；真实数据/ensemble/student production 门仍未运行。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -79,6 +86,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-12 DexManipNet atomic Hand MPC prior integration](../log/2026-09-12-t500-dexmanipnet-hand-mpc-prior-integration.md)
 
 - [2026-09-12 DexManipNet frozen O6 prior runtime](../log/2026-09-12-t500-dexmanipnet-fingertip-prior-runtime.md)
 
@@ -116,8 +125,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: Task 8 frozen O6 prior runtime（this commit）
-- Last Verified Commit: Task 8 review-hardened runtime plus Tasks 1–8 regression (`147 passed`), import boundary and pycompile
+- Last Feature Commit: Task 9 atomic Hand MPC prior integration（this commit）
+- Last Verified Commit: Task 9 plus Tasks 1–9 relevant regression (`198 passed`), default import boundary and pycompile
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
@@ -129,7 +138,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-从 T500.5 Task 9 的 Hand MPC atomic integration 开始继续 12 任务计划；运行时物理主线仍需在
+从 T500.5 Task 10 的 wrapper artifact/config/diagnostics wiring 开始继续 12 任务计划；运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。
