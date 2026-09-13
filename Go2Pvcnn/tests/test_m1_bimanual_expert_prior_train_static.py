@@ -270,6 +270,7 @@ def test_explicit_resume_rejects_symlink_parent(tmp_path: Path):
             seed=101,
             hidden=(8,),
             aggregate_sha="a" * 64,
+            expected_member_seeds=(101, 202),
         )
 
 
@@ -449,6 +450,68 @@ def test_explicit_resume_checkpoint_rejects_training_configuration_mismatch(tmp_
     assert not (tmp_path / ".explicit-rejected.resume-v1").exists()
 
 
+@pytest.mark.parametrize("mutation", ["subset", "extra", "duplicate", "reorder"])
+@pytest.mark.parametrize("component", ["top_level_seeds", "member_records"])
+@pytest.mark.parametrize("legacy", [False, True], ids=["identified", "legacy"])
+def test_resume_requires_exact_manifest_member_roster_before_import(
+    tmp_path: Path,
+    mutation: str,
+    component: str,
+    legacy: bool,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = _trainer_module()
+    initial = tmp_path / "member-roster-source"
+    module.main(_smoke_args(initial))
+    manifest_path = initial / "ensemble_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if legacy:
+        manifest.pop("training_identity")
+        manifest.pop("training_identity_sha256")
+    target = manifest["member_seeds"] if component == "top_level_seeds" else manifest["members"]
+    if mutation == "subset":
+        target.pop()
+    elif mutation == "extra":
+        if component == "top_level_seeds":
+            target.append(303)
+        else:
+            extra = dict(manifest["members"][-1])
+            extra.update(
+                member_index=2,
+                seed=303,
+                checkpoint="checkpoints/member-02-best.pt",
+                checkpoint_sha256="0" * 64,
+            )
+            target.append(extra)
+    elif mutation == "duplicate":
+        if component == "top_level_seeds":
+            target[1] = target[0]
+        else:
+            target[1]["checkpoint"] = target[0]["checkpoint"]
+    elif mutation == "reorder":
+        target.reverse()
+    else:  # pragma: no cover - pytest owns the closed mutation set
+        raise AssertionError(mutation)
+    body = dict(manifest)
+    body.pop("ensemble_manifest_sha256")
+    manifest["ensemble_manifest_sha256"] = module._ensemble_manifest_sha256(body)
+    module._atomic_bytes(manifest_path, module._canonical_json(manifest))
+    destination = tmp_path / "member-roster-rejected"
+
+    def forbidden_import(*_args, **_kwargs):
+        raise AssertionError("member import occurred before whole-roster validation")
+
+    monkeypatch.setattr(module._ResumeWorkspace, "import_member", forbidden_import)
+
+    with pytest.raises(ValueError, match="member roster"):
+        module.main(
+            [*_smoke_args(destination), "--resume-checkpoint", str(initial)]
+        )
+
+    assert not destination.exists()
+    assert not module._resume_workspace_path(destination).exists()
+
+
 def test_pre_resume_workspace_legacy_completed_ensemble_is_safely_migrated(tmp_path: Path):
     module = _trainer_module()
     dataset_stage = tmp_path / "legacy-dataset"
@@ -602,6 +665,7 @@ def test_resume_checkpoint_with_valid_hash_but_invalid_payload_is_safely_rejecte
             seed=101,
             hidden=(8,),
             aggregate_sha=manifest["dataset_aggregate_sha256"],
+            expected_member_seeds=(101, 202),
             training_identity_sha=manifest["training_identity_sha256"],
         )
 
@@ -755,4 +819,5 @@ def test_resume_rejects_manifest_member_tampering_before_checkpoint_load(
             seed=1701,
             hidden=(512, 512, 512),
             aggregate_sha=manifest["dataset_aggregate_sha256"],
+            expected_member_seeds=(1701, 2718, 3141),
         )

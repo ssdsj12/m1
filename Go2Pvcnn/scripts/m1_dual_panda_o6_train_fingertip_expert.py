@@ -684,6 +684,51 @@ class _ResumeState:
     legacy: bool = False
 
 
+def _validate_resume_member_roster(
+    manifest: dict[str, object], expected_member_seeds: tuple[int, ...]
+) -> list[dict[str, object]]:
+    """Require one ordered, unique checkpoint record for every requested member."""
+
+    if (
+        type(expected_member_seeds) is not tuple
+        or not expected_member_seeds
+        or any(type(seed) is not int for seed in expected_member_seeds)
+        or len(set(expected_member_seeds)) != len(expected_member_seeds)
+    ):
+        raise ValueError("requested ensemble member roster is invalid")
+    manifest_seeds = manifest.get("member_seeds")
+    records = manifest.get("members")
+    if (
+        type(manifest_seeds) is not list
+        or any(type(seed) is not int for seed in manifest_seeds)
+        or manifest_seeds != list(expected_member_seeds)
+        or type(records) is not list
+        or len(records) != len(expected_member_seeds)
+    ):
+        raise ValueError("resume ensemble member roster does not exactly match the request")
+    checkpoint_paths: list[str] = []
+    validated: list[dict[str, object]] = []
+    for member_index, (seed, record) in enumerate(zip(expected_member_seeds, records)):
+        expected_path = f"checkpoints/member-{member_index:02d}-best.pt"
+        checkpoint_path = record.get("checkpoint") if type(record) is dict else None
+        if (
+            type(record) is not dict
+            or type(record.get("member_index")) is not int
+            or record.get("member_index") != member_index
+            or type(record.get("seed")) is not int
+            or record.get("seed") != seed
+            or checkpoint_path != expected_path
+            or type(record.get("checkpoint_sha256")) is not str
+        ):
+            raise ValueError("resume ensemble member roster is invalid or out of order")
+        assert isinstance(checkpoint_path, str)
+        checkpoint_paths.append(checkpoint_path)
+        validated.append(record)
+    if len(set(checkpoint_paths)) != len(checkpoint_paths):
+        raise ValueError("resume ensemble member roster contains duplicate checkpoint paths")
+    return validated
+
+
 def _load_resume(
     path: Path | None,
     *,
@@ -691,6 +736,7 @@ def _load_resume(
     seed: int,
     hidden: tuple[int, ...],
     aggregate_sha: str,
+    expected_member_seeds: tuple[int, ...],
     training_identity_sha: str | None = None,
     allow_legacy_completed_epochs: int | None = None,
 ) -> _ResumeState | None:
@@ -735,14 +781,17 @@ def _load_resume(
             or manifest_identity_sha != training_identity_sha
         ):
             raise ValueError("resume ensemble training identity does not match the requested configuration")
-    records = manifest.get("members")
-    if type(records) is not list:
-        raise ValueError("resume ensemble member records are invalid")
-    record = next((item for item in records if isinstance(item, dict) and item.get("member_index") == member_index), None)
+    records = _validate_resume_member_roster(manifest, expected_member_seeds)
+    if (
+        type(member_index) is not int
+        or not 0 <= member_index < len(expected_member_seeds)
+        or expected_member_seeds[member_index] != seed
+    ):
+        raise ValueError("requested ensemble member does not belong to the exact member roster")
+    record = records[member_index]
     expected_relative = f"checkpoints/member-{member_index:02d}-best.pt"
     if (
-        record is None
-        or record.get("seed") != seed
+        record.get("seed") != seed
         or record.get("checkpoint") != expected_relative
         or type(record.get("checkpoint_sha256")) is not str
     ):
@@ -819,6 +868,7 @@ def _train_member(
             seed=seed,
             hidden=hidden,
             aggregate_sha=aggregate_sha,
+            expected_member_seeds=tuple(workspace.identity["member_seeds"]),
             training_identity_sha=workspace.identity_sha256,
             allow_legacy_completed_epochs=epochs,
         )
@@ -1094,6 +1144,7 @@ def main(
                     seed=seed,
                     hidden=hidden,
                     aggregate_sha=document["aggregate_sha256"],
+                    expected_member_seeds=tuple(args.member_seeds),
                     training_identity_sha=_identity_sha256(identity),
                     allow_legacy_completed_epochs=args.epochs,
                 )
