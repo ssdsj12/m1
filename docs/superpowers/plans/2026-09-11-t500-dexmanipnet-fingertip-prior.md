@@ -781,7 +781,7 @@ Run:
 cd Go2Pvcnn
 PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_convert_dexmanipnet.py --root data/external/dexmanipnet --output-dir data/external/dexmanipnet/converted/run_a --seed 42
 PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_convert_dexmanipnet.py --root data/external/dexmanipnet --output-dir data/external/dexmanipnet/converted/run_b --seed 42
-cmp data/external/dexmanipnet/converted/run_a/aggregate.manifest.json data/external/dexmanipnet/converted/run_b/aggregate.manifest.json
+cmp data/external/dexmanipnet/converted/run_a/aggregate_manifest.json data/external/dexmanipnet/converted/run_b/aggregate_manifest.json
 ```
 
 Expected: both sources appear in the audit, every discovered sequence-side has exactly one accepted/rejected row, accepted count is positive, rejection reasons are non-empty, and both aggregate SHA values match.
@@ -792,7 +792,7 @@ Run:
 
 ```bash
 cd Go2Pvcnn
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_train_fingertip_expert.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate.manifest.json --output-dir data/external/dexmanipnet/artifacts/expert --member-seeds 42 43 44 45 46 --epochs 200
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_train_fingertip_expert.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate_manifest.json --output-dir data/external/dexmanipnet/artifacts/expert --member-seeds 42 43 44 45 46 --epochs 200
 ```
 
 Expected: held-out first-step and endpoint RMSE each improve at least `10%` over zero baselines; 80% interval coverage is within `[0.65,0.95]`; ensemble manifest is marked deployable.
@@ -803,8 +803,8 @@ Run:
 
 ```bash
 cd Go2Pvcnn
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate.manifest.json --ensemble-dir data/external/dexmanipnet/artifacts/expert --output-dir data/external/dexmanipnet/artifacts/student_a --seed 42 --epochs 200
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate.manifest.json --ensemble-dir data/external/dexmanipnet/artifacts/expert --output-dir data/external/dexmanipnet/artifacts/student_b --seed 42 --epochs 200
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate_manifest.json --ensemble-dir data/external/dexmanipnet/artifacts/expert --output-dir data/external/dexmanipnet/artifacts/student_a --seed 42 --epochs 200
+PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate_manifest.json --ensemble-dir data/external/dexmanipnet/artifacts/expert --output-dir data/external/dexmanipnet/artifacts/student_b --seed 42 --epochs 200
 cmp data/external/dexmanipnet/artifacts/student_a/metadata.json data/external/dexmanipnet/artifacts/student_b/metadata.json
 cmp data/external/dexmanipnet/artifacts/student_a/metrics.json data/external/dexmanipnet/artifacts/student_b/metrics.json
 ```
