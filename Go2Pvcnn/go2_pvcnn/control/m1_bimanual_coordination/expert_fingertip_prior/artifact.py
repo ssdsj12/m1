@@ -308,4 +308,17 @@ def load_student_artifact(root: str | Path) -> LoadedStudent:
     return LoadedStudent(model=model, metadata=metadata, metrics=metrics["metrics"], latency=latency)
 
 
-__all__ = ["LoadedStudent", "load_student_artifact", "save_student_artifact"]
+def validate_student_artifact(root: str | Path) -> None:
+    """Run the complete strict load/approval gate without starting a worker."""
+
+    loaded = load_student_artifact(root)
+    if loaded.metrics.get("production_approved") is not True:
+        raise ValueError("runtime requires a production_approved student artifact")
+
+
+__all__ = [
+    "LoadedStudent",
+    "load_student_artifact",
+    "save_student_artifact",
+    "validate_student_artifact",
+]

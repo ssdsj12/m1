@@ -54,7 +54,9 @@ validation 或第二 QP 失败均接受同周期 baseline；baseline infeasible 
 runtime 向左右控制器分别传递真实掌坐标 O6 positions 和 folded Jacobian。Task 10 已将严格
 artifact 的左右独立 runtime adapter、opt-in Probe/Play CLI 和 per-side JSON/JSONL diagnostics
 接入 wrapper；disabled 值保持 canonical null/reason，且 enabled-only inference p99 不混入
-disabled 样本。Tasks 1–10 相关回归 `198 passed`；见 [Task 10 验证](../log/2026-09-13-t500-dexmanipnet-prior-entrypoints.md)。
+disabled 样本。review 后显式 artifact 会在 AppLauncher/Isaac 前完成 strict `weights_only`
+validation；worker cleanup 覆盖 late-init/reset/step exceptions，active precision variance 也已输出。
+Tasks 1–10 相关回归 `199 passed`；见 [Task 10 验证](../log/2026-09-13-t500-dexmanipnet-prior-entrypoints.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -130,7 +132,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 ## Git Refs
 
 - Last Feature Commit: Task 10 opt-in Probe/Play prior artifact and diagnostics wiring（local candidate）
-- Last Verified Commit: Task 10 plus Tasks 1–10 relevant regression (`198 passed`), help/import boundary and pycompile
+- Last Verified Commit: Task 10 review follow-up plus Tasks 1–10 relevant regression (`199 passed`), help/import boundary and pycompile
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)

@@ -15,22 +15,22 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--diagnostics", action="store_true")
     parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
     parser.add_argument("--fingertip-prior-artifact", type=Path, default=None)
-    # Keep --help independent of IsaacLab while preserving full launcher flags
-    # for actual playback.
-    if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
-        parser.add_argument("--headless", action="store_true")
-    else:
-        from isaaclab.app import AppLauncher
-
-        AppLauncher.add_app_launcher_args(parser)
     return parser
 
 
 def main() -> int:
     parser = _parser()
-    args = parser.parse_args()
+    early_args, _unknown_launcher_args = parser.parse_known_args()
+    if early_args.fingertip_prior_artifact is not None:
+        from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact import (
+            validate_student_artifact,
+        )
+
+        validate_student_artifact(early_args.fingertip_prior_artifact)
     from isaaclab.app import AppLauncher
 
+    AppLauncher.add_app_launcher_args(parser)
+    args = parser.parse_args()
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
     import gymnasium as gym
@@ -47,35 +47,34 @@ def main() -> int:
     cfg.scene.num_envs = 1
     cfg.seed = args.seed
     env = gym.make("Isaac-M1-DualPanda-O6-Bimanual-Lift-v0", cfg=cfg)
-    wrapper = M1DualPandaO6BimanualWrapper(
+    with M1DualPandaO6BimanualWrapper(
         env,
         mode=args.mode,
         fingertip_prior_artifact=args.fingertip_prior_artifact,
-    )
-    wrapper.reset(seed=args.seed)
-    previous_phase = wrapper.runtime.mission.phase.name
-    for step in range(args.max_steps):
-        wrapper.step()
-        phase = wrapper.runtime.mission.phase.name
-        if args.diagnostics and (phase != previous_phase or phase in {"DONE", "TERMINATED"}):
-            latest = wrapper.runtime.latest_solutions
-            reasons = {
-                key: None if value is None else value.diagnostics.fallback_reason
-                for key, value in latest.items()
-                if key != "arm"
-            }
-            print(
-                f"step={step + 1} phase={phase} feasible={wrapper.last_command.feasible} "
-                f"reasons={reasons} base_state={wrapper.last_snapshot.base_state.tolist()}",
-                flush=True,
-            )
-        previous_phase = phase
-        if phase in {"DONE", "TERMINATED"}:
-            break
-        if not simulation_app.is_running():
-            break
-    print(f"final_phase={wrapper.runtime.mission.phase.name}", flush=True)
-    wrapper.close()
+    ) as wrapper:
+        wrapper.reset(seed=args.seed)
+        previous_phase = wrapper.runtime.mission.phase.name
+        for step in range(args.max_steps):
+            wrapper.step()
+            phase = wrapper.runtime.mission.phase.name
+            if args.diagnostics and (phase != previous_phase or phase in {"DONE", "TERMINATED"}):
+                latest = wrapper.runtime.latest_solutions
+                reasons = {
+                    key: None if value is None else value.diagnostics.fallback_reason
+                    for key, value in latest.items()
+                    if key != "arm"
+                }
+                print(
+                    f"step={step + 1} phase={phase} feasible={wrapper.last_command.feasible} "
+                    f"reasons={reasons} base_state={wrapper.last_snapshot.base_state.tolist()}",
+                    flush=True,
+                )
+            previous_phase = phase
+            if phase in {"DONE", "TERMINATED"}:
+                break
+            if not simulation_app.is_running():
+                break
+        print(f"final_phase={wrapper.runtime.mission.phase.name}", flush=True)
     return 0
 
 

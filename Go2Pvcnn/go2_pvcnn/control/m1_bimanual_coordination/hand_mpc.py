@@ -131,6 +131,9 @@ class HandMpcDiagnostics:
     prior_inference_ms: float = 0.0
     prior_precision_min: float | None = None
     prior_precision_max: float | None = None
+    prior_variance_min: float | None = None
+    prior_variance_mean: float | None = None
+    prior_variance_max: float | None = None
     prior_mahalanobis: float | None = None
     prior_cost: float | None = None
     regularized_tip_velocity_delta_norm: float | None = None
@@ -596,11 +599,35 @@ class O6HandMpc:
             baseline_tip = prior_jacobian @ baseline.qd_ref
             compared = baseline if result is None else result
             compared_tip = prior_jacobian @ compared.qd_ref
+            positive_precision = active_precision[active_precision > 0.0]
             values.update(
                 prior_component=component,
                 prior_probability=probability,
-                prior_precision_min=float(active_precision.min().item()),
-                prior_precision_max=float(active_precision.max().item()),
+                prior_precision_min=(
+                    float(positive_precision.min().item())
+                    if positive_precision.numel()
+                    else None
+                ),
+                prior_precision_max=(
+                    float(positive_precision.max().item())
+                    if positive_precision.numel()
+                    else None
+                ),
+                prior_variance_min=(
+                    float((1.0 / positive_precision).min().item())
+                    if positive_precision.numel()
+                    else None
+                ),
+                prior_variance_mean=(
+                    float((1.0 / positive_precision).mean().item())
+                    if positive_precision.numel()
+                    else None
+                ),
+                prior_variance_max=(
+                    float((1.0 / positive_precision).max().item())
+                    if positive_precision.numel()
+                    else None
+                ),
                 prior_mahalanobis=float(
                     ((baseline_tip - mean).square() * active_precision).sum().item()
                 ),

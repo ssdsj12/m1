@@ -47,3 +47,13 @@ Both entrypoint `--help` smokes, `py_compile`, scoped `git diff --check`, and a 
 No approved production artifact, Isaac runtime, physical trial, or GPU latency measurement was
 executed. The diagnostics schema is verified through pure/static and fake-environment lifecycle
 tests only.
+
+## Review Follow-up
+
+Explicit artifacts are now fully validated by `validate_student_artifact()` before the launcher is
+imported: strict metadata/report/approval/weight-SHA checks and a safe `weights_only` model load,
+but no worker. Wrapper cleanup covers late aliases, latent load, reset, and step errors; Probe uses
+`try/finally` without closing its shared environment, while Play uses context ownership. Diagnostics
+retain side solution objects to avoid id reuse, keep unobserved counts null, and include active
+positive-precision variance min/mean/max. Review focused `53 passed`; Tasks 1–10 relevant `199
+passed in 25.83s`; remaining bimanual `142 passed in 5.38s`.

@@ -117,8 +117,23 @@ def test_probe_summary_has_prior_atomic_fields_and_disabled_nulls():
         "prior_soft_cost",
         "prior_inference_p99_ms",
         "prior_baseline_tip_velocity_delta_norm",
+        "prior_qp_rejected_count",
+        "prior_fallback_count",
+        "prior_variance_min",
+        "prior_variance_mean",
+        "prior_variance_max",
     ):
         assert summary[key] is None
+
+
+def test_probe_parser_default_and_no_observation_counts_are_real_not_fabricated():
+    probe = _load_probe_module()
+    assert probe._parser().parse_args([]).fingertip_prior_artifact is None
+    configured = probe.make_probe_summary(configured=True)
+    final = probe.finalize_probe_prior_summary(configured)
+    assert final["prior_qp_rejected_count"] is None
+    assert final["prior_fallback_count"] is None
+    assert final["prior_disabled_reason"] == "no_relevant_observation"
 
 
 def test_probe_prior_diagnostics_are_side_isolated_and_p99_uses_enabled_samples_only():
@@ -135,6 +150,9 @@ def test_probe_prior_diagnostics_are_side_isolated_and_p99_uses_enabled_samples_
             prior_probability=0.75,
             prior_precision_min=1.0,
             prior_precision_max=4.0,
+            prior_variance_min=0.25,
+            prior_variance_mean=0.625,
+            prior_variance_max=1.0,
             prior_cost=0.5,
             prior_inference_ms=2.0,
             regularized_tip_velocity_delta_norm=0.25,
@@ -159,8 +177,43 @@ def test_probe_prior_diagnostics_are_side_isolated_and_p99_uses_enabled_samples_
     )
     assert probe.finalize_probe_prior_summary(left)["prior_inference_p99_ms"] == pytest.approx(2.0)
     assert probe.finalize_probe_prior_summary(left)["prior_qp_rejected_count"] == 1
+    assert probe.finalize_probe_prior_summary(left)["prior_variance_mean"] == pytest.approx(0.625)
     assert probe.finalize_probe_prior_summary(right)["prior_enabled"] is False
-    assert probe.finalize_probe_prior_summary(right)["prior_disabled_reason"] == "no_enabled_inference"
+    assert probe.finalize_probe_prior_summary(right)["prior_disabled_reason"] == "no_relevant_observation"
+
+
+def test_artifact_validation_is_safe_and_does_not_create_a_worker(tmp_path):
+    from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact import (
+        validate_student_artifact,
+    )
+
+    with pytest.raises(ValueError):
+        validate_student_artifact(tmp_path / "missing")
+
+
+def test_probe_closes_wrapper_when_reset_raises():
+    probe = _load_probe_module()
+
+    class ExplodingWrapper:
+        instance = None
+
+        def __init__(self, _env, **_kwargs):
+            type(self).instance = self
+            self.closed = []
+
+        def reset(self, *, seed):
+            raise RuntimeError(f"reset {seed}")
+
+        def close(self, *, close_env):
+            self.closed.append(close_env)
+
+    with pytest.raises(RuntimeError, match="reset 3"):
+        probe._run_trial(
+            object(), ExplodingWrapper, seed=3, trial_index=0, steps=1,
+            mode="teacher", latent_artifact=None, fingertip_prior_artifact=None,
+            runtime_factory=object,
+        )
+    assert ExplodingWrapper.instance.closed == [False]
 
 
 def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monkeypatch):
@@ -260,3 +313,44 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
     wrapper.close(close_env=False)
     assert left.closed is True and right.closed is True
     assert env.close_calls == 0
+
+    original_sync = wrapper_module.M1DualPandaO6BimanualWrapper._sync_legacy_aliases
+    alias_priors = [FirstPrior(), FirstPrior()]
+    alias_queue = list(alias_priors)
+    monkeypatch.setattr(
+        wrapper_module, "_construct_fingertip_prior", lambda _path: alias_queue.pop(0)
+    )
+    monkeypatch.setattr(
+        wrapper_module.M1DualPandaO6BimanualWrapper,
+        "_sync_legacy_aliases",
+        lambda _self: (_ for _ in ()).throw(RuntimeError("late aliases")),
+    )
+    with pytest.raises(RuntimeError, match="late aliases"):
+        wrapper_module.M1DualPandaO6BimanualWrapper(
+            ReadyEnv(), fingertip_prior_artifact="approved-artifact"
+        )
+    assert all(prior.closed for prior in alias_priors)
+
+    monkeypatch.setattr(
+        wrapper_module.M1DualPandaO6BimanualWrapper,
+        "_sync_legacy_aliases",
+        original_sync,
+    )
+    latent_priors = [FirstPrior(), FirstPrior()]
+    latent_queue = list(latent_priors)
+    monkeypatch.setattr(
+        wrapper_module, "_construct_fingertip_prior", lambda _path: latent_queue.pop(0)
+    )
+    monkeypatch.setattr(
+        wrapper_module.LatentRuntime,
+        "from_artifact",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("latent load")),
+    )
+    with pytest.raises(RuntimeError, match="latent load"):
+        wrapper_module.M1DualPandaO6BimanualWrapper(
+            ReadyEnv(),
+            mode="latent",
+            latent_artifact="latent",
+            fingertip_prior_artifact="approved-artifact",
+        )
+    assert all(prior.closed for prior in latent_priors)

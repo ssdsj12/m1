@@ -283,6 +283,16 @@ def test_contact_prior_queries_real_geometry_after_baseline_and_regularizes_rate
     assert result.diagnostics.prior_qp_accepted
     assert result.diagnostics.prior_component == 2
     assert result.diagnostics.prior_probability == pytest.approx(0.75)
+    assert result.diagnostics.prior_variance_min == pytest.approx(1.0)
+    assert result.diagnostics.prior_variance_mean == pytest.approx(1.0)
+    assert result.diagnostics.prior_variance_max == pytest.approx(1.0)
+
+
+def test_prior_variance_excludes_locked_zero_precision_rows():
+    result = O6HandMpc(expert_prior=_FixedPrior()).plan(_input())
+    assert result.diagnostics.prior_variance_min is None
+    assert result.diagnostics.prior_variance_mean is None
+    assert result.diagnostics.prior_variance_max is None
 
 
 def test_prior_query_and_soft_qp_use_palm_frame_geometry_without_changing_base_jacobian():

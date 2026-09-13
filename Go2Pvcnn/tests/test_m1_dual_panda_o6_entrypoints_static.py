@@ -9,7 +9,11 @@ def test_probe_exposes_orientation_contact_order():
         assert key in source
 
 import ast
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -210,7 +214,34 @@ def test_play_and_probe_prior_are_opt_in_and_passed_to_wrapper():
 
 
 def test_entrypoint_help_keeps_isaac_and_prior_loading_out_of_the_import_boundary():
-    for source in (PLAY.read_text(encoding="utf-8"), PROBE.read_text(encoding="utf-8")):
-        assert "def _parser" in source
-        assert 'if "--help" in sys.argv[1:]' in source
-        assert "FrozenO6FingertipPrior" not in source
+    for path in (PLAY, PROBE):
+        code = f'''import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("entrypoint_under_test", {str(path)!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+sys.argv = [{str(path)!r}, "--help"]
+try:
+    module.main()
+except SystemExit:
+    pass
+print(json.dumps({{"isaac": any(name.startswith("isaaclab") for name in sys.modules), "prior": any("expert_fingertip_prior" in name for name in sys.modules)}}))
+'''
+        env = {**os.environ, "PYTHONPATH": str(ROOT)}
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True
+        )
+        assert "--fingertip-prior-artifact" in result.stdout
+        assert json.loads(result.stdout.splitlines()[-1]) == {"isaac": False, "prior": False}
+
+
+def test_invalid_prior_artifact_is_rejected_before_isaac_launcher_or_gym(tmp_path):
+    for path in (PLAY, PROBE):
+        result = subprocess.run(
+            [sys.executable, str(path), "--fingertip-prior-artifact", str(tmp_path / "missing")],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(ROOT)},
+        )
+        assert result.returncode != 0
+        assert "student artifact root must be a regular directory" in result.stderr
+        assert "No module named 'isaaclab'" not in result.stderr

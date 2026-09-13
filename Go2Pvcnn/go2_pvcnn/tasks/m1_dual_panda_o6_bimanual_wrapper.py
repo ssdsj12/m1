@@ -605,6 +605,7 @@ class M1DualPandaO6BimanualWrapper:
             self._prior_finalizer = weakref.finalize(
                 self, _close_fingertip_priors, self._fingertip_priors
             )
+        self.lanes: list[BimanualLaneController] = []
         try:
             raw = self.env.unwrapped
             self.lanes = [
@@ -623,33 +624,33 @@ class M1DualPandaO6BimanualWrapper:
                 )
                 for index in range(raw.num_envs)
             ]
+            selected_artifact = latent_artifact or os.environ.get(
+                "M1_BIMANUAL_LATENT_ARTIFACT"
+            )
+            if mode == "latent":
+                if selected_artifact is None:
+                    raise FileNotFoundError(
+                        "latent model path is required through M1_BIMANUAL_LATENT_ARTIFACT"
+                    )
+                for lane in self.lanes:
+                    lane.latent_runtime = LatentRuntime.from_artifact(
+                        Path(selected_artifact),
+                        action_order=tuple(M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES),
+                        teacher=lane.teacher,
+                        safety=lane.safety,
+                        effort_limits=self._effort_limits,
+                        safety_input_provider=lambda snapshot, dynamics, candidate,
+                        index=lane.env_index: self._safety_input(
+                            self.lanes[index], snapshot, dynamics, candidate
+                        ),
+                    )
+            self.startup_complete = False
+            self.last_actions: torch.Tensor | None = None
+            self._step = 0
+            self._sync_legacy_aliases()
         except BaseException:
-            self._close_prior_workers()
+            self._close_partial_resources()
             raise
-        selected_artifact = latent_artifact or os.environ.get(
-            "M1_BIMANUAL_LATENT_ARTIFACT"
-        )
-        if mode == "latent":
-            if selected_artifact is None:
-                raise FileNotFoundError(
-                    "latent model path is required through M1_BIMANUAL_LATENT_ARTIFACT"
-                )
-            for lane in self.lanes:
-                lane.latent_runtime = LatentRuntime.from_artifact(
-                    Path(selected_artifact),
-                    action_order=tuple(M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES),
-                    teacher=lane.teacher,
-                    safety=lane.safety,
-                    effort_limits=self._effort_limits,
-                    safety_input_provider=lambda snapshot, dynamics, candidate,
-                    index=lane.env_index: self._safety_input(
-                        self.lanes[index], snapshot, dynamics, candidate
-                    ),
-                )
-        self.startup_complete = False
-        self.last_actions: torch.Tensor | None = None
-        self._step = 0
-        self._sync_legacy_aliases()
 
     def _runtime_for_lane(
         self, supplied_runtime: BimanualRuntime | None
@@ -685,6 +686,17 @@ class M1DualPandaO6BimanualWrapper:
             self._prior_finalizer = None
         else:
             _close_fingertip_priors(self._fingertip_priors)
+
+    def _close_partial_resources(self) -> None:
+        for lane in self.lanes:
+            resource = lane.latent_runtime
+            close = getattr(resource, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except BaseException:
+                    pass
+        self._close_prior_workers()
 
     def _sync_legacy_aliases(self) -> None:
         """Keep the single-lane probe API mapped to lane zero."""
@@ -823,6 +835,13 @@ class M1DualPandaO6BimanualWrapper:
         box.write_root_state_to_sim(box_root)
 
     def reset(self, *, seed: int) -> BimanualSnapshot:
+        try:
+            return self._reset_impl(seed=seed)
+        except BaseException:
+            self._close_partial_resources()
+            raise
+
+    def _reset_impl(self, *, seed: int) -> BimanualSnapshot:
         """Reset, physically synchronize once, then expose an exact zero-velocity state."""
 
         self.startup_complete = False
@@ -1079,6 +1098,13 @@ class M1DualPandaO6BimanualWrapper:
         return left_target, right_target
 
     def step(self):
+        try:
+            return self._step_impl()
+        except BaseException:
+            self._close_partial_resources()
+            raise
+
+    def _step_impl(self):
         if not self.startup_complete:
             raise RuntimeError("wrapper.reset(seed=...) must complete before step()")
         commands: list[BimanualCommand] = []
@@ -1130,7 +1156,7 @@ class M1DualPandaO6BimanualWrapper:
         if self._closed:
             return
         self._closed = True
-        self._close_prior_workers()
+        self._close_partial_resources()
         if close_env:
             self.env.close()
 

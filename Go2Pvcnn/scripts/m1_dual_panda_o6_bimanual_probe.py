@@ -40,16 +40,22 @@ def make_probe_summary(*, configured: bool = False) -> dict[str, object]:
         "prior_probability": None,
         "prior_precision_min": None,
         "prior_precision_max": None,
+        "prior_variance_min": None,
+        "prior_variance_mean": None,
+        "prior_variance_max": None,
         "prior_soft_cost": None,
         "prior_inference_p99_ms": None,
         "prior_baseline_tip_velocity_delta_norm": None,
-        "prior_qp_rejected_count": 0,
-        "prior_fallback_count": 0,
+        "prior_qp_rejected_count": None,
+        "prior_fallback_count": None,
         "_enabled_inference_ms": [],
         "_components": [],
         "_probabilities": [],
         "_precision_mins": [],
         "_precision_maxs": [],
+        "_variance_mins": [],
+        "_variance_means": [],
+        "_variance_maxs": [],
         "_costs": [],
         "_tip_velocity_deltas": [],
         "_disabled_reasons": {},
@@ -66,6 +72,10 @@ def accumulate_probe_prior_diagnostics(
     configured = bool(getattr(diagnostics, "prior_configured", False))
     if configured:
         summary["prior_configured"] = True
+        if summary["prior_qp_rejected_count"] is None:
+            summary["prior_qp_rejected_count"] = 0
+        if summary["prior_fallback_count"] is None:
+            summary["prior_fallback_count"] = 0
     enabled = bool(getattr(diagnostics, "prior_enabled", False))
     reason = getattr(diagnostics, "prior_fallback_reason", None)
     if configured and isinstance(reason, str) and reason:
@@ -86,6 +96,9 @@ def accumulate_probe_prior_diagnostics(
         ("_probabilities", "prior_probability"),
         ("_precision_mins", "prior_precision_min"),
         ("_precision_maxs", "prior_precision_max"),
+        ("_variance_mins", "prior_variance_min"),
+        ("_variance_means", "prior_variance_mean"),
+        ("_variance_maxs", "prior_variance_max"),
         ("_costs", "prior_cost"),
         ("_tip_velocity_deltas", "regularized_tip_velocity_delta_norm"),
     ):
@@ -115,6 +128,8 @@ def finalize_probe_prior_summary(summary: dict[str, object]) -> dict[str, object
             result["prior_disabled_reason"] = sorted(
                 reasons, key=lambda value: (-int(reasons[value]), value)
             )[0]
+        elif result["prior_configured"]:
+            result["prior_disabled_reason"] = "no_relevant_observation"
         return result
     result["prior_enabled"] = True
     result["prior_disabled_reason"] = None
@@ -126,15 +141,24 @@ def finalize_probe_prior_summary(summary: dict[str, object]) -> dict[str, object
     probabilities = summary["_probabilities"]
     precision_mins = summary["_precision_mins"]
     precision_maxs = summary["_precision_maxs"]
+    variance_mins = summary["_variance_mins"]
+    variance_means = summary["_variance_means"]
+    variance_maxs = summary["_variance_maxs"]
     costs = summary["_costs"]
     deltas = summary["_tip_velocity_deltas"]
     assert all(isinstance(value, list) for value in (
-        components, probabilities, precision_mins, precision_maxs, costs, deltas
+        components, probabilities, precision_mins, precision_maxs, variance_mins,
+        variance_means, variance_maxs, costs, deltas
     ))
     result["prior_component"] = components[-1] if components else None
     result["prior_probability"] = probabilities[-1] if probabilities else None
     result["prior_precision_min"] = min(precision_mins) if precision_mins else None
     result["prior_precision_max"] = max(precision_maxs) if precision_maxs else None
+    result["prior_variance_min"] = min(variance_mins) if variance_mins else None
+    result["prior_variance_mean"] = (
+        sum(variance_means) / len(variance_means) if variance_means else None
+    )
+    result["prior_variance_max"] = max(variance_maxs) if variance_maxs else None
     result["prior_soft_cost"] = sum(costs) / len(costs) if costs else None
     result["prior_baseline_tip_velocity_delta_norm"] = (
         sum(deltas) / len(deltas) if deltas else None
@@ -325,8 +349,6 @@ def _run_trial(
     runtime_factory: Callable[[], object],
     progress_path: Path | None = None,
 ) -> dict[str, object]:
-    import torch
-
     wrapper = wrapper_type(
         env,
         runtime=runtime_factory(),
@@ -334,11 +356,36 @@ def _run_trial(
         latent_artifact=latent_artifact,
         fingertip_prior_artifact=fingertip_prior_artifact,
     )
+    try:
+        return _run_trial_with_wrapper(
+            wrapper,
+            seed=seed,
+            trial_index=trial_index,
+            steps=steps,
+            fingertip_prior_artifact=fingertip_prior_artifact,
+            progress_path=progress_path,
+        )
+    finally:
+        # The probe intentionally keeps its shared env open across trials.
+        wrapper.close(close_env=False)
+
+
+def _run_trial_with_wrapper(
+    wrapper,
+    *,
+    seed: int,
+    trial_index: int,
+    steps: int,
+    fingertip_prior_artifact: Path | None,
+    progress_path: Path | None = None,
+) -> dict[str, object]:
+    import torch
+
     initial = wrapper.reset(seed=seed)
     _write_progress(
         progress_path,
         executed_physics_steps=1,
-        num_envs=int(env.unwrapped.num_envs),
+        num_envs=int(wrapper.env.unwrapped.num_envs),
     )
     initial_box_pose = initial.box.pose_b.clone()
     initial_fingertip_palm_offsets_m: dict[str, list[list[float]]] = {}
@@ -433,14 +480,16 @@ def _run_trial(
             configured=fingertip_prior_artifact is not None
         ),
     }
-    prior_solution_ids = {"left_o6": None, "right_o6": None}
+    # Retain solved objects: CPython can recycle an integer id after a prior
+    # solution is released, which would silently drop a later diagnostic.
+    prior_solutions = {"left_o6": None, "right_o6": None}
 
     for step_index in range(steps):
         _, _, terminated, truncated, _ = wrapper.step()
         _write_progress(
             progress_path,
             executed_physics_steps=step_index + 2,
-            num_envs=int(env.unwrapped.num_envs),
+            num_envs=int(wrapper.env.unwrapped.num_envs),
         )
         snapshot = wrapper.last_snapshot
         orientation_diagnostics = wrapper.runtime.object_mpc.right_orientation_mpc.last_diagnostics
@@ -635,9 +684,9 @@ def _run_trial(
         left_hand = latest["left_hand"]
         right_hand = latest["right_hand"]
         for key, solution in (("left_o6", left_hand), ("right_o6", right_hand)):
-            if solution is None or prior_solution_ids[key] == id(solution):
+            if solution is None or prior_solutions[key] is solution:
                 continue
-            prior_solution_ids[key] = id(solution)
+            prior_solutions[key] = solution
             accumulate_probe_prior_diagnostics(
                 prior_diagnostics[key], solution.diagnostics
             )
@@ -856,7 +905,6 @@ def _run_trial(
         },
     }
     row["passed"] = trial_passes(row)
-    wrapper.close(close_env=False)
     return row
 
 
@@ -887,26 +935,29 @@ def _parser():
         default=0.35,
         help="SO(3) target tracking rate cap applied by both arm MPCs",
     )
-    # Help is deliberately usable on a host without Isaac or an artifact.
-    if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
-        parser.add_argument("--headless", action="store_true")
-    else:
-        from isaaclab.app import AppLauncher
-
-        AppLauncher.add_app_launcher_args(parser)
     return parser
 
 
 def main() -> int:
     parser = _parser()
+    early_args, _unknown_launcher_args = parser.parse_known_args()
+    if early_args.fingertip_prior_artifact is not None:
+        from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact import (
+            validate_student_artifact,
+        )
+
+        validate_student_artifact(early_args.fingertip_prior_artifact)
+    # Artifact validation is complete before the launcher can import Isaac or
+    # create a simulation. Add its flags only for actual execution.
+    from isaaclab.app import AppLauncher
+
+    AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
     formal = args.seeds is not None
     if formal and any(path is None for path in (args.report, args.jsonl, args.manifest)):
         parser.error("formal mode requires --report, --jsonl, and --manifest")
     if not formal and (args.jsonl is not None or args.manifest is not None):
         parser.error("--jsonl and --manifest are reserved for formal mode with --seeds")
-    from isaaclab.app import AppLauncher
-
     app_launcher = AppLauncher(args)
     _simulation_app = app_launcher.app
 
