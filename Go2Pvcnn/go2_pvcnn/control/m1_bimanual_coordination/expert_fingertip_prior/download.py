@@ -239,6 +239,8 @@ def atomic_extract_tar(
             tar.extractall(staging, members=members, filter="data")
         payload = _extraction_payload_root(staging, destination_path, required_root)
         os.replace(payload, destination_path)
+        if staging.exists():
+            staging.rmdir()
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise

@@ -106,6 +106,7 @@ def test_atomic_extract_promotes_matching_archive_wrapper_for_required_root(tmp_
 
     assert (destination / "sequences" / "item.bin").read_bytes() == b"complete"
     assert not (destination / "installed").exists()
+    assert not list(tmp_path.glob(".installed.extract-*"))
 
 
 def test_sha256_and_manifest_record_pinned_archives(tmp_path):
