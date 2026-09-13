@@ -1,0 +1,25 @@
+{
+  "format_version": 1,
+  "dataset_aggregate_sha256": "$DATASET_AGGREGATE_SHA256",
+  "member_seeds": [101, 202],
+  "hidden": [8],
+  "members": [
+    {
+      "member_index": 0,
+      "seed": 101,
+      "best_validation_nll": 1.0,
+      "checkpoint": "checkpoints/member-00-best.pt",
+      "checkpoint_sha256": "$MEMBER_00_SHA256"
+    },
+    {
+      "member_index": 1,
+      "seed": 202,
+      "best_validation_nll": 1.0,
+      "checkpoint": "checkpoints/member-01-best.pt",
+      "checkpoint_sha256": "$MEMBER_01_SHA256"
+    }
+  ],
+  "metrics": {},
+  "synthetic_smoke": true,
+  "production_deployable": false
+}

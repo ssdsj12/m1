@@ -13,6 +13,7 @@ import pytest
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_train_fingertip_expert.py"
 PLAN = Path(__file__).parents[2] / "docs" / "superpowers" / "plans" / "2026-09-11-t500-dexmanipnet-fingertip-prior.md"
+LEGACY_MANIFEST_FIXTURE = Path(__file__).parent / "fixtures" / "t500_legacy_expert_ensemble_manifest_v1.json"
 
 
 def _trainer_module():
@@ -115,6 +116,264 @@ def _smoke_args(output: Path) -> list[str]:
     ]
 
 
+def _workspace_identity(module, *, epochs: int = 3):
+    return module._training_identity(
+        aggregate_sha="a" * 64,
+        member_seeds=(101, 202),
+        hidden=(8,),
+        epochs=epochs,
+        batch_size=8,
+        learning_rate=1e-3,
+        acceleration_weight=1e-5,
+        jerk_weight=1e-7,
+        device=module.torch.device("cpu"),
+        synthetic_smoke=True,
+    )
+
+
+def _resume_state(module, workspace, *, epoch: int, best_nll: float):
+    return {
+        "format_version": 1,
+        "member_index": 0,
+        "seed": 101,
+        "hidden": (8,),
+        "epoch": epoch,
+        "best_validation_nll": best_nll,
+        "dataset_aggregate_sha256": "a" * 64,
+        "training_identity_sha256": workspace.identity_sha256,
+        "model_state": {},
+        "optimizer_state": {},
+    }
+
+
+def test_checkpoint_slots_never_overwrite_progress_referenced_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    module = _trainer_module()
+    path = tmp_path / ".output.resume-v1"
+    workspace = module._ResumeWorkspace(path, _workspace_identity(module))
+    workspace.commit_epoch(
+        member_index=0,
+        seed=101,
+        state=_resume_state(module, workspace, epoch=1, best_nll=3.0),
+        best_changed=True,
+    )
+    workspace.commit_epoch(
+        member_index=0,
+        seed=101,
+        state=_resume_state(module, workspace, epoch=2, best_nll=3.0),
+        best_changed=False,
+    )
+    committed = json.loads((path / "progress.json").read_text(encoding="utf-8"))
+    old_last = path / committed["members"][0]["last"]["path"]
+    old_best = path / committed["members"][0]["best"]["path"]
+    old_last_bytes, old_best_bytes = old_last.read_bytes(), old_best.read_bytes()
+
+    def fail_progress(*_args, **_kwargs):
+        raise OSError("injected progress publication failure")
+
+    monkeypatch.setattr(module, "_write_progress", fail_progress)
+    with pytest.raises(OSError, match="injected progress"):
+        workspace.commit_epoch(
+            member_index=0,
+            seed=101,
+            state=_resume_state(module, workspace, epoch=3, best_nll=2.0),
+            best_changed=True,
+        )
+    monkeypatch.undo()
+
+    assert old_last.read_bytes() == old_last_bytes
+    assert old_best.read_bytes() == old_best_bytes
+    workspace.commit_epoch(
+        member_index=0,
+        seed=101,
+        state=_resume_state(module, workspace, epoch=3, best_nll=2.0),
+        best_changed=True,
+    )
+    restored = module._ResumeWorkspace(path, _workspace_identity(module))
+    resumed = restored.load_member(member_index=0, seed=101, hidden=(8,))
+    assert resumed is not None
+    assert resumed.state["epoch"] == 3
+
+
+def test_resume_workspace_rejects_symlink_parent_without_external_write(tmp_path: Path):
+    module = _trainer_module()
+    external = tmp_path / "external"
+    external.mkdir()
+    linked_parent = tmp_path / "linked"
+    linked_parent.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        module._ResumeWorkspace(linked_parent / ".output.resume-v1", _workspace_identity(module))
+
+    assert list(external.iterdir()) == []
+
+
+def test_resume_workspace_rejects_symlink_checkpoint_directory_without_external_write(tmp_path: Path):
+    module = _trainer_module()
+    path = tmp_path / ".output.resume-v1"
+    workspace = module._ResumeWorkspace(path, _workspace_identity(module))
+    checkpoints = path / "checkpoints"
+    if checkpoints.exists():
+        checkpoints.rmdir()
+    external = tmp_path / "external-checkpoints"
+    external.mkdir()
+    checkpoints.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        workspace.commit_epoch(
+            member_index=0,
+            seed=101,
+            state=_resume_state(module, workspace, epoch=1, best_nll=2.0),
+            best_changed=True,
+        )
+
+    assert list(external.iterdir()) == []
+
+
+def test_main_rejects_symlink_output_parent_before_external_write(tmp_path: Path):
+    module = _trainer_module()
+    external = tmp_path / "external-output"
+    external.mkdir()
+    linked_parent = tmp_path / "linked-output"
+    linked_parent.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        module.main(_smoke_args(linked_parent / "expert"))
+
+    assert list(external.iterdir()) == []
+
+
+def test_dataset_manifest_rejects_symlink_parent(tmp_path: Path):
+    module = _trainer_module()
+    external = tmp_path / "external-dataset"
+    external.mkdir()
+    (external / "aggregate_manifest.json").write_text("{}", encoding="utf-8")
+    linked_parent = tmp_path / "linked-dataset"
+    linked_parent.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        module._resolve_manifest(str(linked_parent / "aggregate_manifest.json"))
+
+
+def test_explicit_resume_rejects_symlink_parent(tmp_path: Path):
+    module = _trainer_module()
+    external = tmp_path / "external-resume"
+    external.mkdir()
+    linked_parent = tmp_path / "linked-resume"
+    linked_parent.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        module._load_resume(
+            linked_parent,
+            member_index=0,
+            seed=101,
+            hidden=(8,),
+            aggregate_sha="a" * 64,
+        )
+
+
+def test_cpu_seed_and_preflight_never_probe_or_seed_cuda(monkeypatch: pytest.MonkeyPatch):
+    module = _trainer_module()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("CPU path touched CUDA")
+
+    monkeypatch.setattr(module.torch.cuda, "is_available", forbidden)
+    monkeypatch.setattr(module.torch.cuda, "is_initialized", forbidden)
+    monkeypatch.setattr(module.torch.cuda, "manual_seed_all", forbidden)
+    monkeypatch.setattr(module.torch, "manual_seed", forbidden)
+
+    module._configure_cuda_determinism("cpu")
+    module._set_seed(42)
+
+
+def test_cuda_preflight_rejects_when_cuda_was_already_initialized(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = _trainer_module()
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    monkeypatch.setattr(module.torch.cuda, "is_initialized", lambda: True)
+
+    with pytest.raises(RuntimeError, match="already initialized"):
+        module._configure_cuda_determinism("cuda:0")
+
+    assert "CUBLAS_WORKSPACE_CONFIG" not in os.environ
+
+
+def test_training_identity_binds_semantic_sources_cuda_build_device_and_cublas(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = _trainer_module()
+    fingerprint = {"type": "cuda", "uuid": "GPU-test", "compute_capability": [12, 0]}
+    monkeypatch.setattr(module, "_device_fingerprint", lambda _device: fingerprint, raising=False)
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    first = module._training_identity(
+        aggregate_sha="a" * 64,
+        member_seeds=(101, 202), hidden=(8,), epochs=2, batch_size=8,
+        learning_rate=1e-3, acceleration_weight=1e-5, jerk_weight=1e-7,
+        device=module.torch.device("cuda:0"), synthetic_smoke=False,
+    )
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":16:8")
+    second = module._training_identity(
+        aggregate_sha="a" * 64,
+        member_seeds=(101, 202), hidden=(8,), epochs=2, batch_size=8,
+        learning_rate=1e-3, acceleration_weight=1e-5, jerk_weight=1e-7,
+        device=module.torch.device("cuda:0"), synthetic_smoke=False,
+    )
+
+    assert first["device"] == fingerprint
+    assert first["software"]["torch_cuda_build"] == module.torch.version.cuda
+    assert first["software"]["numpy_version"] == module.np.__version__
+    assert set(first["training_semantics"]["source_sha256"]) == {"trainer", "model", "contracts"}
+    assert first["training_semantics"]["aggregate_sha256"] == module._training_semantics_sha256(
+        first["training_semantics"]["source_sha256"]
+    )
+    assert first["cublas_workspace_config"] == ":4096:8"
+    assert second["cublas_workspace_config"] == ":16:8"
+    assert module._identity_sha256(first) != module._identity_sha256(second)
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    assert module._training_identity(
+        aggregate_sha="a" * 64,
+        member_seeds=(101, 202), hidden=(8,), epochs=2, batch_size=8,
+        learning_rate=1e-3, acceleration_weight=1e-5, jerk_weight=1e-7,
+        device=module.torch.device("cuda:0"), synthetic_smoke=False,
+    ) == first
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("--learning-rate", "nan"),
+        ("--learning-rate", "inf"),
+        ("--learning-rate", "-inf"),
+        ("--learning-rate", "0"),
+        ("--learning-rate", "-1"),
+        ("--acceleration-weight", "nan"),
+        ("--acceleration-weight", "inf"),
+        ("--acceleration-weight", "-inf"),
+        ("--acceleration-weight", "-1"),
+        ("--jerk-weight", "nan"),
+        ("--jerk-weight", "inf"),
+        ("--jerk-weight", "-inf"),
+        ("--jerk-weight", "-1"),
+    ],
+)
+def test_nonfinite_hyperparameters_reject_before_any_output_state(
+    tmp_path: Path, option: str, value: str
+):
+    module = _trainer_module()
+    output = tmp_path / f"rejected-{option.removeprefix('--')}"
+
+    argument = f"{option}={value}" if value.startswith("-") else None
+    with pytest.raises(ValueError, match="training values"):
+        module.main([*_smoke_args(output), *([argument] if argument else [option, value])])
+
+    assert not output.exists()
+    assert not module._resume_workspace_path(output).exists()
+    assert not list(tmp_path.glob(f".{output.name}.train-*"))
+
+
 @pytest.mark.parametrize("failure_point", [(0, 1), (0, 2), (1, 1)])
 def test_interrupted_training_resumes_to_byte_identical_outputs(
     tmp_path: Path, failure_point: tuple[int, int]
@@ -188,6 +447,191 @@ def test_explicit_resume_checkpoint_rejects_training_configuration_mismatch(tmp_
 
     assert not destination.exists()
     assert not (tmp_path / ".explicit-rejected.resume-v1").exists()
+
+
+def test_pre_resume_workspace_legacy_completed_ensemble_is_safely_migrated(tmp_path: Path):
+    module = _trainer_module()
+    dataset_stage = tmp_path / "legacy-dataset"
+    manifest_path = module._synthetic_manifest(dataset_stage)
+    aggregate_sha = json.loads(manifest_path.read_text(encoding="utf-8"))["aggregate_sha256"]
+    legacy = tmp_path / "legacy-ensemble"
+    checkpoint_shas: list[str] = []
+    for member_index, seed in enumerate((101, 202)):
+        module._set_seed(seed)
+        model = module.FingertipMixtureNet(hidden=(8,))
+        optimizer = module.torch.optim.AdamW(model.parameters(), lr=1e-3)
+        best_state = {
+            "format_version": 1,
+            "member_index": member_index,
+            "seed": seed,
+            "hidden": (8,),
+            "epoch": 2,
+            "best_validation_nll": 1.0,
+            "dataset_aggregate_sha256": aggregate_sha,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+        }
+        checkpoint = legacy / "checkpoints" / f"member-{member_index:02d}-best.pt"
+        module._atomic_torch_save(checkpoint, best_state)
+        checkpoint_shas.append(sha256(checkpoint.read_bytes()).hexdigest())
+    fixture = LEGACY_MANIFEST_FIXTURE.read_text(encoding="utf-8")
+    body = json.loads(
+        fixture.replace("$DATASET_AGGREGATE_SHA256", aggregate_sha)
+        .replace("$MEMBER_00_SHA256", checkpoint_shas[0])
+        .replace("$MEMBER_01_SHA256", checkpoint_shas[1])
+    )
+    module._atomic_bytes(
+        legacy / "ensemble_manifest.json",
+        module._canonical_json(
+            {**body, "ensemble_manifest_sha256": module._ensemble_manifest_sha256(body)}
+        ),
+    )
+    output = tmp_path / "migrated"
+
+    module.main([*_smoke_args(output), "--resume-checkpoint", str(legacy)])
+
+    migrated = json.loads((output / "ensemble_manifest.json").read_text(encoding="utf-8"))
+    assert isinstance(migrated["training_identity"], dict)
+    assert len(migrated["training_identity_sha256"]) == 64
+    for record in migrated["members"]:
+        state = module.torch.load(output / record["checkpoint"], weights_only=True)
+        assert state["training_identity_sha256"] == migrated["training_identity_sha256"]
+        assert state["epoch"] == 2
+    assert not module._resume_workspace_path(output).exists()
+
+
+def test_legacy_ensemble_cannot_continue_from_an_earlier_best_epoch(tmp_path: Path):
+    module = _trainer_module()
+    dataset_stage = tmp_path / "legacy-dataset"
+    manifest_path = module._synthetic_manifest(dataset_stage)
+    aggregate_sha = json.loads(manifest_path.read_text(encoding="utf-8"))["aggregate_sha256"]
+    legacy = tmp_path / "legacy-ensemble"
+    records = []
+    for member_index, seed in enumerate((101, 202)):
+        module._set_seed(seed)
+        model = module.FingertipMixtureNet(hidden=(8,))
+        optimizer = module.torch.optim.AdamW(model.parameters(), lr=1e-3)
+        state = {
+            "format_version": 1,
+            "member_index": member_index,
+            "seed": seed,
+            "hidden": (8,),
+            "epoch": 1,
+            "best_validation_nll": 1.0,
+            "dataset_aggregate_sha256": aggregate_sha,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+        }
+        checkpoint = legacy / "checkpoints" / f"member-{member_index:02d}-best.pt"
+        module._atomic_torch_save(checkpoint, state)
+        records.append(
+            {
+                "member_index": member_index,
+                "seed": seed,
+                "best_validation_nll": 1.0,
+                "checkpoint": f"checkpoints/member-{member_index:02d}-best.pt",
+                "checkpoint_sha256": sha256(checkpoint.read_bytes()).hexdigest(),
+            }
+        )
+    body = {
+        "format_version": 1,
+        "dataset_aggregate_sha256": aggregate_sha,
+        "member_seeds": [101, 202],
+        "hidden": [8],
+        "members": records,
+        "metrics": {},
+        "synthetic_smoke": True,
+        "production_deployable": False,
+    }
+    module._atomic_bytes(
+        legacy / "ensemble_manifest.json",
+        module._canonical_json(
+            {**body, "ensemble_manifest_sha256": module._ensemble_manifest_sha256(body)}
+        ),
+    )
+
+    with pytest.raises(ValueError, match="requested final epoch"):
+        module.main(
+            [*_smoke_args(tmp_path / "must-not-continue"), "--resume-checkpoint", str(legacy)]
+        )
+
+
+def test_legacy_manifest_fixture_is_valid_json_and_contains_only_relative_paths():
+    document = json.loads(LEGACY_MANIFEST_FIXTURE.read_text(encoding="utf-8"))
+
+    assert set(document) == {
+        "format_version",
+        "dataset_aggregate_sha256",
+        "member_seeds",
+        "hidden",
+        "members",
+        "metrics",
+        "synthetic_smoke",
+        "production_deployable",
+    }
+    assert document["format_version"] == 1
+    for record in document["members"]:
+        checkpoint = Path(record["checkpoint"])
+        assert not checkpoint.is_absolute()
+        assert ".." not in checkpoint.parts
+    serialized = json.dumps(document, sort_keys=True)
+    assert "/home/" not in serialized
+    assert "/tmp/" not in serialized
+
+
+def test_resume_checkpoint_with_valid_hash_but_invalid_payload_is_safely_rejected(
+    tmp_path: Path,
+):
+    module = _trainer_module()
+    initial = tmp_path / "invalid-payload"
+    module.main([*_smoke_args(initial), "--epochs", "1"])
+    manifest_path = initial / "ensemble_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    checkpoint = initial / manifest["members"][0]["checkpoint"]
+    checkpoint.write_bytes(b"not a torch checkpoint")
+    manifest["members"][0]["checkpoint_sha256"] = sha256(checkpoint.read_bytes()).hexdigest()
+    body = dict(manifest)
+    body.pop("ensemble_manifest_sha256")
+    manifest["ensemble_manifest_sha256"] = module._ensemble_manifest_sha256(body)
+    module._atomic_bytes(manifest_path, module._canonical_json(manifest))
+
+    with pytest.raises(ValueError, match="safely loaded"):
+        module._load_resume(
+            initial,
+            member_index=0,
+            seed=101,
+            hidden=(8,),
+            aggregate_sha=manifest["dataset_aggregate_sha256"],
+            training_identity_sha=manifest["training_identity_sha256"],
+        )
+
+
+def test_workspace_checkpoint_with_valid_hash_but_invalid_payload_is_safely_rejected(
+    tmp_path: Path,
+):
+    module = _trainer_module()
+    path = tmp_path / ".invalid-workspace.resume-v1"
+    identity = _workspace_identity(module)
+    workspace = module._ResumeWorkspace(path, identity)
+    workspace.commit_epoch(
+        member_index=0,
+        seed=101,
+        state=_resume_state(module, workspace, epoch=1, best_nll=1.0),
+        best_changed=True,
+    )
+    progress_path = path / "progress.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    checkpoint = path / progress["members"][0]["last"]["path"]
+    checkpoint.write_bytes(b"not a torch checkpoint")
+    progress["members"][0]["last"]["sha256"] = sha256(checkpoint.read_bytes()).hexdigest()
+    body = dict(progress)
+    body.pop("progress_sha256")
+    progress["progress_sha256"] = sha256(module._canonical_json(body)).hexdigest()
+    module._atomic_bytes(progress_path, module._canonical_json(progress))
+
+    restored = module._ResumeWorkspace(path, identity)
+    with pytest.raises(ValueError, match="safely loaded"):
+        restored.load_member(member_index=0, seed=101, hidden=(8,))
 
 
 def test_resume_checkpoint_corruption_rejects_without_publishing_output(tmp_path: Path):

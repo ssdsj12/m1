@@ -798,8 +798,11 @@ CUDA_VISIBLE_DEVICES=0 CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONPATH=$PWD /home/xk/
 Expected: held-out first-step and endpoint RMSE each improve at least `10%` over zero baselines; 80% interval coverage is within `[0.65,0.95]`; ensemble manifest is marked deployable.
 If interrupted, rerun the exact same command: epoch-boundary state is recovered from
 `.expert.resume-v1/`. Any aggregate, seed/order, epoch count, architecture, optimizer,
-hyperparameter, PyTorch/NumPy version, device, or synthetic/production mismatch is rejected;
-the resume workspace is removed only after the final `expert/` directory is atomically published.
+hyperparameter, trainer/model/contracts semantic SHA, PyTorch/NumPy/CUDA build, stable device fingerprint,
+CUBLAS workspace configuration, or synthetic/production mismatch is rejected. Completed ensembles
+written before resume-workspace format v1 may be imported only when every member already equals the
+requested final epoch; they are validated and migrated, never continued with unverifiable optimizer semantics.
+The resume workspace is removed only after the final `expert/` directory is atomically published.
 
 - [ ] **Step 4: Distill the student twice**
 

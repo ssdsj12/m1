@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
@@ -10,8 +11,10 @@ import json
 import math
 import os
 from pathlib import Path, PurePosixPath
+import pickle
 import random
 import shutil
+import stat
 import tempfile
 
 import numpy as np
@@ -55,6 +58,10 @@ def _configure_cuda_determinism(device: str | torch.device) -> None:
 
     if torch.device(device).type != "cuda":
         return
+    if torch.cuda.is_initialized():
+        raise RuntimeError(
+            "CUDA is already initialized; CUBLAS_WORKSPACE_CONFIG preflight is too late"
+        )
     value = os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     if value not in _SUPPORTED_CUBLAS_WORKSPACE_CONFIGS:
         supported = ", ".join(sorted(_SUPPORTED_CUBLAS_WORKSPACE_CONFIGS))
@@ -97,7 +104,7 @@ def _ensemble_manifest_sha256(body: dict[str, object]) -> str:
 
 
 def _atomic_bytes(path: Path, value: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_safe_directory(path.parent)
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
     temporary = Path(temporary_name)
     try:
@@ -111,7 +118,7 @@ def _atomic_bytes(path: Path, value: bytes) -> None:
 
 
 def _atomic_torch_save(path: Path, value: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_safe_directory(path.parent)
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
     temporary = Path(temporary_name)
     try:
@@ -125,11 +132,17 @@ def _atomic_torch_save(path: Path, value: dict[str, object]) -> None:
 
 
 def _resolve_manifest(value: str) -> Path:
-    path = Path(value).resolve()
-    if path.is_dir():
+    path = _lexical_absolute(value)
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        metadata = None
+    if metadata is not None and stat.S_ISDIR(metadata.st_mode):
+        _require_safe_directory(path)
         path = path / "aggregate_manifest.json"
-    if path.name != "aggregate_manifest.json" or not path.is_file() or path.is_symlink():
+    if path.name != "aggregate_manifest.json":
         raise ValueError("dataset manifest must be a regular aggregate_manifest.json file")
+    _require_regular_file(path, label="dataset aggregate_manifest.json")
     return path
 
 
@@ -224,13 +237,14 @@ def _loader(dataset: GroupShardDataset, *, batch_size: int, seed: int, shuffle: 
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, generator=generator, num_workers=0)
 
 
-def _set_seed(seed: int) -> None:
+def _set_seed(seed: int, device: str | torch.device = "cpu") -> None:
     if type(seed) is not int:
         raise TypeError("seed must be an integer")
+    device_type = torch.device(device).type
     random.seed(seed)
     np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
+    torch.random.default_generator.manual_seed(seed)
+    if device_type == "cuda":
         torch.cuda.manual_seed_all(seed)
     torch.use_deterministic_algorithms(True)
 
@@ -239,8 +253,88 @@ def _checkpoint_sha(path: Path) -> str:
     return sha256(path.read_bytes()).hexdigest()
 
 
+def _lexical_absolute(path: str | Path) -> Path:
+    value = Path(path).expanduser()
+    if ".." in value.parts:
+        raise ValueError(f"unsafe parent traversal in path: {value}")
+    return value if value.is_absolute() else Path.cwd() / value
+
+
+def _walk_safe_directory(path: Path, *, create: bool) -> None:
+    absolute = _lexical_absolute(path)
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current = current / part
+        try:
+            metadata = os.lstat(current)
+        except FileNotFoundError as error:
+            if not create:
+                raise ValueError(f"required directory is missing: {current}") from error
+            os.mkdir(current)
+            metadata = os.lstat(current)
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f"safe directory chain contains symlink: {current}")
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError(f"safe directory chain contains non-directory: {current}")
+
+
+def _ensure_safe_directory(path: Path) -> None:
+    """Create a directory chain while refusing every symlink/non-directory ancestor."""
+
+    _walk_safe_directory(path, create=True)
+
+
+def _require_safe_directory(path: Path) -> None:
+    _walk_safe_directory(path, create=False)
+
+
+def _require_regular_file(path: Path, *, label: str) -> None:
+    _require_safe_directory(path.parent)
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError as error:
+        raise ValueError(f"{label} is missing") from error
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ValueError(f"{label} must not be a symlink")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError(f"{label} must be a regular file")
+
+
 def _resume_workspace_path(destination: Path) -> Path:
     return destination.with_name(f".{destination.name}.resume-v1")
+
+
+def _canonical_source_bytes(path: Path) -> bytes:
+    text = path.read_text(encoding="utf-8")
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
+def _training_source_sha256() -> dict[str, str]:
+    package = Path(__file__).parents[1] / "go2_pvcnn" / "control" / "m1_bimanual_coordination" / "expert_fingertip_prior"
+    paths = {
+        "trainer": Path(__file__),
+        "model": package / "model.py",
+        "contracts": package / "contracts.py",
+    }
+    return {name: sha256(_canonical_source_bytes(path)).hexdigest() for name, path in paths.items()}
+
+
+def _training_semantics_sha256(source_sha256: dict[str, str]) -> str:
+    return sha256(_canonical_json(source_sha256)).hexdigest()
+
+
+def _device_fingerprint(device: torch.device) -> dict[str, object]:
+    if device.type == "cpu":
+        return {"type": "cpu"}
+    if device.type != "cuda":
+        raise ValueError(f"unsupported training device type: {device.type}")
+    properties = torch.cuda.get_device_properties(device)
+    return {
+        "type": "cuda",
+        "uuid": str(properties.uuid),
+        "name": str(properties.name),
+        "compute_capability": [int(properties.major), int(properties.minor)],
+    }
 
 
 def _training_identity(
@@ -256,6 +350,12 @@ def _training_identity(
     device: torch.device,
     synthetic_smoke: bool,
 ) -> dict[str, object]:
+    source_sha256 = _training_source_sha256()
+    cublas_workspace_config = (
+        os.environ.get("CUBLAS_WORKSPACE_CONFIG") if device.type == "cuda" else None
+    )
+    if device.type == "cuda" and cublas_workspace_config not in _SUPPORTED_CUBLAS_WORKSPACE_CONFIGS:
+        raise ValueError("CUDA training identity requires a supported CUBLAS_WORKSPACE_CONFIG")
     return {
         "format_version": 1,
         "dataset_aggregate_sha256": aggregate_sha,
@@ -277,9 +377,15 @@ def _training_identity(
         },
         "software": {
             "torch_version": torch.__version__,
+            "torch_cuda_build": torch.version.cuda,
             "numpy_version": np.__version__,
         },
-        "device": str(device),
+        "training_semantics": {
+            "source_sha256": source_sha256,
+            "aggregate_sha256": _training_semantics_sha256(source_sha256),
+        },
+        "cublas_workspace_config": cublas_workspace_config,
+        "device": _device_fingerprint(device),
         "synthetic_smoke": synthetic_smoke,
     }
 
@@ -311,8 +417,7 @@ def _progress_document(identity: dict[str, object]) -> dict[str, object]:
 
 def _read_progress(path: Path) -> dict[str, object]:
     progress_path = path / "progress.json"
-    if not progress_path.is_file() or progress_path.is_symlink():
-        raise ValueError("resume workspace is missing a regular progress.json identity")
+    _require_regular_file(progress_path, label="resume workspace progress.json identity")
     try:
         document = json.loads(progress_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
@@ -358,8 +463,7 @@ def _record_file(path: Path, value: object, *, label: str) -> Path:
     ):
         raise ValueError(f"resume {label} checkpoint path is invalid")
     checkpoint = path.joinpath(*pure.parts)
-    if not checkpoint.is_file() or checkpoint.is_symlink():
-        raise ValueError(f"resume {label} checkpoint is missing")
+    _require_regular_file(checkpoint, label=f"resume {label} checkpoint")
     if type(declared) is not str or _checkpoint_sha(checkpoint) != declared:
         raise ValueError(f"resume {label} checkpoint SHA-256 mismatch")
     return checkpoint
@@ -377,6 +481,21 @@ def _finite_state(value: object) -> bool:
     return True
 
 
+def _unreferenced_slot(checkpoint_record: object, *, label: str) -> int:
+    """Choose the slot progress does not currently reference for this state kind."""
+
+    if checkpoint_record is None:
+        return 0
+    if type(checkpoint_record) is not dict or type(checkpoint_record.get("path")) is not str:
+        raise ValueError(f"resume {label} checkpoint record is invalid")
+    name = PurePosixPath(checkpoint_record["path"]).name
+    if name.endswith(f"-{label}-0.pt"):
+        return 1
+    if name.endswith(f"-{label}-1.pt"):
+        return 0
+    raise ValueError(f"resume {label} checkpoint slot is invalid")
+
+
 class _ResumeWorkspace:
     """Persist epoch-boundary state without ever presenting it as final output."""
 
@@ -384,18 +503,20 @@ class _ResumeWorkspace:
         self.path = path
         self.identity = identity
         self.identity_sha256 = _identity_sha256(identity)
-        if path.exists():
-            if not path.is_dir() or path.is_symlink():
-                raise ValueError("resume workspace must be a regular directory")
+        _ensure_safe_directory(path.parent)
+        if os.path.lexists(path):
+            _require_safe_directory(path)
             document = _read_progress(path)
             if document["identity_sha256"] != self.identity_sha256 or document["identity"] != identity:
                 raise ValueError("resume identity does not match the requested training configuration")
             self.document = document
             self._validate_records()
         else:
-            path.mkdir()
+            os.mkdir(path)
+            _ensure_safe_directory(path)
             self.document = _progress_document(identity)
             _write_progress(path, self.document)
+        _ensure_safe_directory(path / "checkpoints")
 
     def _member_record(self, member_index: int, seed: int) -> dict[str, object]:
         records = self.document["members"]
@@ -436,7 +557,7 @@ class _ResumeWorkspace:
         best_path = _record_file(self.path, record["best"], label="best")
         try:
             state = torch.load(last_path, map_location="cpu", weights_only=True)
-        except (OSError, RuntimeError, ValueError, TypeError) as error:
+        except (OSError, RuntimeError, ValueError, TypeError, pickle.UnpicklingError) as error:
             raise ValueError("resume last checkpoint could not be safely loaded") from error
         if (
             type(state) is not dict
@@ -469,8 +590,8 @@ class _ResumeWorkspace:
         epoch = state["epoch"]
         if type(epoch) is not int or epoch != record["completed_epochs"] + 1:
             raise ValueError("resume epochs must be committed in sequence")
-        next_slot = epoch % 2
-        last_path = self.path / "checkpoints" / f"member-{member_index:02d}-last-{next_slot}.pt"
+        next_last_slot = _unreferenced_slot(record["last"], label="last")
+        last_path = self.path / "checkpoints" / f"member-{member_index:02d}-last-{next_last_slot}.pt"
         _atomic_torch_save(last_path, state)
         last_record = {
             "path": last_path.relative_to(self.path).as_posix(),
@@ -478,7 +599,8 @@ class _ResumeWorkspace:
         }
         best_record = record["best"]
         if best_changed:
-            best_path = self.path / "checkpoints" / f"member-{member_index:02d}-best-{next_slot}.pt"
+            next_best_slot = _unreferenced_slot(best_record, label="best")
+            best_path = self.path / "checkpoints" / f"member-{member_index:02d}-best-{next_best_slot}.pt"
             _atomic_torch_save(best_path, state)
             best_record = {
                 "path": best_path.relative_to(self.path).as_posix(),
@@ -486,14 +608,17 @@ class _ResumeWorkspace:
             }
         if best_record is None:
             raise RuntimeError("first committed epoch did not select a best checkpoint")
-        record.update(
+        next_document = copy.deepcopy(self.document)
+        next_record = next_document["members"][member_index]
+        next_record.update(
             {
                 "completed_epochs": epoch,
                 "last": last_record,
                 "best": best_record,
             }
         )
-        _write_progress(self.path, self.document)
+        _write_progress(self.path, next_document)
+        self.document = next_document
 
     def import_member(
         self,
@@ -502,6 +627,8 @@ class _ResumeWorkspace:
         seed: int,
         state: dict[str, object],
         selected_checkpoint: bytes,
+        selected_state: dict[str, object] | None,
+        legacy: bool,
     ) -> None:
         record = self._member_record(member_index, seed)
         if record["completed_epochs"] != 0:
@@ -514,15 +641,25 @@ class _ResumeWorkspace:
         last_path = self.path / "checkpoints" / f"member-{member_index:02d}-last-0.pt"
         best_path = self.path / "checkpoints" / f"member-{member_index:02d}-best-0.pt"
         _atomic_torch_save(last_path, state)
-        _atomic_bytes(best_path, selected_checkpoint)
-        record.update(
+        if legacy:
+            if not isinstance(selected_state, dict):
+                raise ValueError("legacy selected checkpoint state is missing")
+            migrated_selected = dict(selected_state)
+            migrated_selected["training_identity_sha256"] = self.identity_sha256
+            _atomic_torch_save(best_path, migrated_selected)
+        else:
+            _atomic_bytes(best_path, selected_checkpoint)
+        next_document = copy.deepcopy(self.document)
+        next_record = next_document["members"][member_index]
+        next_record.update(
             {
                 "completed_epochs": state["epoch"],
                 "last": {"path": last_path.relative_to(self.path).as_posix(), "sha256": _checkpoint_sha(last_path)},
                 "best": {"path": best_path.relative_to(self.path).as_posix(), "sha256": _checkpoint_sha(best_path)},
             }
         )
-        _write_progress(self.path, self.document)
+        _write_progress(self.path, next_document)
+        self.document = next_document
 
     def best_checkpoint(self, *, member_index: int, seed: int) -> Path:
         record = self._member_record(member_index, seed)
@@ -543,6 +680,8 @@ class _ResumeWorkspace:
 class _ResumeState:
     state: dict[str, object]
     selected_checkpoint: bytes
+    selected_state: dict[str, object] | None = None
+    legacy: bool = False
 
 
 def _load_resume(
@@ -553,14 +692,13 @@ def _load_resume(
     hidden: tuple[int, ...],
     aggregate_sha: str,
     training_identity_sha: str | None = None,
+    allow_legacy_completed_epochs: int | None = None,
 ) -> _ResumeState | None:
     if path is None:
         return None
-    if not path.is_dir() or path.is_symlink():
-        raise ValueError("resume checkpoint must be an ensemble output directory")
+    _require_safe_directory(path)
     manifest_path = path / "ensemble_manifest.json"
-    if not manifest_path.is_file() or manifest_path.is_symlink():
-        raise FileNotFoundError("resume output is missing ensemble_manifest.json")
+    _require_regular_file(manifest_path, label="resume ensemble manifest")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
@@ -584,13 +722,19 @@ def _load_resume(
         raise ValueError("resume ensemble manifest does not match the verified aggregate and model")
     manifest_identity = manifest.get("training_identity")
     manifest_identity_sha = manifest.get("training_identity_sha256")
-    if training_identity_sha is not None and (
-        type(manifest_identity) is not dict
-        or type(manifest_identity_sha) is not str
-        or manifest_identity_sha != _identity_sha256(manifest_identity)
-        or manifest_identity_sha != training_identity_sha
-    ):
-        raise ValueError("resume ensemble training identity does not match the requested configuration")
+    identity_fields_present = manifest_identity is not None or manifest_identity_sha is not None
+    legacy = not identity_fields_present
+    if training_identity_sha is not None:
+        if legacy:
+            if type(allow_legacy_completed_epochs) is not int or allow_legacy_completed_epochs <= 0:
+                raise ValueError("legacy resume ensemble is allowed only for completed migration")
+        elif (
+            type(manifest_identity) is not dict
+            or type(manifest_identity_sha) is not str
+            or manifest_identity_sha != _identity_sha256(manifest_identity)
+            or manifest_identity_sha != training_identity_sha
+        ):
+            raise ValueError("resume ensemble training identity does not match the requested configuration")
     records = manifest.get("members")
     if type(records) is not list:
         raise ValueError("resume ensemble member records are invalid")
@@ -604,30 +748,46 @@ def _load_resume(
     ):
         raise ValueError("resume ensemble member does not match the requested seed")
     checkpoint_path = path / expected_relative
-    if not checkpoint_path.is_file() or checkpoint_path.is_symlink():
-        raise FileNotFoundError(f"missing resume checkpoint: {checkpoint_path}")
+    _require_regular_file(checkpoint_path, label="resume ensemble checkpoint")
     checkpoint_bytes = checkpoint_path.read_bytes()
     if sha256(checkpoint_bytes).hexdigest() != record["checkpoint_sha256"]:
         raise ValueError("resume checkpoint SHA-256 does not match ensemble manifest")
-    state = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    try:
+        selected_state = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    except (OSError, RuntimeError, ValueError, TypeError, pickle.UnpicklingError) as error:
+        raise ValueError("resume ensemble checkpoint could not be safely loaded") from error
     if (
-        not isinstance(state, dict)
-        or state.get("format_version") != 1
-        or state.get("member_index") != member_index
-        or state.get("seed") != seed
-        or state.get("hidden") != hidden
-        or state.get("dataset_aggregate_sha256") != aggregate_sha
+        not isinstance(selected_state, dict)
+        or selected_state.get("format_version") != 1
+        or selected_state.get("member_index") != member_index
+        or selected_state.get("seed") != seed
+        or selected_state.get("hidden") != hidden
+        or selected_state.get("dataset_aggregate_sha256") != aggregate_sha
         or (
             training_identity_sha is not None
-            and state.get("training_identity_sha256") != training_identity_sha
+            and not legacy
+            and selected_state.get("training_identity_sha256") != training_identity_sha
         )
-        or type(state.get("epoch")) is not int
-        or type(state.get("best_validation_nll")) is not float
-        or not isinstance(state.get("model_state"), dict)
-        or not isinstance(state.get("optimizer_state"), dict)
+        or type(selected_state.get("epoch")) is not int
+        or type(selected_state.get("best_validation_nll")) is not float
+        or record.get("best_validation_nll") != selected_state.get("best_validation_nll")
+        or not isinstance(selected_state.get("model_state"), dict)
+        or not isinstance(selected_state.get("optimizer_state"), dict)
+        or not _finite_state(selected_state)
     ):
         raise ValueError("resume checkpoint metadata is invalid")
-    return _ResumeState(state=state, selected_checkpoint=checkpoint_bytes)
+    state = selected_state
+    if legacy:
+        if selected_state["epoch"] != allow_legacy_completed_epochs:
+            raise ValueError(
+                "legacy resume members must each equal the requested final epoch"
+            )
+    return _ResumeState(
+        state=state,
+        selected_checkpoint=checkpoint_bytes,
+        selected_state=selected_state,
+        legacy=legacy,
+    )
 
 
 def _train_member(
@@ -648,8 +808,7 @@ def _train_member(
     resume: Path | None,
     epoch_commit_hook: Callable[[int, int], None] | None = None,
 ) -> tuple[FingertipMixtureNet, dict[str, object]]:
-    _configure_cuda_determinism(device)
-    _set_seed(seed)
+    _set_seed(seed, device)
     model = FingertipMixtureNet(hidden=hidden).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     resume_state = workspace.load_member(member_index=member_index, seed=seed, hidden=hidden)
@@ -661,6 +820,7 @@ def _train_member(
             hidden=hidden,
             aggregate_sha=aggregate_sha,
             training_identity_sha=workspace.identity_sha256,
+            allow_legacy_completed_epochs=epochs,
         )
         if resume_state is not None:
             workspace.import_member(
@@ -668,6 +828,8 @@ def _train_member(
                 seed=seed,
                 state=resume_state.state,
                 selected_checkpoint=resume_state.selected_checkpoint,
+                selected_state=resume_state.selected_state,
+                legacy=resume_state.legacy,
             )
             resume_state = workspace.load_member(member_index=member_index, seed=seed, hidden=hidden)
     start_epoch = 0
@@ -878,7 +1040,15 @@ def main(
     args = build_parser().parse_args(argv)
     if bool(args.synthetic_smoke) == bool(args.dataset_manifest):
         raise ValueError("choose exactly one of --dataset-manifest and --synthetic-smoke")
-    if args.epochs <= 0 or args.batch_size <= 0 or args.learning_rate <= 0.0 or args.acceleration_weight < 0.0 or args.jerk_weight < 0.0:
+    float_values = (args.learning_rate, args.acceleration_weight, args.jerk_weight)
+    if (
+        args.epochs <= 0
+        or args.batch_size <= 0
+        or not all(math.isfinite(value) for value in float_values)
+        or args.learning_rate <= 0.0
+        or args.acceleration_weight < 0.0
+        or args.jerk_weight < 0.0
+    ):
         raise ValueError("training values are invalid")
     try:
         hidden = tuple(int(value) for value in args.hidden.split(","))
@@ -888,10 +1058,12 @@ def main(
         raise ValueError("hidden widths are invalid")
     _configure_cuda_determinism(args.device)
     device = torch.device(args.device)
-    destination = Path(args.output_dir).resolve()
-    if destination.exists():
+    destination = _lexical_absolute(args.output_dir)
+    _ensure_safe_directory(destination.parent)
+    if os.path.lexists(destination):
+        if stat.S_ISLNK(os.lstat(destination).st_mode):
+            raise ValueError(f"output directory must not be a symlink: {destination}")
         raise FileExistsError(f"output directory already exists: {destination}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.train-", dir=destination.parent))
     try:
         manifest_path = _synthetic_manifest(stage) if args.synthetic_smoke else _resolve_manifest(args.dataset_manifest)
@@ -912,16 +1084,19 @@ def main(
             device=device,
             synthetic_smoke=bool(args.synthetic_smoke),
         )
-        resume = Path(args.resume_checkpoint).resolve() if args.resume_checkpoint else None
+        resume = _lexical_absolute(args.resume_checkpoint) if args.resume_checkpoint else None
         if resume is not None:
-            _load_resume(
-                resume,
-                member_index=0,
-                seed=args.member_seeds[0],
-                hidden=hidden,
-                aggregate_sha=document["aggregate_sha256"],
-                training_identity_sha=_identity_sha256(identity),
-            )
+            _require_safe_directory(resume)
+            for index, seed in enumerate(args.member_seeds):
+                _load_resume(
+                    resume,
+                    member_index=index,
+                    seed=seed,
+                    hidden=hidden,
+                    aggregate_sha=document["aggregate_sha256"],
+                    training_identity_sha=_identity_sha256(identity),
+                    allow_legacy_completed_epochs=args.epochs,
+                )
         workspace = _ResumeWorkspace(_resume_workspace_path(destination), identity)
         members: list[FingertipMixtureNet] = []
         member_records: list[dict[str, object]] = []
