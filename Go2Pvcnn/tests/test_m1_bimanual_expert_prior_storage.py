@@ -23,6 +23,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.sources import SOURCE_HANDS
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.storage import (
+    StreamingShardWriter,
     deterministic_group_split,
     verify_aggregate_manifest,
     write_shards,
@@ -98,6 +99,45 @@ def test_two_complete_writes_have_identical_shard_and_aggregate_hashes(tmp_path:
     assert hashes_a == hashes_b
     assert manifest_a.aggregate_sha256 == manifest_b.aggregate_sha256
     assert manifest_a.shards == tuple(sorted(manifest_a.shards, key=lambda item: item.path))
+
+
+def test_streaming_writer_matches_existing_shards_without_retaining_all_windows(tmp_path: Path):
+    groups = [f"favor/sequence_{index:02d}/rh" for index in range(10)]
+    windows = tuple(_window(group, index) for index, group in enumerate(groups))
+    split = deterministic_group_split(groups, seed=7)
+    audits = [{"sequence": group, "accepted": True} for group in groups]
+    expected = write_shards(
+        tmp_path / "expected", windows, split, shard_size=2, audits=audits,
+        archive_manifest_sha256="a" * 64, source_manifest_sha256="b" * 64,
+        group_hands={group: "inspire_rh" for group in groups},
+    )
+
+    writer = StreamingShardWriter(tmp_path / "streamed", seed=7, shard_size=2)
+    for window in reversed(windows):
+        writer.append((window,))
+        assert writer.buffered_window_count == 0
+    assert writer.spooled_window_count == len(windows)
+    actual = writer.finalize(
+        audits=tuple(reversed(audits)),
+        archive_manifest_sha256="a" * 64,
+        source_manifest_sha256="b" * 64,
+        group_hands={group: "inspire_rh" for group in groups},
+    )
+
+    assert _tree_hash(tmp_path / "streamed") == _tree_hash(tmp_path / "expected")
+    assert actual == expected
+
+
+def test_streaming_writer_rejects_bad_batch_atomically_without_staging_residue(tmp_path: Path):
+    output = tmp_path / "streamed"
+    writer = StreamingShardWriter(output, seed=7, shard_size=2)
+    writer.append((_window("favor/sequence/rh", 1),))
+
+    with pytest.raises(TypeError, match="ExpertWindow"):
+        writer.append((object(),))
+
+    assert not output.exists()
+    assert not list(tmp_path.glob(".streamed.shards-*"))
 
 
 def test_shards_have_strict_arrays_stats_audit_jsonl_and_no_group_leakage(tmp_path: Path):
@@ -361,6 +401,23 @@ def test_two_complete_offline_conversions_have_identical_all_file_hashes(tmp_pat
     assert manifest_a["shards"][0]["hand_counts"] == {"inspire_rh": 7}
     assert manifest_a["verified_inputs"]["archives"] == manifest_b["verified_inputs"]["archives"]
     assert manifest_a["verified_inputs"]["source"] == {"commit": commit, "tree": manifest_a["verified_inputs"]["source"]["tree"]}
+
+
+def test_conversion_spools_successes_without_calling_full_window_writer(tmp_path: Path, monkeypatch):
+    root = tmp_path / "external"
+    commit, _ = _write_full_conversion_fixture(root)
+    convert = _load_convert_script()
+    monkeypatch.setattr(convert, "DEXMANIPNET_REVISION", "a" * 40)
+    monkeypatch.setattr(convert, "MANIPTRANS_COMMIT", commit)
+
+    def _full_writer_must_not_run(*args, **kwargs):
+        raise AssertionError("conversion retained all windows for write_shards")
+
+    monkeypatch.setattr(convert, "write_shards", _full_writer_must_not_run, raising=False)
+    output = tmp_path / "streamed"
+    convert.run(root, output, seed=17, shard_size=7)
+
+    assert verify_aggregate_manifest(output)["aggregate_sha256"]
 
 
 def test_conversion_rejects_malformed_archive_provenance_before_touching_output(tmp_path: Path, monkeypatch):

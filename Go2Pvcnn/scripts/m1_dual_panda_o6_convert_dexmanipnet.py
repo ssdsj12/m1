@@ -25,8 +25,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.preproces
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.sources import SOURCE_HANDS
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.storage import (
-    deterministic_group_split,
-    write_shards,
+    StreamingShardWriter,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.urdf_fk import (
     UrdfKinematicTree,
@@ -85,74 +84,75 @@ def run(
         if not (source_path / "sequences").is_dir():
             raise FileNotFoundError(f"missing extracted {source} sequences: {source_path}")
 
-    windows = []
     audit_rows: list[dict[str, Any]] = []
     group_hands: dict[str, str] = {}
     tree_cache: dict[str, UrdfKinematicTree] = {}
-    for source in sorted(extracted):
-        sequences_root = extracted[source] / "sequences"
-        for sequence_path in sorted(sequences_root.iterdir(), key=lambda item: item.name):
-            if not sequence_path.is_dir():
-                continue
-            for side in _SOURCE_SIDES[source]:
-                source_audit = audit_sequence(sequence_path, source=source, side=side)
-                row = _audit_dict(source_audit)
-                if not source_audit.accepted:
-                    audit_rows.append(row)
+    writer = StreamingShardWriter(output, seed=seed, shard_size=shard_size)
+    window_count = 0
+    try:
+        for source in sorted(extracted):
+            sequences_root = extracted[source] / "sequences"
+            for sequence_path in sorted(sequences_root.iterdir(), key=lambda item: item.name):
+                if not sequence_path.is_dir():
                     continue
-                loaded = load_best_successful_rollout(sequence_path, source=source, side=side)
-                try:
-                    if loaded.source_hand_key not in tree_cache:
-                        spec = SOURCE_HANDS[loaded.source_hand_key]
-                        hand_urdf = source_root.joinpath(*Path(spec.urdf_relpath).parts)
-                        tree_cache[loaded.source_hand_key] = UrdfKinematicTree.from_file(hand_urdf)
-                    converted = convert_loaded_sequence(loaded, tree_cache[loaded.source_hand_key])
-                    if not converted:
-                        raise ValueError("fewer than 20 future 100 Hz nodes")
-                    row.update(
-                        {
-                            "accepted": True,
-                            "reason": "accepted",
-                            "windows": len(converted),
-                            "object_geometry_sha256": object_geometry_sha256(
-                                loaded.object_geometry_path
-                            ),
-                        }
-                    )
-                    group = converted[0].source_group
-                    group_hands[group] = loaded.source_hand_key
-                    windows.extend(converted)
-                except (OSError, TypeError, ValueError) as error:
-                    row.update(
-                        {
-                            "accepted": False,
-                            "reason": f"conversion_rejected:{error}",
-                            "windows": 0,
-                        }
-                    )
-                audit_rows.append(row)
+                for side in _SOURCE_SIDES[source]:
+                    source_audit = audit_sequence(sequence_path, source=source, side=side)
+                    row = _audit_dict(source_audit)
+                    if not source_audit.accepted:
+                        audit_rows.append(row)
+                        continue
+                    loaded = load_best_successful_rollout(sequence_path, source=source, side=side)
+                    try:
+                        if loaded.source_hand_key not in tree_cache:
+                            spec = SOURCE_HANDS[loaded.source_hand_key]
+                            hand_urdf = source_root.joinpath(*Path(spec.urdf_relpath).parts)
+                            tree_cache[loaded.source_hand_key] = UrdfKinematicTree.from_file(hand_urdf)
+                        converted = convert_loaded_sequence(loaded, tree_cache[loaded.source_hand_key])
+                        if not converted:
+                            raise ValueError("fewer than 20 future 100 Hz nodes")
+                        writer.append(converted)
+                        row.update(
+                            {
+                                "accepted": True,
+                                "reason": "accepted",
+                                "windows": len(converted),
+                                "object_geometry_sha256": object_geometry_sha256(
+                                    loaded.object_geometry_path
+                                ),
+                            }
+                        )
+                        group = converted[0].source_group
+                        group_hands[group] = loaded.source_hand_key
+                        window_count += len(converted)
+                    except (OSError, TypeError, ValueError) as error:
+                        row.update(
+                            {
+                                "accepted": False,
+                                "reason": f"conversion_rejected:{error}",
+                                "windows": 0,
+                            }
+                        )
+                    audit_rows.append(row)
 
-    if not windows:
-        raise RuntimeError("no DexManipNet sequence produced a usable fingertip window")
-    split = deterministic_group_split([window.source_group for window in windows], seed=seed)
-    aggregate = write_shards(
-        output,
-        windows,
-        split,
-        shard_size=shard_size,
-        audits=audit_rows,
-        archive_manifest_sha256=verified["archive_manifest_sha256"],
-        source_manifest_sha256=verified["source_manifest_sha256"],
-        group_hands=group_hands,
-        verified_inputs=verified["facts"],
-    )
+        if not window_count:
+            raise RuntimeError("no DexManipNet sequence produced a usable fingertip window")
+        aggregate = writer.finalize(
+            audits=audit_rows,
+            archive_manifest_sha256=verified["archive_manifest_sha256"],
+            source_manifest_sha256=verified["source_manifest_sha256"],
+            group_hands=group_hands,
+            verified_inputs=verified["facts"],
+        )
+    except BaseException:
+        writer.abort()
+        raise
     print(
         json.dumps(
             {
                 "aggregate_manifest": str(output / "aggregate_manifest.json"),
                 "aggregate_sha256": aggregate.aggregate_sha256,
                 "shards": len(aggregate.shards),
-                "windows": len(windows),
+                "windows": window_count,
             },
             sort_keys=True,
         )

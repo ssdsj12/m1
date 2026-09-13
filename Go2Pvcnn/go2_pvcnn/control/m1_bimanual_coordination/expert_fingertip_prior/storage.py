@@ -12,6 +12,7 @@ import os
 from pathlib import Path, PurePosixPath
 import random
 import shutil
+import sqlite3
 import tempfile
 import zipfile
 
@@ -178,6 +179,301 @@ def _sha_or_none(name: str, value: str | None) -> str | None:
     ):
         raise ValueError(f"{name} must be a lowercase SHA-256")
     return value
+
+
+class StreamingShardWriter:
+    """Disk-spool windows, externally sort them, and atomically publish shards.
+
+    The writer retains source-group provenance and one SQL row at a time in RAM;
+    window tensors live only in the caller's current conversion batch or in the
+    private staging database.  The final SQL ordering exactly matches
+    :func:`write_shards`' ``_window_key`` order.
+    """
+
+    def __init__(self, output_root: str | Path, *, seed: int, shard_size: int = 4096) -> None:
+        self._destination = Path(output_root)
+        if self._destination.exists():
+            raise FileExistsError(f"output already exists: {self._destination}")
+        if type(seed) is not int:
+            raise TypeError("seed must be an integer")
+        if type(shard_size) is not int or shard_size <= 0:
+            raise ValueError("shard_size must be a positive integer")
+        self._seed = seed
+        self._shard_size = shard_size
+        self._destination.parent.mkdir(parents=True, exist_ok=True)
+        self._staging = Path(
+            tempfile.mkdtemp(prefix=f".{self._destination.name}.shards-", dir=self._destination.parent)
+        )
+        self._database_path = self._staging / "windows.sqlite3"
+        self._connection: sqlite3.Connection | None = sqlite3.connect(self._database_path)
+        self._connection.execute("PRAGMA journal_mode=DELETE")
+        self._connection.execute("PRAGMA synchronous=FULL")
+        self._connection.execute(
+            """
+            CREATE TABLE windows (
+                ordinal INTEGER PRIMARY KEY,
+                source_group TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                content_digest TEXT NOT NULL,
+                phase INTEGER NOT NULL,
+                fingertip_position BLOB NOT NULL,
+                fingertip_velocity BLOB NOT NULL,
+                contact_mask BLOB NOT NULL,
+                future_velocity BLOB NOT NULL,
+                split TEXT
+            )
+            """
+        )
+        self._connection.execute(
+            "CREATE INDEX windows_sort ON windows (split, source_group, source_sha256, content_digest, ordinal)"
+        )
+        self._connection.commit()
+        self._group_shas: dict[str, str] = {}
+        self._spooled_window_count = 0
+        self._closed = False
+
+    @property
+    def buffered_window_count(self) -> int:
+        """Number of windows retained by the writer outside its private spool."""
+
+        return 0
+
+    @property
+    def spooled_window_count(self) -> int:
+        return self._spooled_window_count
+
+    def _require_open(self) -> sqlite3.Connection:
+        if self._closed or self._connection is None:
+            raise RuntimeError("streaming shard writer is closed")
+        return self._connection
+
+    @staticmethod
+    def _tensor_bytes(window: ExpertWindow) -> tuple[bytes, bytes, bytes, bytes]:
+        tensors = (
+            window.fingertip_position_palm,
+            window.fingertip_velocity_palm,
+            window.contact_mask,
+            window.future_fingertip_velocity_palm,
+        )
+        return tuple(
+            np.ascontiguousarray(tensor.detach().cpu().numpy()).tobytes() for tensor in tensors
+        )  # type: ignore[return-value]
+
+    @staticmethod
+    def _validate_window(window: ExpertWindow) -> None:
+        if not isinstance(window, ExpertWindow):
+            raise TypeError("windows must contain ExpertWindow values")
+        for tensor in (
+            window.fingertip_position_palm,
+            window.fingertip_velocity_palm,
+            window.future_fingertip_velocity_palm,
+        ):
+            if not bool(tensor.isfinite().all().item()):
+                raise ValueError("window contains non-finite geometry")
+
+    def append(self, batch: Sequence[ExpertWindow]) -> None:
+        """Spool one finite conversion batch without retaining its windows."""
+
+        if isinstance(batch, (str, bytes)):
+            self.abort()
+            raise TypeError("window batch must be a sequence of ExpertWindow values")
+        connection = self._require_open()
+        try:
+            with connection:
+                for window in batch:
+                    self._validate_window(window)
+                    previous_sha = self._group_shas.setdefault(
+                        window.source_group, window.source_sha256
+                    )
+                    if previous_sha != window.source_sha256:
+                        raise ValueError(
+                            f"window group has conflicting provenance: {window.source_group}"
+                        )
+                    position, velocity, contact, future = self._tensor_bytes(window)
+                    connection.execute(
+                        """
+                        INSERT INTO windows (
+                            ordinal, source_group, source_sha256, content_digest, phase,
+                            fingertip_position, fingertip_velocity, contact_mask, future_velocity
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            self._spooled_window_count,
+                            window.source_group,
+                            window.source_sha256,
+                            _window_key(window)[2],
+                            int(window.phase),
+                            position,
+                            velocity,
+                            contact,
+                            future,
+                        ),
+                    )
+                    self._spooled_window_count += 1
+        except BaseException:
+            self.abort()
+            raise
+
+    @staticmethod
+    def _arrays_from_rows(rows: Sequence[tuple[object, ...]]) -> dict[str, np.ndarray]:
+        return {
+            "contact_mask": np.stack(
+                [np.frombuffer(row[7], dtype=np.bool_).reshape(5) for row in rows]
+            ).astype(np.bool_, copy=False),
+            "fingertip_position_palm": np.stack(
+                [np.frombuffer(row[5], dtype=np.float32).reshape(5, 3) for row in rows]
+            ).astype(np.float32, copy=False),
+            "fingertip_velocity_palm": np.stack(
+                [np.frombuffer(row[6], dtype=np.float32).reshape(5, 3) for row in rows]
+            ).astype(np.float32, copy=False),
+            "future_fingertip_velocity_palm": np.stack(
+                [
+                    np.frombuffer(row[8], dtype=np.float32).reshape(PRIOR_HORIZON, 5, 3)
+                    for row in rows
+                ]
+            ).astype(np.float32, copy=False),
+            "phase": np.asarray([row[4] for row in rows], dtype=np.uint8),
+            "source_group": np.asarray([row[1] for row in rows], dtype=np.str_),
+            "source_sha256": np.asarray([row[2] for row in rows], dtype="<U64"),
+        }
+
+    def abort(self) -> None:
+        """Discard private staging data; an already-published destination is untouched."""
+
+        if self._closed:
+            return
+        self._closed = True
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
+        shutil.rmtree(self._staging, ignore_errors=True)
+
+    def finalize(
+        self,
+        *,
+        audits: Sequence[object] = (),
+        archive_manifest_sha256: str | None = None,
+        source_manifest_sha256: str | None = None,
+        group_hands: Mapping[str, str] | None = None,
+        verified_inputs: Mapping[str, object] | None = None,
+    ) -> AggregateManifest:
+        """Sort the spool, write shards, and publish only a complete artifact tree."""
+
+        connection = self._require_open()
+        try:
+            archive_sha = _sha_or_none("archive_manifest_sha256", archive_manifest_sha256)
+            source_sha = _sha_or_none("source_manifest_sha256", source_manifest_sha256)
+            input_facts = {} if verified_inputs is None else dict(verified_inputs)
+            _canonical_json(input_facts)
+            split = deterministic_group_split(tuple(self._group_shas), seed=self._seed)
+            assignments = {
+                group: split_name
+                for split_name in ("train", "validation", "test")
+                for group in getattr(split, split_name)
+            }
+            hands = {} if group_hands is None else dict(group_hands)
+            if any(
+                group not in assignments or type(hand) is not str or not hand
+                for group, hand in hands.items()
+            ):
+                raise ValueError("group_hands contains invalid provenance")
+            with connection:
+                for group, split_name in assignments.items():
+                    connection.execute(
+                        "UPDATE windows SET split = ? WHERE source_group = ?", (split_name, group)
+                    )
+            audit_rows = sorted(
+                (_audit_row(value) for value in audits), key=lambda row: _canonical_json(row)
+            )
+            records: list[ShardRecord] = []
+            for split_name in ("train", "validation", "test"):
+                cursor = connection.execute(
+                    """
+                    SELECT ordinal, source_group, source_sha256, content_digest, phase,
+                           fingertip_position, fingertip_velocity, contact_mask, future_velocity
+                    FROM windows WHERE split = ?
+                    ORDER BY source_group, source_sha256, content_digest, ordinal
+                    """,
+                    (split_name,),
+                )
+                shard_index = 0
+                while rows := cursor.fetchmany(self._shard_size):
+                    arrays = self._arrays_from_rows(rows)
+                    _validate_arrays(arrays)
+                    relative = Path(split_name) / f"shard-{shard_index:05d}.npz"
+                    target = self._staging / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = target.with_name(f".{target.name}.tmp")
+                    _write_deterministic_npz(temporary, arrays)
+                    os.replace(temporary, target)
+                    phase_counts = Counter(str(int(row[4])) for row in rows)
+                    contact_counts = Counter(
+                        "".join(
+                            "1" if value else "0"
+                            for value in np.frombuffer(row[7], dtype=np.bool_).tolist()
+                        )
+                        for row in rows
+                    )
+                    source_counts = Counter(str(row[1]).split("/", 1)[0] for row in rows)
+                    hand_counts = Counter(
+                        hands[str(row[1])] for row in rows if str(row[1]) in hands
+                    )
+                    records.append(
+                        ShardRecord(
+                            path=relative.as_posix(),
+                            sha256=sha256(target.read_bytes()).hexdigest(),
+                            split=split_name,
+                            samples=len(rows),
+                            source_counts=dict(sorted(source_counts.items())),
+                            hand_counts=dict(sorted(hand_counts.items())),
+                            phase_counts=dict(sorted(phase_counts.items())),
+                            contact_pattern_counts=dict(sorted(contact_counts.items())),
+                        )
+                    )
+                    shard_index += 1
+
+            audit_bytes = b"".join(_canonical_json(row) for row in audit_rows)
+            (self._staging / "audit.jsonl").write_bytes(audit_bytes)
+            records.sort(key=lambda item: item.path)
+            body = {
+                "format_version": 1,
+                "archive_manifest_sha256": archive_sha,
+                "source_manifest_sha256": source_sha,
+                "verified_inputs": input_facts,
+                "audit_jsonl_sha256": sha256(audit_bytes).hexdigest(),
+                "audit_jsonl_bytes": len(audit_bytes),
+                "split_groups": {
+                    name: sorted(getattr(split, name)) for name in ("train", "validation", "test")
+                },
+                "shards": [asdict(record) for record in records],
+            }
+            aggregate_sha = sha256(_canonical_json(body)).hexdigest()
+            document = {**body, "aggregate_sha256": aggregate_sha}
+            manifest_target = self._staging / "aggregate_manifest.json"
+            manifest_temporary = self._staging / ".aggregate_manifest.json.tmp"
+            manifest_temporary.write_bytes(_canonical_json(document))
+            os.replace(manifest_temporary, manifest_target)
+            connection.close()
+            self._connection = None
+            self._database_path.unlink()
+            os.replace(self._staging, self._destination)
+            self._closed = True
+        except BaseException:
+            self.abort()
+            raise
+        return AggregateManifest(
+            format_version=1,
+            archive_manifest_sha256=archive_sha,
+            source_manifest_sha256=source_sha,
+            verified_inputs=input_facts,
+            audit_jsonl_sha256=sha256(audit_bytes).hexdigest(),
+            audit_jsonl_bytes=len(audit_bytes),
+            split_groups={
+                name: tuple(sorted(getattr(split, name))) for name in ("train", "validation", "test")
+            },
+            shards=tuple(records),
+            aggregate_sha256=aggregate_sha,
+        )
 
 
 def write_shards(
@@ -369,6 +665,7 @@ __all__ = [
     "AggregateManifest",
     "GroupSplit",
     "ShardRecord",
+    "StreamingShardWriter",
     "deterministic_group_split",
     "verify_aggregate_manifest",
     "write_shards",
