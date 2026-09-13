@@ -36,6 +36,7 @@ outputs/
 data/*/
 !data/*/.gitkeep
 /data/external/dexmanipnet/
+/Go2Pvcnn/data/external/dexmanipnet/
 
 # OS
 .DS_Store
