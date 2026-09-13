@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, is_dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -205,32 +205,45 @@ class StreamingShardWriter:
             tempfile.mkdtemp(prefix=f".{self._destination.name}.shards-", dir=self._destination.parent)
         )
         self._database_path = self._staging / "windows.sqlite3"
-        self._connection: sqlite3.Connection | None = sqlite3.connect(self._database_path)
-        self._connection.execute("PRAGMA journal_mode=DELETE")
-        self._connection.execute("PRAGMA synchronous=FULL")
-        self._connection.execute(
-            """
-            CREATE TABLE windows (
-                ordinal INTEGER PRIMARY KEY,
-                source_group TEXT NOT NULL,
-                source_sha256 TEXT NOT NULL,
-                content_digest TEXT NOT NULL,
-                phase INTEGER NOT NULL,
-                fingertip_position BLOB NOT NULL,
-                fingertip_velocity BLOB NOT NULL,
-                contact_mask BLOB NOT NULL,
-                future_velocity BLOB NOT NULL,
-                split TEXT
+        self._connection: sqlite3.Connection | None = None
+        self._closed = False
+        try:
+            self._connection = sqlite3.connect(self._database_path)
+            self._connection.execute("PRAGMA journal_mode=DELETE")
+            self._connection.execute("PRAGMA synchronous=FULL")
+            self._connection.execute(
+                """
+                CREATE TABLE windows (
+                    ordinal INTEGER PRIMARY KEY,
+                    source_group TEXT NOT NULL,
+                    source_sha256 TEXT NOT NULL,
+                    content_digest TEXT NOT NULL,
+                    phase INTEGER NOT NULL,
+                    fingertip_position BLOB NOT NULL,
+                    fingertip_velocity BLOB NOT NULL,
+                    contact_mask BLOB NOT NULL,
+                    future_velocity BLOB NOT NULL,
+                    split TEXT
+                )
+                """
             )
-            """
-        )
-        self._connection.execute(
-            "CREATE INDEX windows_sort ON windows (split, source_group, source_sha256, content_digest, ordinal)"
-        )
-        self._connection.commit()
+            self._connection.execute(
+                "CREATE INDEX windows_sort ON windows (split, source_group, source_sha256, content_digest, ordinal)"
+            )
+            self._connection.commit()
+        except BaseException:
+            connection = self._connection
+            self._connection = None
+            self._closed = True
+            if connection is not None:
+                try:
+                    connection.close()
+                except BaseException:
+                    pass
+            shutil.rmtree(self._staging, ignore_errors=True)
+            raise
         self._group_shas: dict[str, str] = {}
         self._spooled_window_count = 0
-        self._closed = False
 
     @property
     def buffered_window_count(self) -> int:
@@ -263,16 +276,12 @@ class StreamingShardWriter:
     def _validate_window(window: ExpertWindow) -> None:
         if not isinstance(window, ExpertWindow):
             raise TypeError("windows must contain ExpertWindow values")
-        for tensor in (
-            window.fingertip_position_palm,
-            window.fingertip_velocity_palm,
-            window.future_fingertip_velocity_palm,
-        ):
-            if not bool(tensor.isfinite().all().item()):
-                raise ValueError("window contains non-finite geometry")
+        # ExpertWindow is frozen but its tensor fields are mutable.  Reconstruct it
+        # to rerun the complete construction contract before serializing raw bytes.
+        replace(window)
 
-    def append(self, batch: Sequence[ExpertWindow]) -> None:
-        """Spool one finite conversion batch without retaining its windows."""
+    def append(self, batch: Iterable[ExpertWindow]) -> None:
+        """Spool one validated conversion batch without retaining its windows."""
 
         if isinstance(batch, (str, bytes)):
             self.abort()

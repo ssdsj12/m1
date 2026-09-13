@@ -110,20 +110,10 @@ def run(
                         converted = convert_loaded_sequence(loaded, tree_cache[loaded.source_hand_key])
                         if not converted:
                             raise ValueError("fewer than 20 future 100 Hz nodes")
-                        writer.append(converted)
-                        row.update(
-                            {
-                                "accepted": True,
-                                "reason": "accepted",
-                                "windows": len(converted),
-                                "object_geometry_sha256": object_geometry_sha256(
-                                    loaded.object_geometry_path
-                                ),
-                            }
-                        )
                         group = converted[0].source_group
-                        group_hands[group] = loaded.source_hand_key
-                        window_count += len(converted)
+                        if any(window.source_group != group for window in converted):
+                            raise ValueError("converted sequence has inconsistent source groups")
+                        geometry_sha256 = object_geometry_sha256(loaded.object_geometry_path)
                     except (OSError, TypeError, ValueError) as error:
                         row.update(
                             {
@@ -132,6 +122,20 @@ def run(
                                 "windows": 0,
                             }
                         )
+                    else:
+                        # No later sequence-level rejection may follow this append:
+                        # a rejected audit row must never have a spooled window.
+                        writer.append(converted)
+                        row.update(
+                            {
+                                "accepted": True,
+                                "reason": "accepted",
+                                "windows": len(converted),
+                                "object_geometry_sha256": geometry_sha256,
+                            }
+                        )
+                        group_hands[group] = loaded.source_hand_key
+                        window_count += len(converted)
                     audit_rows.append(row)
 
         if not window_count:
@@ -163,7 +167,13 @@ def run(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=_default_root(), help="pinned external data root")
-    parser.add_argument("--output", type=Path, help="new artifact directory (default: ROOT/artifacts/shards)")
+    parser.add_argument(
+        "--output",
+        "--output-dir",
+        dest="output",
+        type=Path,
+        help="new artifact directory (default: ROOT/artifacts/shards)",
+    )
     parser.add_argument("--manifest", type=Path, help="explicit pinned download manifest")
     parser.add_argument("--seed", type=int, default=42, help="deterministic group split seed")
     parser.add_argument("--shard-size", type=int, default=4096, help="maximum windows per NPZ shard")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import gc
 from hashlib import sha256
 import json
 import importlib.util
@@ -8,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import weakref
 
 import h5py
 import numpy as np
@@ -22,6 +24,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts
     PriorPhase,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.sources import SOURCE_HANDS
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior import storage as storage_module
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.storage import (
     StreamingShardWriter,
     deterministic_group_split,
@@ -112,11 +115,28 @@ def test_streaming_writer_matches_existing_shards_without_retaining_all_windows(
         group_hands={group: "inspire_rh" for group in groups},
     )
 
+    class _OnePassWindows:
+        """Yield fresh windows without allowing a caller-side materialized batch."""
+
+        def __init__(self, count: int) -> None:
+            self.count = count
+            self.references: list[weakref.ReferenceType[ExpertWindow]] = []
+
+        def __len__(self) -> int:
+            raise AssertionError("streaming append must not request a batch length")
+
+        def __iter__(self):
+            for index, group in enumerate(reversed(groups)):
+                window = _window(group, 9 - index)
+                self.references.append(weakref.ref(window))
+                yield window
+
     writer = StreamingShardWriter(tmp_path / "streamed", seed=7, shard_size=2)
-    for window in reversed(windows):
-        writer.append((window,))
-        assert writer.buffered_window_count == 0
+    one_pass = _OnePassWindows(len(windows))
+    writer.append(one_pass)
     assert writer.spooled_window_count == len(windows)
+    gc.collect()
+    assert all(reference() is None for reference in one_pass.references)
     actual = writer.finalize(
         audits=tuple(reversed(audits)),
         archive_manifest_sha256="a" * 64,
@@ -126,6 +146,94 @@ def test_streaming_writer_matches_existing_shards_without_retaining_all_windows(
 
     assert _tree_hash(tmp_path / "streamed") == _tree_hash(tmp_path / "expected")
     assert actual == expected
+
+
+@pytest.mark.parametrize("failure", ("connect", "schema"))
+def test_streaming_writer_constructor_cleans_staging_after_database_failure(
+    tmp_path: Path, monkeypatch, failure: str
+):
+    output = tmp_path / "streamed"
+    closed: list[bool] = []
+
+    if failure == "connect":
+        def _connect_failure(*args, **kwargs):
+            raise OSError("planned connect failure")
+    else:
+        class _SchemaFailure:
+            def execute(self, *args, **kwargs):
+                raise OSError("planned schema failure")
+
+            def close(self) -> None:
+                closed.append(True)
+
+        def _connect_failure(*args, **kwargs):
+            return _SchemaFailure()
+
+    monkeypatch.setattr(storage_module.sqlite3, "connect", _connect_failure)
+
+    with pytest.raises(OSError, match=failure):
+        StreamingShardWriter(output, seed=7, shard_size=2)
+
+    assert not output.exists()
+    assert not list(tmp_path.glob(".streamed.shards-*"))
+    if failure == "schema":
+        assert closed == [True]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda window: window.fingertip_position_palm.resize_(4, 3),
+        lambda window: setattr(
+            window.fingertip_position_palm,
+            "data",
+            window.fingertip_position_palm.to(dtype=torch.float64),
+        ),
+        lambda window: window.contact_mask.resize_(4),
+        lambda window: setattr(
+            window.contact_mask,
+            "data",
+            window.contact_mask.to(dtype=torch.int64),
+        ),
+        lambda window: object.__setattr__(window, "phase", "not-a-prior-phase"),
+        lambda window: object.__setattr__(window, "source_group", ""),
+        lambda window: object.__setattr__(window, "source_sha256", "not-a-sha"),
+        lambda window: object.__setattr__(
+            window,
+            "contact_mask",
+            torch.empty((5,), dtype=torch.bool, device="meta"),
+        ),
+    ),
+)
+def test_streaming_writer_revalidates_mutated_expert_window_contract(
+    tmp_path: Path, mutation
+):
+    output = tmp_path / "streamed"
+    writer = StreamingShardWriter(output, seed=7, shard_size=2)
+    window = _window("favor/sequence/rh", 1)
+    mutation(window)
+
+    with pytest.raises((TypeError, ValueError, RuntimeError)):
+        writer.append((window,))
+
+    assert not output.exists()
+    assert not list(tmp_path.glob(".streamed.shards-*"))
+
+
+def test_streaming_writer_finalization_failure_discards_private_staging(tmp_path: Path, monkeypatch):
+    output = tmp_path / "streamed"
+    writer = StreamingShardWriter(output, seed=7, shard_size=2)
+    writer.append((_window("favor/sequence/rh", 1),))
+
+    def _write_failure(*args, **kwargs):
+        raise OSError("planned shard write failure")
+
+    monkeypatch.setattr(storage_module, "_write_deterministic_npz", _write_failure)
+    with pytest.raises(OSError, match="planned shard write failure"):
+        writer.finalize()
+
+    assert not output.exists()
+    assert not list(tmp_path.glob(".streamed.shards-*"))
 
 
 def test_streaming_writer_rejects_bad_batch_atomically_without_staging_residue(tmp_path: Path):
@@ -418,6 +526,56 @@ def test_conversion_spools_successes_without_calling_full_window_writer(tmp_path
     convert.run(root, output, seed=17, shard_size=7)
 
     assert verify_aggregate_manifest(output)["aggregate_sha256"]
+
+
+def test_conversion_does_not_publish_windows_from_hash_rejected_group(tmp_path: Path, monkeypatch):
+    root = tmp_path / "external"
+    commit, _ = _write_full_conversion_fixture(root)
+    sequences = root / "extracted" / "dexmanipnet_favor" / "sequences"
+    shutil.copytree(sequences / "sequence_000", sequences / "sequence_001")
+    convert = _load_convert_script()
+    monkeypatch.setattr(convert, "DEXMANIPNET_REVISION", "a" * 40)
+    monkeypatch.setattr(convert, "MANIPTRANS_COMMIT", commit)
+    original_hash = convert.object_geometry_sha256
+    calls = 0
+
+    def _reject_second_geometry_hash(path: Path) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ValueError("planned object hash failure")
+        return original_hash(path)
+
+    monkeypatch.setattr(convert, "object_geometry_sha256", _reject_second_geometry_hash)
+    output = tmp_path / "streamed"
+
+    convert.run(root, output, seed=17, shard_size=7)
+
+    assert calls == 2
+    rejected_group = "favor/sequence_001/rh"
+    published_groups: set[str] = set()
+    for shard in output.rglob("*.npz"):
+        with np.load(shard, allow_pickle=False) as arrays:
+            published_groups.update(arrays["source_group"].tolist())
+    assert rejected_group not in published_groups
+    rows = [json.loads(line) for line in (output / "audit.jsonl").read_text().splitlines()]
+    rejected_rows = [
+        row for row in rows if row["sequence"] == "sequence_001" and row["side"] == "rh"
+    ]
+    assert len(rejected_rows) == 1
+    assert rejected_rows[0]["accepted"] is False
+    assert rejected_rows[0]["reason"] == "conversion_rejected:planned object hash failure"
+    assert rejected_rows[0]["windows"] == 0
+    assert verify_aggregate_manifest(output)["aggregate_sha256"]
+
+
+def test_conversion_cli_accepts_planned_output_dir_alias(tmp_path: Path):
+    convert = _load_convert_script()
+    expected = tmp_path / "planned-output"
+
+    args = convert._build_parser().parse_args(["--output-dir", str(expected)])
+
+    assert args.output == expected
 
 
 def test_conversion_rejects_malformed_archive_provenance_before_touching_output(tmp_path: Path, monkeypatch):
