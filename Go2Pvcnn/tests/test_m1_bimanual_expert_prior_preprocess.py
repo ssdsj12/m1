@@ -198,6 +198,21 @@ def test_object_box_geometry_is_loaded_without_dataset_semantics(tmp_path: Path)
     np.testing.assert_allclose(mesh.centroid, [0.1, 0.0, 0.0], atol=1e-12)
 
 
+def test_object_urdf_with_leading_ascii_whitespace_before_xml_declaration_loads(tmp_path: Path):
+    urdf = tmp_path / "whitespace-box.urdf"
+    urdf.write_text(
+        '\n  <?xml version="1.0"?>\n'
+        '<robot name="box"><link name="object"><collision><geometry>'
+        '<box size="0.2 0.4 0.6"/></geometry></collision></link></robot>',
+        encoding="utf-8",
+    )
+
+    mesh = load_object_collision_mesh(urdf)
+
+    assert mesh.is_watertight
+    np.testing.assert_allclose(mesh.extents, [0.2, 0.4, 0.6], atol=1e-12)
+
+
 def _write_mesh_urdf(tmp_path: Path, mesh: object, name: str) -> Path:
     mesh_path = tmp_path / f"{name}.obj"
     mesh.export(mesh_path)

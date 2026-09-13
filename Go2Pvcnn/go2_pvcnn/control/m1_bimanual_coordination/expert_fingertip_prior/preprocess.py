@@ -377,7 +377,10 @@ def load_object_collision_mesh(path: str | Path) -> trimesh.Trimesh:
     if not urdf.is_file() or urdf.is_symlink():
         raise ValueError("object geometry URDF is missing or unsafe")
     try:
-        root = ElementTree.parse(urdf).getroot()
+        # DexManipNet object URDFs may prefix the XML declaration with ASCII
+        # whitespace.  Strip only that transport whitespace; malformed XML is
+        # still rejected by the same parser below.
+        root = ElementTree.fromstring(urdf.read_bytes().lstrip(b" \t\r\n"))
     except (ElementTree.ParseError, OSError) as error:
         raise ValueError("object geometry URDF is unusable") from error
     if root.tag != "robot":
