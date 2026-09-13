@@ -3,6 +3,11 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import sys
+from types import SimpleNamespace
+from types import ModuleType
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,3 +89,174 @@ def test_formal_jsonl_and_manifest_pin_exact_artifact_bytes(tmp_path):
     assert manifest["status"] == "passed"
     assert manifest["pins"]["trials_jsonl"]["sha256"] == probe._sha256(jsonl_path)
     assert manifest["pins"]["aggregate_report"]["sha256"] == probe._sha256(report_path)
+
+
+def test_probe_summary_has_prior_atomic_fields_and_disabled_nulls():
+    probe = _load_probe_module()
+    summary = probe.make_probe_summary(configured=False)
+    assert {
+        "prior_enabled",
+        "prior_disabled_reason",
+        "prior_component",
+        "prior_probability",
+        "prior_precision_min",
+        "prior_precision_max",
+        "prior_soft_cost",
+        "prior_inference_p99_ms",
+        "prior_baseline_tip_velocity_delta_norm",
+        "prior_qp_rejected_count",
+        "prior_fallback_count",
+    } <= summary.keys()
+    assert summary["prior_enabled"] is False
+    assert summary["prior_disabled_reason"] == "not_configured"
+    for key in (
+        "prior_component",
+        "prior_probability",
+        "prior_precision_min",
+        "prior_precision_max",
+        "prior_soft_cost",
+        "prior_inference_p99_ms",
+        "prior_baseline_tip_velocity_delta_norm",
+    ):
+        assert summary[key] is None
+
+
+def test_probe_prior_diagnostics_are_side_isolated_and_p99_uses_enabled_samples_only():
+    probe = _load_probe_module()
+    left = probe.make_probe_summary(configured=True)
+    right = probe.make_probe_summary(configured=True)
+    probe.accumulate_probe_prior_diagnostics(
+        left,
+        SimpleNamespace(
+            prior_configured=True,
+            prior_enabled=True,
+            prior_fallback_reason=None,
+            prior_component=2,
+            prior_probability=0.75,
+            prior_precision_min=1.0,
+            prior_precision_max=4.0,
+            prior_cost=0.5,
+            prior_inference_ms=2.0,
+            regularized_tip_velocity_delta_norm=0.25,
+            prior_qp_accepted=True,
+        ),
+    )
+    probe.accumulate_probe_prior_diagnostics(
+        left,
+        SimpleNamespace(
+            prior_configured=True,
+            prior_enabled=False,
+            prior_fallback_reason="prior_qp_rejected",
+            prior_component=None,
+            prior_probability=None,
+            prior_precision_min=None,
+            prior_precision_max=None,
+            prior_cost=None,
+            prior_inference_ms=99.0,
+            regularized_tip_velocity_delta_norm=None,
+            prior_qp_accepted=False,
+        ),
+    )
+    assert probe.finalize_probe_prior_summary(left)["prior_inference_p99_ms"] == pytest.approx(2.0)
+    assert probe.finalize_probe_prior_summary(left)["prior_qp_rejected_count"] == 1
+    assert probe.finalize_probe_prior_summary(right)["prior_enabled"] is False
+    assert probe.finalize_probe_prior_summary(right)["prior_disabled_reason"] == "no_enabled_inference"
+
+
+def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monkeypatch):
+    # The failure must happen before the wrapper reaches any Isaac-dependent
+    # adapter code, so a minimal asset boundary is sufficient for this fake env.
+    assets = ModuleType("go2_pvcnn.assets")
+    assets.M1_FOOT_BODY_NAMES = ()
+    asset_layout = ModuleType("go2_pvcnn.assets.m1_dual_panda_o6")
+    for name, value in {
+        "LEFT_O6_ACTIVE_JOINT_NAMES": (),
+        "LEFT_O6_FINGERTIP_BODY_NAMES": (),
+        "LEFT_O6_PALM_BODY_NAME": "left_palm",
+        "LEFT_PANDA_ACTIVE_JOINT_NAMES": (),
+        "LEFT_PANDA_WRIST_BODY_NAME": "left_wrist",
+        "M1_BASE_ACTIVE_JOINT_NAMES": (),
+        "M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES": (),
+        "M1_DUAL_PANDA_O6_BASE_BODY_NAME": "base",
+        "M1_DUAL_PANDA_O6_PLATFORM_JOINT_NAME": "platform",
+        "O6_MIMIC_MAP": {},
+        "RIGHT_O6_ACTIVE_JOINT_NAMES": (),
+        "RIGHT_O6_FINGERTIP_BODY_NAMES": (),
+        "RIGHT_O6_PALM_BODY_NAME": "right_palm",
+        "RIGHT_PANDA_ACTIVE_JOINT_NAMES": (),
+        "RIGHT_PANDA_WRIST_BODY_NAME": "right_wrist",
+        "resolve_active_joint_ids": lambda _names: (),
+    }.items():
+        setattr(asset_layout, name, value)
+    monkeypatch.setitem(sys.modules, "go2_pvcnn.assets", assets)
+    monkeypatch.setitem(sys.modules, "go2_pvcnn.assets.m1_dual_panda_o6", asset_layout)
+    wrapper_spec = importlib.util.spec_from_file_location(
+        "m1_dual_panda_o6_wrapper",
+        ROOT / "go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_wrapper.py",
+    )
+    assert wrapper_spec is not None and wrapper_spec.loader is not None
+    wrapper_module = importlib.util.module_from_spec(wrapper_spec)
+    monkeypatch.setitem(sys.modules, "m1_dual_panda_o6_wrapper", wrapper_module)
+    wrapper_spec.loader.exec_module(wrapper_module)
+
+    class FirstPrior:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+        def target(self, *_args):
+            raise AssertionError("fake prior must not be queried during startup")
+
+    first = FirstPrior()
+    calls = 0
+
+    def construct(_path):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return first
+        raise ValueError("strict artifact failure")
+
+    monkeypatch.setattr(wrapper_module, "_construct_fingertip_prior", construct)
+
+    class FakeEnv:
+        @property
+        def unwrapped(self):
+            raise AssertionError("artifact failure must precede environment startup")
+
+    with pytest.raises(ValueError, match="strict artifact failure"):
+        wrapper_module.M1DualPandaO6BimanualWrapper(
+            FakeEnv(), fingertip_prior_artifact="approved-artifact"
+        )
+    assert first.closed is True
+
+    left, right = FirstPrior(), FirstPrior()
+    constructed = [left, right]
+    monkeypatch.setattr(
+        wrapper_module, "_construct_fingertip_prior", lambda _path: constructed.pop(0)
+    )
+    monkeypatch.setattr(
+        wrapper_module, "M1DualPandaO6SnapshotAdapter", lambda *_args, **_kwargs: object()
+    )
+
+    class ReadyEnv:
+        close_calls = 0
+
+        @property
+        def unwrapped(self):
+            return SimpleNamespace(num_envs=1)
+
+        def close(self):
+            self.close_calls += 1
+
+    env = ReadyEnv()
+    wrapper = wrapper_module.M1DualPandaO6BimanualWrapper(
+        env, fingertip_prior_artifact="approved-artifact"
+    )
+    assert wrapper._fingertip_priors == (left, right)
+    assert left is not right
+    wrapper.close(close_env=False)
+    wrapper.close(close_env=False)
+    assert left.closed is True and right.closed is True
+    assert env.close_calls == 0

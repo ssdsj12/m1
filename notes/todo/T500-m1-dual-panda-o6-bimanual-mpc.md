@@ -51,8 +51,10 @@ pending children cannot exceed capacity; retry ownership only releases after the
 precontact 输出与单次 contact QP 精确相等；prior-on 先求同周期 baseline，再运行保留 position/rate/
 contact latch 的六速率 projection 或保持全部 contact hard constraints 的第二 QP。prior query、target
 validation 或第二 QP 失败均接受同周期 baseline；baseline infeasible 仍使用旧 `_last_safe` 且不查询。
-runtime 向左右控制器分别传递真实掌坐标 O6 positions 和 folded Jacobian。Tasks 1–9 相关回归
-`198 passed`；Task 10 wrapper artifact/config wiring 仍未开始。见 [Task 9 验证](../log/2026-09-12-t500-dexmanipnet-hand-mpc-prior-integration.md)。
+runtime 向左右控制器分别传递真实掌坐标 O6 positions 和 folded Jacobian。Task 10 已将严格
+artifact 的左右独立 runtime adapter、opt-in Probe/Play CLI 和 per-side JSON/JSONL diagnostics
+接入 wrapper；disabled 值保持 canonical null/reason，且 enabled-only inference p99 不混入
+disabled 样本。Tasks 1–10 相关回归 `198 passed`；见 [Task 10 验证](../log/2026-09-13-t500-dexmanipnet-prior-entrypoints.md)。
 
 2026-09-06 更新：单轴右掌姿态 MPC 已实现，但 1600 步物理门失败。
 350 步诊断精确复现第 184/270/329 步的 Arm 不可行/限位/安全拒绝，
@@ -73,7 +75,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–9 已完成至 atomic Hand MPC integration，下一步为 Task 10 wrapper artifact/config/diagnostics wiring；真实数据/ensemble/student production 门仍未运行。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–10 已完成至 opt-in wrapper/Probe/Play artifact and diagnostics wiring，下一步为 Task 11 artifact-backed benchmark；真实数据/ensemble/student production 门仍未运行。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -88,6 +90,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 ## Related Logs
 
 - [2026-09-12 DexManipNet atomic Hand MPC prior integration](../log/2026-09-12-t500-dexmanipnet-hand-mpc-prior-integration.md)
+
+- [2026-09-13 DexManipNet prior Probe/Play entrypoints](../log/2026-09-13-t500-dexmanipnet-prior-entrypoints.md)
 
 - [2026-09-12 DexManipNet frozen O6 prior runtime](../log/2026-09-12-t500-dexmanipnet-fingertip-prior-runtime.md)
 
@@ -125,8 +129,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: Task 9 atomic Hand MPC prior integration（this commit）
-- Last Verified Commit: Task 9 plus Tasks 1–9 relevant regression (`198 passed`), default import boundary and pycompile
+- Last Feature Commit: Task 10 opt-in Probe/Play prior artifact and diagnostics wiring（local candidate）
+- Last Verified Commit: Task 10 plus Tasks 1–10 relevant regression (`198 passed`), help/import boundary and pycompile
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
@@ -138,7 +142,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-从 T500.5 Task 10 的 wrapper artifact/config/diagnostics wiring 开始继续 12 任务计划；运行时物理主线仍需在
+从 T500.5 Task 11 artifact-backed benchmark 开始继续 12 任务计划；运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。

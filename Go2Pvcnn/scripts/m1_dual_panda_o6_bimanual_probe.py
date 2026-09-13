@@ -22,6 +22,126 @@ DEFAULT_TRIALS_PER_SEED = 10
 DEFAULT_FORMAL_STEPS = 2000
 
 
+def _finite_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def make_probe_summary(*, configured: bool = False) -> dict[str, object]:
+    """Create the per-side prior summary without inventing disabled values."""
+
+    return {
+        "prior_configured": bool(configured),
+        "prior_enabled": False,
+        "prior_disabled_reason": "no_enabled_inference" if configured else "not_configured",
+        "prior_component": None,
+        "prior_probability": None,
+        "prior_precision_min": None,
+        "prior_precision_max": None,
+        "prior_soft_cost": None,
+        "prior_inference_p99_ms": None,
+        "prior_baseline_tip_velocity_delta_norm": None,
+        "prior_qp_rejected_count": 0,
+        "prior_fallback_count": 0,
+        "_enabled_inference_ms": [],
+        "_components": [],
+        "_probabilities": [],
+        "_precision_mins": [],
+        "_precision_maxs": [],
+        "_costs": [],
+        "_tip_velocity_deltas": [],
+        "_disabled_reasons": {},
+    }
+
+
+def accumulate_probe_prior_diagnostics(
+    summary: dict[str, object], diagnostics: object | None
+) -> None:
+    """Accumulate one newly solved Hand-MPC diagnostic for one physical side."""
+
+    if diagnostics is None:
+        return
+    configured = bool(getattr(diagnostics, "prior_configured", False))
+    if configured:
+        summary["prior_configured"] = True
+    enabled = bool(getattr(diagnostics, "prior_enabled", False))
+    reason = getattr(diagnostics, "prior_fallback_reason", None)
+    if configured and isinstance(reason, str) and reason:
+        reasons = summary["_disabled_reasons"]
+        assert isinstance(reasons, dict)
+        reasons[reason] = int(reasons.get(reason, 0)) + 1
+        summary["prior_fallback_count"] = int(summary["prior_fallback_count"]) + 1
+        if reason == "prior_qp_rejected":
+            summary["prior_qp_rejected_count"] = int(summary["prior_qp_rejected_count"]) + 1
+    inference_ms = _finite_number(getattr(diagnostics, "prior_inference_ms", None))
+    if not enabled or inference_ms is None or inference_ms < 0.0:
+        return
+    latencies = summary["_enabled_inference_ms"]
+    assert isinstance(latencies, list)
+    latencies.append(inference_ms)
+    for key, field in (
+        ("_components", "prior_component"),
+        ("_probabilities", "prior_probability"),
+        ("_precision_mins", "prior_precision_min"),
+        ("_precision_maxs", "prior_precision_max"),
+        ("_costs", "prior_cost"),
+        ("_tip_velocity_deltas", "regularized_tip_velocity_delta_norm"),
+    ):
+        value = getattr(diagnostics, field, None)
+        if key == "_components" and isinstance(value, int) and not isinstance(value, bool):
+            values = summary[key]
+            assert isinstance(values, list)
+            values.append(value)
+        else:
+            number = _finite_number(value)
+            if number is not None:
+                values = summary[key]
+                assert isinstance(values, list)
+                values.append(number)
+
+
+def finalize_probe_prior_summary(summary: dict[str, object]) -> dict[str, object]:
+    """Return canonical JSON-safe fields; p99 uses enabled samples only."""
+
+    result = {key: value for key, value in summary.items() if not key.startswith("_")}
+    latencies = summary["_enabled_inference_ms"]
+    assert isinstance(latencies, list)
+    if not latencies:
+        reasons = summary["_disabled_reasons"]
+        assert isinstance(reasons, dict)
+        if result["prior_configured"] and reasons:
+            result["prior_disabled_reason"] = sorted(
+                reasons, key=lambda value: (-int(reasons[value]), value)
+            )[0]
+        return result
+    result["prior_enabled"] = True
+    result["prior_disabled_reason"] = None
+    ordered = sorted(float(value) for value in latencies)
+    result["prior_inference_p99_ms"] = ordered[
+        max(0, math.ceil(0.99 * len(ordered)) - 1)
+    ]
+    components = summary["_components"]
+    probabilities = summary["_probabilities"]
+    precision_mins = summary["_precision_mins"]
+    precision_maxs = summary["_precision_maxs"]
+    costs = summary["_costs"]
+    deltas = summary["_tip_velocity_deltas"]
+    assert all(isinstance(value, list) for value in (
+        components, probabilities, precision_mins, precision_maxs, costs, deltas
+    ))
+    result["prior_component"] = components[-1] if components else None
+    result["prior_probability"] = probabilities[-1] if probabilities else None
+    result["prior_precision_min"] = min(precision_mins) if precision_mins else None
+    result["prior_precision_max"] = max(precision_maxs) if precision_maxs else None
+    result["prior_soft_cost"] = sum(costs) / len(costs) if costs else None
+    result["prior_baseline_tip_velocity_delta_norm"] = (
+        sum(deltas) / len(deltas) if deltas else None
+    )
+    return result
+
+
 def trial_passes(row: dict[str, object]) -> bool:
     """Apply every frozen per-trial acceptance gate."""
 
@@ -201,6 +321,7 @@ def _run_trial(
     steps: int,
     mode: str,
     latent_artifact: Path | None,
+    fingertip_prior_artifact: Path | None,
     runtime_factory: Callable[[], object],
     progress_path: Path | None = None,
 ) -> dict[str, object]:
@@ -211,6 +332,7 @@ def _run_trial(
         runtime=runtime_factory(),
         mode=mode,
         latent_artifact=latent_artifact,
+        fingertip_prior_artifact=fingertip_prior_artifact,
     )
     initial = wrapper.reset(seed=seed)
     _write_progress(
@@ -303,6 +425,15 @@ def _run_trial(
     orientation_boundary_trace = []
     first_right_palm_base_contact_orientation = None
     first_right_selected_fingertip_contact_orientation = None
+    prior_diagnostics = {
+        "left_o6": make_probe_summary(
+            configured=fingertip_prior_artifact is not None
+        ),
+        "right_o6": make_probe_summary(
+            configured=fingertip_prior_artifact is not None
+        ),
+    }
+    prior_solution_ids = {"left_o6": None, "right_o6": None}
 
     for step_index in range(steps):
         _, _, terminated, truncated, _ = wrapper.step()
@@ -503,6 +634,13 @@ def _run_trial(
         arm_solution = latest["arm"]
         left_hand = latest["left_hand"]
         right_hand = latest["right_hand"]
+        for key, solution in (("left_o6", left_hand), ("right_o6", right_hand)):
+            if solution is None or prior_solution_ids[key] == id(solution):
+                continue
+            prior_solution_ids[key] = id(solution)
+            accumulate_probe_prior_diagnostics(
+                prior_diagnostics[key], solution.diagnostics
+            )
         statuses = {
             "object_mpc": object_solution is not None and object_solution.diagnostics.feasible,
             "arm_mpc": arm_solution is not None and arm_solution.both_feasible,
@@ -712,8 +850,13 @@ def _run_trial(
         "hard_failure_count": hard_failure_count,
         "box_dropped": box_dropped,
         "released_supported": released_supported,
+        "fingertip_prior": {
+            key: finalize_probe_prior_summary(value)
+            for key, value in prior_diagnostics.items()
+        },
     }
     row["passed"] = trial_passes(row)
+    wrapper.close(close_env=False)
     return row
 
 
@@ -725,8 +868,6 @@ def _positive_finite_float(value: str) -> float:
 
 
 def _parser():
-    from isaaclab.app import AppLauncher
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--steps", type=int)
@@ -738,21 +879,25 @@ def _parser():
     parser.add_argument("--jsonl", type=Path)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
-    parser.add_argument("--latent-artifact", type=Path)
+    parser.add_argument("--latent-artifact", type=Path, default=None)
+    parser.add_argument("--fingertip-prior-artifact", type=Path, default=None)
     parser.add_argument(
         "--tracking-angular-rate-max-rad-s",
         type=_positive_finite_float,
         default=0.35,
         help="SO(3) target tracking rate cap applied by both arm MPCs",
     )
-    # AppLauncher supplies the standard --headless flag.
-    AppLauncher.add_app_launcher_args(parser)
+    # Help is deliberately usable on a host without Isaac or an artifact.
+    if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
+        parser.add_argument("--headless", action="store_true")
+    else:
+        from isaaclab.app import AppLauncher
+
+        AppLauncher.add_app_launcher_args(parser)
     return parser
 
 
 def main() -> int:
-    from isaaclab.app import AppLauncher
-
     parser = _parser()
     args = parser.parse_args()
     formal = args.seeds is not None
@@ -760,6 +905,8 @@ def main() -> int:
         parser.error("formal mode requires --report, --jsonl, and --manifest")
     if not formal and (args.jsonl is not None or args.manifest is not None):
         parser.error("--jsonl and --manifest are reserved for formal mode with --seeds")
+    from isaaclab.app import AppLauncher
+
     app_launcher = AppLauncher(args)
     _simulation_app = app_launcher.app
 
@@ -790,6 +937,7 @@ def main() -> int:
             steps=steps,
             mode=args.mode,
             latent_artifact=args.latent_artifact,
+            fingertip_prior_artifact=args.fingertip_prior_artifact,
             runtime_factory=lambda: BimanualRuntime(
                 arm_mpc=DualArmMpcCoordinator(
                     first_target_angular_rate_max_rad_s=(
@@ -817,6 +965,11 @@ def main() -> int:
         "isaac_version": importlib.metadata.version("isaacsim"),
         "command": " ".join(sys.argv),
         "tracking_angular_rate_max_rad_s": args.tracking_angular_rate_max_rad_s,
+        "fingertip_prior_artifact": (
+            None
+            if args.fingertip_prior_artifact is None
+            else str(args.fingertip_prior_artifact)
+        ),
     }
     report: dict[str, Any] = {
         "schema_version": 1,

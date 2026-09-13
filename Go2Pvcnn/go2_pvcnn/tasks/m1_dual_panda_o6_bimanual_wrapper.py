@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 from collections.abc import Sequence
+import weakref
 
 import torch
 
@@ -66,6 +67,39 @@ from go2_pvcnn.control.m1_bimanual_coordination.frame_kinematics import (
 from go2_pvcnn.control.m1_bimanual_coordination.vector_control import (
     stack_lane_actions,
 )
+
+
+def _close_fingertip_priors(priors: Sequence[object]) -> None:
+    """Best-effort, idempotent worker cleanup for wrapper-owned priors."""
+
+    for prior in priors:
+        try:
+            prior.close()
+        except BaseException:
+            pass
+
+
+def _construct_fingertip_prior(path: str | Path) -> object:
+    """Keep the optional runtime package outside the default import path."""
+
+    from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.runtime import (
+        FrozenO6FingertipPrior,
+    )
+
+    return FrozenO6FingertipPrior.from_artifact(path)
+
+
+def _build_fingertip_priors(path: str | Path) -> tuple[object, object]:
+    """Strictly construct independent left/right workers or leave none alive."""
+
+    created: list[object] = []
+    try:
+        for _side in ("left", "right"):
+            created.append(_construct_fingertip_prior(path))
+    except BaseException:
+        _close_fingertip_priors(created)
+        raise
+    return created[0], created[1]
 
 
 def _exact_body_id(names: Sequence[str], expected: str) -> int:
@@ -551,27 +585,47 @@ class M1DualPandaO6BimanualWrapper:
         *,
         mode: str = "teacher",
         latent_artifact: str | Path | None = None,
+        fingertip_prior_artifact: str | Path | None = None,
     ) -> None:
         if mode not in {"teacher", "latent"}:
             raise ValueError("mode must be 'teacher' or 'latent'")
         self.env = env
         self.mode = mode
         self._effort_limits = effort_limits()
-        raw = self.env.unwrapped
-        self.lanes = [
-            BimanualLaneController(
-                env_index=index,
-                adapter=M1DualPandaO6SnapshotAdapter(env, env_index=index),
-                runtime=(runtime if index == 0 and runtime is not None else BimanualRuntime()),
-                teacher=FullActionTeacher(fixed_base=True),
-                safety=SafetyProjection(
-                    joint_position_margin_rad=0.02,
-                    joint_velocity_margin_fraction=0.1,
-                    externally_servoed_hand=True,
-                ),
+        self._closed = False
+        self._fingertip_priors: tuple[object, ...] = ()
+        self._prior_finalizer: weakref.finalize | None = None
+        # Artifact loading is intentionally first: a bad artifact must not touch
+        # the Isaac scene, reset it, or advance physics.  There is one isolated
+        # worker per physical side; vector lanes share only that side's worker.
+        if fingertip_prior_artifact is not None:
+            self._fingertip_priors = _build_fingertip_priors(
+                fingertip_prior_artifact
             )
-            for index in range(raw.num_envs)
-        ]
+            self._prior_finalizer = weakref.finalize(
+                self, _close_fingertip_priors, self._fingertip_priors
+            )
+        try:
+            raw = self.env.unwrapped
+            self.lanes = [
+                BimanualLaneController(
+                    env_index=index,
+                    adapter=M1DualPandaO6SnapshotAdapter(env, env_index=index),
+                    runtime=self._runtime_for_lane(
+                        runtime if index == 0 else None
+                    ),
+                    teacher=FullActionTeacher(fixed_base=True),
+                    safety=SafetyProjection(
+                        joint_position_margin_rad=0.02,
+                        joint_velocity_margin_fraction=0.1,
+                        externally_servoed_hand=True,
+                    ),
+                )
+                for index in range(raw.num_envs)
+            ]
+        except BaseException:
+            self._close_prior_workers()
+            raise
         selected_artifact = latent_artifact or os.environ.get(
             "M1_BIMANUAL_LATENT_ARTIFACT"
         )
@@ -596,6 +650,41 @@ class M1DualPandaO6BimanualWrapper:
         self.last_actions: torch.Tensor | None = None
         self._step = 0
         self._sync_legacy_aliases()
+
+    def _runtime_for_lane(
+        self, supplied_runtime: BimanualRuntime | None
+    ) -> BimanualRuntime:
+        """Attach the two approved workers without a second artifact load."""
+
+        if not self._fingertip_priors:
+            return BimanualRuntime() if supplied_runtime is None else supplied_runtime
+        from go2_pvcnn.control.m1_bimanual_coordination.hand_mpc import O6HandMpc
+
+        left_prior, right_prior = self._fingertip_priors
+        if supplied_runtime is None:
+            return BimanualRuntime(
+                left_hand_mpc=O6HandMpc(expert_prior=left_prior),
+                right_hand_mpc=O6HandMpc(expert_prior=right_prior),
+            )
+        controllers: list[tuple[object, object]] = []
+        for side, prior in (("left", left_prior), ("right", right_prior)):
+            controller = getattr(supplied_runtime, f"{side}_hand_mpc", None)
+            if not isinstance(controller, O6HandMpc):
+                raise TypeError(f"{side}_hand_mpc must be O6HandMpc for fingertip prior")
+            if controller.expert_prior is not None:
+                raise ValueError(f"{side}_hand_mpc already has an expert prior")
+            controllers.append((controller, prior))
+        for controller, prior in controllers:
+            controller.expert_prior = prior
+        return supplied_runtime
+
+    def _close_prior_workers(self) -> None:
+        finalizer = self._prior_finalizer
+        if finalizer is not None:
+            finalizer()
+            self._prior_finalizer = None
+        else:
+            _close_fingertip_priors(self._fingertip_priors)
 
     def _sync_legacy_aliases(self) -> None:
         """Keep the single-lane probe API mapped to lane zero."""
@@ -1035,5 +1124,19 @@ class M1DualPandaO6BimanualWrapper:
         self._sync_legacy_aliases()
         return result
 
-    def close(self) -> None:
-        self.env.close()
+    def close(self, *, close_env: bool = True) -> None:
+        """Close owned prior workers exactly once, then optionally close Isaac."""
+
+        if self._closed:
+            return
+        self._closed = True
+        self._close_prior_workers()
+        if close_env:
+            self.env.close()
+
+    def __enter__(self) -> "M1DualPandaO6BimanualWrapper":
+        return self
+
+    def __exit__(self, *_unused: object) -> bool:
+        self.close()
+        return False

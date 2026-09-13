@@ -4,34 +4,54 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 import sys
 
-from isaaclab.app import AppLauncher
 
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--max-steps", type=int, default=4000)
+    parser.add_argument("--diagnostics", action="store_true")
+    parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
+    parser.add_argument("--fingertip-prior-artifact", type=Path, default=None)
+    # Keep --help independent of IsaacLab while preserving full launcher flags
+    # for actual playback.
+    if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
+        parser.add_argument("--headless", action="store_true")
+    else:
+        from isaaclab.app import AppLauncher
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--seed", type=int, default=42)
-parser.add_argument("--max-steps", type=int, default=4000)
-parser.add_argument("--diagnostics", action="store_true")
-parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
-AppLauncher.add_app_launcher_args(parser)
-args = parser.parse_args()
-app_launcher = AppLauncher(args)
-simulation_app = app_launcher.app
-
-import gymnasium as gym
-
-import go2_pvcnn.tasks  # noqa: F401, E402
-from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_env_cfg import M1DualPandaO6BimanualEnvCfg  # noqa: E402
-from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_wrapper import M1DualPandaO6BimanualWrapper  # noqa: E402
+        AppLauncher.add_app_launcher_args(parser)
+    return parser
 
 
 def main() -> int:
+    parser = _parser()
+    args = parser.parse_args()
+    from isaaclab.app import AppLauncher
+
+    app_launcher = AppLauncher(args)
+    simulation_app = app_launcher.app
+    import gymnasium as gym
+
+    import go2_pvcnn.tasks  # noqa: F401
+    from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_env_cfg import (
+        M1DualPandaO6BimanualEnvCfg,
+    )
+    from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_wrapper import (
+        M1DualPandaO6BimanualWrapper,
+    )
+
     cfg = M1DualPandaO6BimanualEnvCfg()
     cfg.scene.num_envs = 1
     cfg.seed = args.seed
     env = gym.make("Isaac-M1-DualPanda-O6-Bimanual-Lift-v0", cfg=cfg)
-    wrapper = M1DualPandaO6BimanualWrapper(env, mode=args.mode)
+    wrapper = M1DualPandaO6BimanualWrapper(
+        env,
+        mode=args.mode,
+        fingertip_prior_artifact=args.fingertip_prior_artifact,
+    )
     wrapper.reset(seed=args.seed)
     previous_phase = wrapper.runtime.mission.phase.name
     for step in range(args.max_steps):

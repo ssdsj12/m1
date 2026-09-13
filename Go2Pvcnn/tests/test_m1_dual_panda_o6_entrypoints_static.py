@@ -200,3 +200,17 @@ def test_probe_selects_artifact_but_play_uses_only_canonical_environment_path():
     assert '"--mode", choices=("teacher", "latent")' in play
     assert "mode=args.mode" in play
     assert "--latent-artifact" not in play
+
+
+def test_play_and_probe_prior_are_opt_in_and_passed_to_wrapper():
+    for source in (PLAY.read_text(encoding="utf-8"), PROBE.read_text(encoding="utf-8")):
+        assert '"--fingertip-prior-artifact"' in source
+        assert "default=None" in source
+        assert "fingertip_prior_artifact=args.fingertip_prior_artifact" in source
+
+
+def test_entrypoint_help_keeps_isaac_and_prior_loading_out_of_the_import_boundary():
+    for source in (PLAY.read_text(encoding="utf-8"), PROBE.read_text(encoding="utf-8")):
+        assert "def _parser" in source
+        assert 'if "--help" in sys.argv[1:]' in source
+        assert "FrozenO6FingertipPrior" not in source
