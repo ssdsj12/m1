@@ -196,13 +196,26 @@ ensemble 聚合 aleatoric 与成员间 epistemic 不确定性，用于给蒸馏�
 - 对教师 ensemble 混合分布的固定 Monte-Carlo KL/交叉熵蒸馏损失；
 - 与教师一致的有限加速度/jerk 正则。
 
-蒸馏采样使用写入 manifest 的固定 seed 和每状态固定样本数。混合分量不做基于编号的硬对齐，
+蒸馏采样使用写入 manifest 的固定 seed 和每状态固定样本数。ensemble 的概率密度与采样都采用
+“成员等权、成员内四分量 softmax”：先分别归一化每个成员，再赋予严格 `1/M` 的成员权重，
+因此任一成员 logits 的整体平移不能改变密度或固定 generator 的样本。教师样本以绑定 dataset
+aggregate SHA、ensemble manifest SHA、采样 seed 和每状态样本数的确定性磁盘分片/memmap 原子发布；
+学生 batch 按需读取，内存复杂度不得随完整教师样本集增长。混合分量不做基于编号的硬对齐，
 避免分量置换造成错误监督。只有冻结学生进入运行 artifact；教师 ensemble 保留在本地、忽略 Git，
 用于复核和重新蒸馏。
 
 学生导出为冻结权重和 metadata。metadata 固定模型格式版本、输入/输出顺序、20 节点、100 Hz、
 五指顺序、七阶段顺序、镜像矩阵、数据 aggregate SHA、教师 ensemble manifest SHA、教师与蒸馏
-seed、代码 commit 和学生权重 SHA。
+seed、代码 commit、学生权重 SHA、每状态样本数、epoch、batch、学习率、软件/CUDA build、稳定设备
+指纹、CUBLAS 配置及 trainer/model/contracts/artifact 的语义 SHA。可复现身份只哈希确定性权重、指标、
+provenance 和训练合同；`metrics.json` 不含机器相关的最终批准位。每次真实 CPU latency 与由质量门和
+`p99 < 2 ms` 共同推导的 `production_approved` 原样保存在独立 qualification，并由 SHA 完整绑定。
+加载器先分别校验 deterministic identity 与 qualification，再仅在内存视图中向运行时暴露合成后的
+批准状态。不同机器或运行时抖动允许 qualification SHA 不同，不得伪造、取整或用其破坏同配置学生
+权重、metrics 和 identity 的比较。
+学生使用输出目录专属 resume workspace，在 epoch 边界原子提交模型和优化器状态；最终目录仅在完整
+训练、独立重复和质量门通过后原子发布。真实数据 gate 失败必须非零退出，且不得发布可供运行时
+误用的最终 artifact；仅可在明确 nondeployable 的诊断目录保留带 SHA 的失败证据。
 
 ## Hand MPC 接入
 

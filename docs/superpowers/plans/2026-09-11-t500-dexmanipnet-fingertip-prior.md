@@ -518,7 +518,19 @@ def load_student_artifact(root: Path) -> LoadedStudent:
     return LoadedStudent(model=model, metadata=metadata)
 ```
 
-Train the compact student on real labels plus fixed Monte-Carlo teacher samples. Gate export on `student_nll - teacher_nll <= 0.05 nat/dim`, endpoint RMSE increase `<=5%`, both zero-baseline improvements `>=10%`, deterministic repeated artifact SHA, and CPU p99 `<2 ms` over 1000 measured runs after 100 warm-ups.
+Train the compact student on real labels plus fixed Monte-Carlo teacher samples. Each ensemble member is
+normalized before applying its exact `1/M` member weight. Atomically materialize SHA-pinned teacher samples
+as a deterministic disk memmap and read only batch-sized records during training. The student has an
+output-specific `.resume-v1` workspace with epoch-boundary model/optimizer checkpoints and a strict identity
+covering data, ensemble, sampling, hyperparameters, source semantics, software, device, and CUBLAS settings.
+Gate export on `student_nll - teacher_nll <=0.05 nat/dim`, endpoint RMSE increase `<=5%`, both zero-baseline
+improvements `>=10%`, deterministic repeated weights/metrics/identity, and CPU p99 `<2 ms` over 1000 measured
+runs after 100 warm-ups. Keep measured latency and the derived `production_approved` bit in a separately
+SHA-bound machine qualification: neither is part of deterministic `metrics.json` or the deterministic identity,
+and latency must not be fabricated or byte-compared across independent runs. The strict loader validates both
+documents and only then exposes the combined approval state to runtime callers.
+Real gate failure exits nonzero and publishes no final artifact; synthetic smoke remains a successful,
+explicitly non-production artifact.
 
 - [x] **Step 4: Run GREEN and synthetic distillation smoke**
 
@@ -810,13 +822,20 @@ Run:
 
 ```bash
 cd Go2Pvcnn
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate_manifest.json --ensemble-dir data/external/dexmanipnet/artifacts/expert --output-dir data/external/dexmanipnet/artifacts/student_a --seed 42 --epochs 200
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate_manifest.json --ensemble-dir data/external/dexmanipnet/artifacts/expert --output-dir data/external/dexmanipnet/artifacts/student_b --seed 42 --epochs 200
-cmp data/external/dexmanipnet/artifacts/student_a/metadata.json data/external/dexmanipnet/artifacts/student_b/metadata.json
+CUDA_VISIBLE_DEVICES=0 CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate_manifest.json --ensemble-dir data/external/dexmanipnet/artifacts/expert --output-dir data/external/dexmanipnet/artifacts/student_a --seed 42 --epochs 200 --device cuda:0 --batch-size 128 --samples-per-state 8
+CUDA_VISIBLE_DEVICES=0 CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_distill_fingertip_prior.py --dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate_manifest.json --ensemble-dir data/external/dexmanipnet/artifacts/expert --output-dir data/external/dexmanipnet/artifacts/student_b --seed 42 --epochs 200 --device cuda:0 --batch-size 128 --samples-per-state 8
+cmp data/external/dexmanipnet/artifacts/student_a/student.pt data/external/dexmanipnet/artifacts/student_b/student.pt
 cmp data/external/dexmanipnet/artifacts/student_a/metrics.json data/external/dexmanipnet/artifacts/student_b/metrics.json
 ```
 
-Expected: metric JSON and artifact SHA match; student NLL increase is `<=0.05 nat/dim`, endpoint RMSE increase `<=5%`, zero-baseline improvements remain `>=10%`, and CPU p99 is `<2 ms`.
+Compare `deterministic_identity_sha256` in both metadata files and require equality. Do not byte-compare whole
+metadata or latency files: each measured latency remains exact and is instead validated through that artifact's
+`qualification_sha256`. Expected: weights, metric JSON, and deterministic identities match; student NLL increase
+is `<=0.05 nat/dim`, endpoint RMSE increase `<=5%`, zero-baseline improvements remain `>=10%`, and each CPU
+p99 is `<2 ms`. Rerunning either exact command resumes only its own `.student_a.resume-v1` or
+`.student_b.resume-v1`; any identity mismatch is rejected. A real gate failure exits nonzero, retains only a
+SHA-pinned `nondeployable.json` diagnostic in that resume workspace, and does not create the requested final
+artifact directory.
 
 - [ ] **Step 5: Record evidence and commit notes only**
 

@@ -10,8 +10,10 @@ import math
 import os
 from pathlib import Path
 import shutil
+import stat
 import tempfile
 
+import numpy as np
 import torch
 
 from .contracts import PriorPhase, StudentArtifactMetadata
@@ -19,7 +21,33 @@ from .model import FingertipMixtureNet
 
 
 _ARTIFACT_FILES = frozenset({"metadata.json", "student.pt", "metrics.json", "latency.json"})
-_DISTILLATION_CONFIG = {"label_nll_weight": 0.5, "teacher_sample_weight": 0.5, "acceleration_weight": 1e-5, "jerk_weight": 1e-7}
+DISTILLATION_LOSS_CONFIG = {"label_nll_weight": 0.5, "teacher_sample_weight": 0.5, "acceleration_weight": 1e-5, "jerk_weight": 1e-7}
+DISTILLATION_TRAINING_DEFAULTS = {
+    "samples_per_state": 8,
+    "epochs": 200,
+    "batch_size": 128,
+    "learning_rate": 1e-3,
+    "device": "cpu",
+}
+
+
+def default_distillation_training() -> dict[str, object]:
+    """Return the one frozen default training contract used by CLI and artifact tests."""
+
+    return {
+        "samples_per_state": DISTILLATION_TRAINING_DEFAULTS["samples_per_state"],
+        "epochs": DISTILLATION_TRAINING_DEFAULTS["epochs"],
+        "batch_size": DISTILLATION_TRAINING_DEFAULTS["batch_size"],
+        "learning_rate": DISTILLATION_TRAINING_DEFAULTS["learning_rate"],
+        "device": {"type": DISTILLATION_TRAINING_DEFAULTS["device"]},
+        "software": {
+            "torch_version": str(torch.__version__),
+            "torch_cuda_build": None if torch.version.cuda is None else str(torch.version.cuda),
+            "numpy_version": str(np.__version__),
+        },
+        "cublas_workspace_config": None,
+        "source_semantic_sha256": "0" * 64,
+    }
 
 
 def sha256_file(path: str | Path) -> str:
@@ -39,6 +67,26 @@ def _canonical_json(value: object) -> bytes:
 def _regular(path: Path, *, label: str) -> None:
     if not path.is_file() or path.is_symlink():
         raise ValueError(f"{label} must be a regular file")
+
+
+def _safe_directory(path: str | Path, *, create: bool) -> Path:
+    value = Path(path).expanduser()
+    if ".." in value.parts:
+        raise ValueError(f"unsafe parent traversal in artifact path: {value}")
+    absolute = value if value.is_absolute() else Path.cwd() / value
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current = current / part
+        try:
+            metadata = os.lstat(current)
+        except FileNotFoundError as error:
+            if not create:
+                raise ValueError(f"artifact directory is missing: {current}") from error
+            os.mkdir(current)
+            metadata = os.lstat(current)
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError("student artifact root must be a regular directory")
+    return absolute
 
 
 def _metadata_document(metadata: StudentArtifactMetadata) -> dict[str, object]:
@@ -68,7 +116,11 @@ def _metadata_from_document(document: object) -> StudentArtifactMetadata:
         raise ValueError("artifact metadata must be a JSON object")
     body = dict(document)
     declared = body.pop("metadata_sha256", None)
-    required = set(_metadata_document(_metadata_for_schema()).keys()) | {"metrics_sha256", "metrics_bytes", "latency_sha256", "latency_bytes", "distillation_config", "reproducibility_fingerprint"}
+    required = set(_metadata_document(_metadata_for_schema()).keys()) | {
+        "metrics_sha256", "metrics_bytes", "latency_sha256", "latency_bytes",
+        "distillation_loss", "distillation_training", "deterministic_identity_sha256",
+        "qualification_sha256",
+    }
     if set(body) != required:
         raise ValueError("artifact metadata fields do not match the frozen schema")
     if type(declared) is not str or declared != sha256(_canonical_json(body)).hexdigest():
@@ -144,18 +196,20 @@ def _validate_reports(metrics: dict[str, object], latency: dict[str, object]) ->
         raise ValueError("artifact metrics/provenance schema is invalid")
     values = metrics["metrics"]
     provenance = metrics["provenance"]
-    required_values = {"student_nll", "teacher_nll", "nll_delta_per_dim", "first_step_velocity_rmse", "first_step_zero_rmse", "first_step_improvement", "endpoint_rmse", "teacher_endpoint_rmse", "endpoint_zero_rmse", "endpoint_improvement", "production_approved", "deterministic_repeat_verified"}
-    if set(values) != required_values or type(values.get("production_approved")) is not bool or not _finite_json(metrics):
+    required_values = {"student_nll", "teacher_nll", "nll_delta_per_dim", "first_step_velocity_rmse", "first_step_zero_rmse", "first_step_improvement", "endpoint_rmse", "teacher_endpoint_rmse", "endpoint_zero_rmse", "endpoint_improvement", "deterministic_repeat_verified"}
+    if set(values) != required_values or not _finite_json(metrics):
         raise ValueError("artifact metrics/provenance is invalid")
-    numeric = required_values - {"production_approved", "deterministic_repeat_verified"}
+    numeric = required_values - {"deterministic_repeat_verified"}
     if type(values["deterministic_repeat_verified"]) is not bool or any(type(values[key]) not in (int, float) or type(values[key]) is bool or not math.isfinite(float(values[key])) for key in numeric):
         raise ValueError("artifact metrics are invalid")
     if values["deterministic_repeat_verified"] is not True or any(float(values[key]) < 0.0 for key in ("first_step_velocity_rmse", "endpoint_rmse", "teacher_endpoint_rmse")) or any(float(values[key]) <= 0.0 for key in ("first_step_zero_rmse", "endpoint_zero_rmse")) or not math.isclose(values["nll_delta_per_dim"], (values["student_nll"] - values["teacher_nll"]) / 300.0, abs_tol=1e-8) or not math.isclose(values["first_step_improvement"], 1 - values["first_step_velocity_rmse"] / values["first_step_zero_rmse"], abs_tol=1e-8) or not math.isclose(values["endpoint_improvement"], 1 - values["endpoint_rmse"] / values["endpoint_zero_rmse"], abs_tol=1e-8):
         raise ValueError("artifact derived metrics are inconsistent")
     if set(provenance) != {"nonproduction_synthetic", "dataset_aggregate_sha256", "teacher_ensemble_manifest_sha256"} or type(provenance.get("nonproduction_synthetic")) is not bool:
         raise ValueError("artifact provenance is invalid")
-    if set(latency) != {"warmups", "measurements", "p99_ms"}:
+    if set(latency) != {"warmups", "measurements", "p99_ms", "production_approved"}:
         raise ValueError("artifact latency schema is invalid")
+    if type(latency["production_approved"]) is not bool:
+        raise ValueError("artifact latency production approval is invalid")
     if type(latency["warmups"]) is not int or latency["warmups"] < 100:
         raise ValueError("artifact latency warmups are invalid")
     if type(latency["measurements"]) is not int or latency["measurements"] < 1000:
@@ -174,19 +228,93 @@ def _validate_provenance(reports: dict[str, object], metadata: StudentArtifactMe
         raise ValueError("artifact provenance does not match frozen metadata pins")
 
 
+def _production_approved(values: Mapping[str, object], provenance: Mapping[str, object], p99_ms: object) -> bool:
+    return bool(
+        provenance.get("nonproduction_synthetic") is False
+        and float(values["nll_delta_per_dim"]) <= 0.05
+        and float(values["endpoint_rmse"]) <= 1.05 * float(values["teacher_endpoint_rmse"])
+        and float(values["first_step_improvement"]) >= 0.10
+        and float(values["endpoint_improvement"]) >= 0.10
+        and float(p99_ms) < 2.0
+    )
+
+
+def _validate_distillation_training(value: object) -> dict[str, object]:
+    if type(value) is not dict or set(value) != {
+        "samples_per_state", "epochs", "batch_size", "learning_rate", "device", "software",
+        "cublas_workspace_config", "source_semantic_sha256",
+    }:
+        raise ValueError("artifact distillation training configuration is invalid")
+    for key in ("samples_per_state", "epochs", "batch_size"):
+        if type(value[key]) is not int or value[key] <= 0:
+            raise ValueError("artifact distillation training configuration is invalid")
+    if type(value["learning_rate"]) is not float or not math.isfinite(value["learning_rate"]) or value["learning_rate"] <= 0.0:
+        raise ValueError("artifact distillation training configuration is invalid")
+    device = value["device"]
+    if type(device) is not dict or device.get("type") not in {"cpu", "cuda"}:
+        raise ValueError("artifact distillation training device is invalid")
+    if device["type"] == "cpu":
+        if set(device) != {"type"}:
+            raise ValueError("artifact distillation training device is invalid")
+    elif (
+        set(device) != {"type", "uuid", "name", "compute_capability"}
+        or type(device["uuid"]) is not str or not device["uuid"]
+        or type(device["name"]) is not str or not device["name"]
+        or type(device["compute_capability"]) is not list
+        or len(device["compute_capability"]) != 2
+        or any(type(number) is not int or number < 0 for number in device["compute_capability"])
+    ):
+        raise ValueError("artifact distillation training device is invalid")
+    software = value["software"]
+    if (
+        type(software) is not dict
+        or set(software) != {"torch_version", "torch_cuda_build", "numpy_version"}
+        or type(software["torch_version"]) is not str or not software["torch_version"]
+        or type(software["numpy_version"]) is not str or not software["numpy_version"]
+        or software["torch_cuda_build"] is not None and type(software["torch_cuda_build"]) is not str
+        or not _finite_json(software)
+    ):
+        raise ValueError("artifact distillation software identity is invalid")
+    cublas = value["cublas_workspace_config"]
+    if (
+        device["type"] == "cpu" and cublas is not None
+        or device["type"] == "cuda" and cublas not in {":4096:8", ":16:8"}
+    ):
+        raise ValueError("artifact distillation CUBLAS identity is invalid")
+    semantic = value["source_semantic_sha256"]
+    if type(semantic) is not str or len(semantic) != 64 or any(ch not in "0123456789abcdef" for ch in semantic):
+        raise ValueError("artifact distillation source semantic SHA is invalid")
+    return dict(value)
+
+
 def _metadata_integrity(document: dict[str, object], metrics_bytes: bytes, latency_bytes: bytes, reports: dict[str, object], metadata: StudentArtifactMetadata) -> None:
-    if document.get("distillation_config") != _DISTILLATION_CONFIG:
-        raise ValueError("artifact distillation configuration is invalid")
+    if document.get("distillation_loss") != DISTILLATION_LOSS_CONFIG:
+        raise ValueError("artifact distillation loss configuration is invalid")
+    training = _validate_distillation_training(document.get("distillation_training"))
     for label, raw in (("metrics", metrics_bytes), ("latency", latency_bytes)):
         if document.get(f"{label}_sha256") != sha256(raw).hexdigest() or document.get(f"{label}_bytes") != len(raw):
             raise ValueError(f"artifact {label} SHA mismatch")
     values, provenance = reports["metrics"], reports["provenance"]
-    expected = (not provenance["nonproduction_synthetic"] and values["nll_delta_per_dim"] <= 0.05 and values["endpoint_rmse"] <= 1.05 * values["teacher_endpoint_rmse"] and values["first_step_improvement"] >= 0.10 and values["endpoint_improvement"] >= 0.10 and json.loads(latency_bytes)["p99_ms"] < 2.0)
-    if values["production_approved"] != expected:
+    latency = json.loads(latency_bytes)
+    expected = _production_approved(values, provenance, latency["p99_ms"])
+    if latency["production_approved"] != expected:
         raise ValueError("artifact production approval does not match gates")
-    fingerprint_body = {"metadata": _metadata_document(metadata), "distillation_config": _DISTILLATION_CONFIG, "metrics": reports}
-    if document.get("reproducibility_fingerprint") != sha256(_canonical_json(fingerprint_body)).hexdigest():
-        raise ValueError("artifact reproducibility fingerprint mismatch")
+    identity_body = {
+        "metadata": _metadata_document(metadata),
+        "distillation_loss": DISTILLATION_LOSS_CONFIG,
+        "distillation_training": training,
+        "metrics": reports,
+    }
+    identity_sha = sha256(_canonical_json(identity_body)).hexdigest()
+    if document.get("deterministic_identity_sha256") != identity_sha:
+        raise ValueError("artifact deterministic identity mismatch")
+    qualification = {
+        "deterministic_identity_sha256": identity_sha,
+        "latency_sha256": document["latency_sha256"],
+        "production_approved": latency["production_approved"],
+    }
+    if document.get("qualification_sha256") != sha256(_canonical_json(qualification)).hexdigest():
+        raise ValueError("artifact qualification SHA mismatch")
 
 
 def _state_for_save(model: FingertipMixtureNet) -> dict[str, torch.Tensor]:
@@ -233,22 +361,36 @@ def save_student_artifact(
     metrics: Mapping[str, object],
     latency: Mapping[str, object],
     provenance: Mapping[str, object],
+    distillation_training: Mapping[str, object] | None = None,
 ) -> StudentArtifactMetadata:
     """Atomically save exactly the four self-validating student artifact files."""
 
     if not isinstance(metadata, StudentArtifactMetadata):
         raise TypeError("metadata must be StudentArtifactMetadata")
-    destination = Path(root).resolve()
-    if destination.exists() or destination.is_symlink():
+    lexical = Path(root).expanduser()
+    if ".." in lexical.parts:
+        raise ValueError(f"unsafe parent traversal in artifact path: {lexical}")
+    destination = lexical if lexical.is_absolute() else Path.cwd() / lexical
+    _safe_directory(destination.parent, create=True)
+    if os.path.lexists(destination):
         raise FileExistsError(f"student artifact destination already exists: {destination}")
-    reports = {"metrics": dict(metrics), "provenance": dict(provenance)}
+    metric_document = dict(metrics)
     latency_document = dict(latency)
+    approval = metric_document.pop("production_approved", latency_document.get("production_approved"))
+    if approval is None:
+        approval = _production_approved(metric_document, provenance, latency_document.get("p99_ms"))
+    if "production_approved" in latency_document and latency_document["production_approved"] != approval:
+        raise ValueError("conflicting artifact production approval")
+    latency_document["production_approved"] = approval
+    reports = {"metrics": metric_document, "provenance": dict(provenance)}
     _validate_reports(reports, latency_document)
     _validate_provenance(reports, metadata)
+    training = _validate_distillation_training(
+        default_distillation_training() if distillation_training is None else dict(distillation_training)
+    )
     state = _state_for_save(model)
     if model.hidden != metadata.hidden:
         raise ValueError("student model architecture does not match metadata hidden widths")
-    destination.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent))
     try:
         weights_path = stage / "student.pt"
@@ -258,8 +400,27 @@ def save_student_artifact(
             os.fsync(handle.fileno())
         pinned = replace(metadata, weight_sha256=sha256_file(weights_path))
         metrics_bytes, latency_bytes = _canonical_json(reports), _canonical_json(latency_document)
-        metadata_body = {**_metadata_document(pinned), "metrics_sha256": sha256(metrics_bytes).hexdigest(), "metrics_bytes": len(metrics_bytes), "latency_sha256": sha256(latency_bytes).hexdigest(), "latency_bytes": len(latency_bytes), "distillation_config": _DISTILLATION_CONFIG}
-        metadata_body["reproducibility_fingerprint"] = sha256(_canonical_json({"metadata": _metadata_document(pinned), "distillation_config": _DISTILLATION_CONFIG, "metrics": reports})).hexdigest()
+        metadata_body = {
+            **_metadata_document(pinned),
+            "metrics_sha256": sha256(metrics_bytes).hexdigest(),
+            "metrics_bytes": len(metrics_bytes),
+            "latency_sha256": sha256(latency_bytes).hexdigest(),
+            "latency_bytes": len(latency_bytes),
+            "distillation_loss": DISTILLATION_LOSS_CONFIG,
+            "distillation_training": training,
+        }
+        identity_body = {
+            "metadata": _metadata_document(pinned),
+            "distillation_loss": DISTILLATION_LOSS_CONFIG,
+            "distillation_training": training,
+            "metrics": reports,
+        }
+        metadata_body["deterministic_identity_sha256"] = sha256(_canonical_json(identity_body)).hexdigest()
+        metadata_body["qualification_sha256"] = sha256(_canonical_json({
+            "deterministic_identity_sha256": metadata_body["deterministic_identity_sha256"],
+            "latency_sha256": metadata_body["latency_sha256"],
+            "production_approved": latency_document["production_approved"],
+        })).hexdigest()
         metadata_document = {**metadata_body, "metadata_sha256": sha256(_canonical_json(metadata_body)).hexdigest()}
         for path, value in (
             (stage / "metadata.json", metadata_document),
@@ -281,9 +442,7 @@ def save_student_artifact(
 def load_student_artifact(root: str | Path) -> LoadedStudent:
     """Load only a regular, complete, SHA-verified artifact using weights-only Torch loading."""
 
-    artifact = Path(root).resolve()
-    if not artifact.is_dir() or artifact.is_symlink():
-        raise ValueError("student artifact root must be a regular directory")
+    artifact = _safe_directory(root, create=False)
     if {path.name for path in artifact.iterdir()} != _ARTIFACT_FILES:
         raise ValueError("student artifact must contain exactly the required files")
     metadata_document = _json_document(artifact / "metadata.json", label="artifact metadata")
@@ -305,7 +464,8 @@ def load_student_artifact(root: str | Path) -> LoadedStudent:
         raise ValueError("student weights could not be safely loaded") from error
     model.load_state_dict(_validate_state(model, state), strict=True)
     model.eval()
-    return LoadedStudent(model=model, metadata=metadata, metrics=metrics["metrics"], latency=latency)
+    runtime_metrics = {**metrics["metrics"], "production_approved": latency["production_approved"]}
+    return LoadedStudent(model=model, metadata=metadata, metrics=runtime_metrics, latency=latency)
 
 
 def validate_student_artifact(root: str | Path) -> None:
@@ -317,7 +477,10 @@ def validate_student_artifact(root: str | Path) -> None:
 
 
 __all__ = [
+    "DISTILLATION_LOSS_CONFIG",
+    "DISTILLATION_TRAINING_DEFAULTS",
     "LoadedStudent",
+    "default_distillation_training",
     "load_student_artifact",
     "save_student_artifact",
     "validate_student_artifact",

@@ -142,10 +142,10 @@ def test_artifact_requires_metadata_self_hash_before_trusting_weights(tmp_path: 
 
 def test_artifact_integrity_binds_reports_and_recomputes_nonproduction_approval(tmp_path: Path, monkeypatch):
     root = _write(tmp_path / "artifact")
-    metrics_path = root / "metrics.json"
-    document = json.loads(metrics_path.read_text(encoding="utf-8"))
-    document["metrics"]["production_approved"] = True
-    metrics_path.write_text(json.dumps(document), encoding="utf-8")
+    latency_path = root / "latency.json"
+    document = json.loads(latency_path.read_text(encoding="utf-8"))
+    document["production_approved"] = True
+    latency_path.write_text(json.dumps(document), encoding="utf-8")
 
     calls = 0
     def forbidden_load(*args, **kwargs):
@@ -153,23 +153,23 @@ def test_artifact_integrity_binds_reports_and_recomputes_nonproduction_approval(
         calls += 1
         raise AssertionError("report tampering reached torch.load")
     monkeypatch.setattr("go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact.torch.load", forbidden_load)
-    with pytest.raises(ValueError, match="metrics SHA"):
+    with pytest.raises(ValueError, match="latency SHA"):
         load_student_artifact(root)
     assert calls == 0
 
     # A coordinated metadata rewrite cannot make synthetic provenance production-approved either.
     _rewrite_metadata(root, lambda metadata: metadata.update({
-        "metrics_bytes": len(metrics_path.read_bytes()),
-        "metrics_sha256": sha256(metrics_path.read_bytes()).hexdigest(),
+        "latency_bytes": len(latency_path.read_bytes()),
+        "latency_sha256": sha256(latency_path.read_bytes()).hexdigest(),
     }))
     with pytest.raises(ValueError, match="production approval"):
         load_student_artifact(root)
 
 
-def test_artifact_rejects_missing_report_binding_and_exposes_deterministic_fingerprint(tmp_path: Path):
+def test_artifact_rejects_missing_report_binding_and_exposes_deterministic_identity(tmp_path: Path):
     root = _write(tmp_path / "artifact")
     document = json.loads((root / "metadata.json").read_text(encoding="utf-8"))
-    assert isinstance(document.get("reproducibility_fingerprint"), str)
+    assert isinstance(document.get("deterministic_identity_sha256"), str)
     _rewrite_metadata(root, lambda metadata: metadata.pop("metrics_sha256", None))
 
     with pytest.raises(ValueError, match="metadata fields"):
@@ -183,4 +183,110 @@ def test_artifact_rejects_bool_or_incoherent_derived_metric_fields(tmp_path: Pat
     document["metrics"]["endpoint_rmse"] = True
     report.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(ValueError, match="metrics"):
+        load_student_artifact(root)
+
+
+def test_artifact_separates_deterministic_identity_from_machine_qualification(tmp_path: Path):
+    first = _write(tmp_path / "first")
+    torch.manual_seed(1)
+    save_student_artifact(
+        tmp_path / "second",
+        model=FingertipMixtureNet(hidden=(16, 16)), metadata=_metadata(),
+        metrics=json.loads((first / "metrics.json").read_text())["metrics"],
+        latency={"warmups": 100, "measurements": 1000, "p99_ms": 1.25},
+        provenance=json.loads((first / "metrics.json").read_text())["provenance"],
+    )
+    first_meta = json.loads((first / "metadata.json").read_text())
+    second_meta = json.loads((tmp_path / "second" / "metadata.json").read_text())
+
+    assert first_meta["deterministic_identity_sha256"] == second_meta["deterministic_identity_sha256"]
+    assert first_meta["qualification_sha256"] != second_meta["qualification_sha256"]
+    assert first_meta["weight_sha256"] == second_meta["weight_sha256"]
+
+
+def test_artifact_identity_excludes_the_machine_dependent_approval_result(tmp_path: Path):
+    torch.manual_seed(1)
+    model = FingertipMixtureNet(hidden=(16, 16))
+    common_metrics = {
+        "student_nll": 1.0,
+        "teacher_nll": 1.0,
+        "nll_delta_per_dim": 0.0,
+        "first_step_velocity_rmse": 0.8,
+        "first_step_zero_rmse": 1.0,
+        "first_step_improvement": 0.2,
+        "endpoint_rmse": 0.8,
+        "teacher_endpoint_rmse": 0.8,
+        "endpoint_zero_rmse": 1.0,
+        "endpoint_improvement": 0.2,
+        "deterministic_repeat_verified": True,
+    }
+    provenance = {
+        "nonproduction_synthetic": False,
+        "dataset_aggregate_sha256": "a" * 64,
+        "teacher_ensemble_manifest_sha256": "b" * 64,
+    }
+    save_student_artifact(
+        tmp_path / "qualified", model=model, metadata=_metadata(),
+        metrics={**common_metrics, "production_approved": True},
+        latency={"warmups": 100, "measurements": 1000, "p99_ms": 1.5},
+        provenance=provenance,
+    )
+    save_student_artifact(
+        tmp_path / "unqualified", model=model, metadata=_metadata(),
+        metrics={**common_metrics, "production_approved": False},
+        latency={"warmups": 100, "measurements": 1000, "p99_ms": 2.5},
+        provenance=provenance,
+    )
+
+    qualified = json.loads((tmp_path / "qualified" / "metadata.json").read_text())
+    unqualified = json.loads((tmp_path / "unqualified" / "metadata.json").read_text())
+    assert qualified["deterministic_identity_sha256"] == unqualified["deterministic_identity_sha256"]
+    assert qualified["qualification_sha256"] != unqualified["qualification_sha256"]
+    assert (tmp_path / "qualified" / "metrics.json").read_bytes() == (
+        tmp_path / "unqualified" / "metrics.json"
+    ).read_bytes()
+    assert json.loads((tmp_path / "qualified" / "latency.json").read_text())["production_approved"] is True
+    assert json.loads((tmp_path / "unqualified" / "latency.json").read_text())["production_approved"] is False
+
+
+def test_artifact_loader_rejects_a_symlink_root(tmp_path: Path):
+    root = _write(tmp_path / "artifact")
+    linked = tmp_path / "linked-artifact"
+    linked.symlink_to(root, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="regular directory"):
+        load_student_artifact(linked)
+
+
+def test_artifact_metadata_records_the_single_distillation_configuration(tmp_path: Path):
+    root = _write(tmp_path / "artifact")
+    document = json.loads((root / "metadata.json").read_text())
+
+    assert document["distillation_training"] == {
+        "samples_per_state": 8,
+        "epochs": 200,
+        "batch_size": 128,
+        "learning_rate": 0.001,
+        "device": {"type": "cpu"},
+        "software": document["distillation_training"]["software"],
+        "cublas_workspace_config": None,
+        "source_semantic_sha256": "0" * 64,
+    }
+    assert set(document["distillation_training"]["software"]) == {
+        "torch_version", "torch_cuda_build", "numpy_version"
+    }
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda training: training["software"].pop("torch_version"),
+    lambda training: training["device"].update({"unbound_index": 7}),
+    lambda training: training.update({"cublas_workspace_config": ":4096:8"}),
+])
+def test_artifact_rejects_coordinated_incomplete_or_incoherent_training_identity(
+    tmp_path: Path, mutation,
+):
+    root = _write(tmp_path / "artifact")
+    _rewrite_metadata(root, lambda metadata: mutation(metadata["distillation_training"]))
+
+    with pytest.raises(ValueError, match="distillation|device|CUBLAS|software"):
         load_student_artifact(root)
