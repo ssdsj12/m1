@@ -16,6 +16,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.preproces
     infer_contact_hysteresis,
     infer_prior_phase,
     load_object_collision_mesh,
+    object_geometry_sha256,
     object_relative_surface_kinematics,
     resample_fingertips,
     resample_fingertips_with_velocity,
@@ -195,6 +196,7 @@ def test_object_box_geometry_is_loaded_without_dataset_semantics(tmp_path: Path)
 
     assert mesh.is_watertight
     np.testing.assert_allclose(mesh.extents, [0.2, 0.4, 0.6], atol=1e-12)
+    assert len(object_geometry_sha256(urdf)) == 64
     np.testing.assert_allclose(mesh.centroid, [0.1, 0.0, 0.0], atol=1e-12)
 
 
@@ -211,6 +213,7 @@ def test_object_urdf_with_leading_ascii_whitespace_before_xml_declaration_loads(
 
     assert mesh.is_watertight
     np.testing.assert_allclose(mesh.extents, [0.2, 0.4, 0.6], atol=1e-12)
+    assert len(object_geometry_sha256(urdf)) == 64
 
 
 def _write_mesh_urdf(tmp_path: Path, mesh: object, name: str) -> Path:

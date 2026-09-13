@@ -370,19 +370,22 @@ def _outward_collision_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     return result
 
 
+def _parse_object_urdf(urdf: Path) -> ElementTree.Element:
+    """Parse a local object URDF after removing only leading ASCII whitespace."""
+
+    try:
+        return ElementTree.fromstring(urdf.read_bytes().lstrip(b" \t\r\n"))
+    except (ElementTree.ParseError, OSError) as error:
+        raise ValueError("object geometry URDF is unusable") from error
+
+
 def load_object_collision_mesh(path: str | Path) -> trimesh.Trimesh:
     """Load a finite, watertight object collision surface from a local URDF."""
 
     urdf = Path(path)
     if not urdf.is_file() or urdf.is_symlink():
         raise ValueError("object geometry URDF is missing or unsafe")
-    try:
-        # DexManipNet object URDFs may prefix the XML declaration with ASCII
-        # whitespace.  Strip only that transport whitespace; malformed XML is
-        # still rejected by the same parser below.
-        root = ElementTree.fromstring(urdf.read_bytes().lstrip(b" \t\r\n"))
-    except (ElementTree.ParseError, OSError) as error:
-        raise ValueError("object geometry URDF is unusable") from error
+    root = _parse_object_urdf(urdf)
     if root.tag != "robot":
         raise ValueError("object geometry URDF root must be robot")
     meshes: list[trimesh.Trimesh] = []
@@ -536,7 +539,7 @@ def object_geometry_sha256(path: str | Path) -> str:
 
     urdf = Path(path)
     load_object_collision_mesh(urdf)
-    root = ElementTree.parse(urdf).getroot()
+    root = _parse_object_urdf(urdf)
     files = [urdf]
     for shape in root.findall(".//collision/geometry/mesh"):
         filename = shape.get("filename")
