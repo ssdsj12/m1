@@ -320,11 +320,28 @@ class UrdfKinematicTree:
         for name in sorted(joints):
             visit(name)
 
-    def expanded_joint_positions(self, positions: Mapping[str, object]) -> dict[str, object]:
+    def expanded_joint_positions(
+        self,
+        positions: Mapping[str, object],
+        *,
+        mimic_override_joints: Sequence[str] = (),
+    ) -> dict[str, object]:
         """Expand independent joint positions to fixed and recursive mimic joints."""
 
         if not isinstance(positions, Mapping):
             raise TypeError("joint positions must be a mapping")
+        if isinstance(mimic_override_joints, (str, bytes)):
+            raise TypeError("mimic_override_joints must be a sequence of joint names")
+        overrides = tuple(mimic_override_joints)
+        if len(overrides) != len(set(overrides)):
+            raise ValueError("mimic_override_joints must contain unique names")
+        unknown_overrides = sorted(set(overrides) - set(self.joints))
+        if unknown_overrides:
+            raise ValueError(f"unknown mimic override joint: {unknown_overrides}")
+        non_mimics = sorted(name for name in overrides if self.joints[name].mimic is None)
+        if non_mimics:
+            raise ValueError(f"mimic override joint is not a mimic: {non_mimics}")
+        override_set = set(overrides)
         unknown = sorted(set(positions) - set(self.joints))
         if unknown:
             raise ValueError(f"unknown joint positions: {unknown}")
@@ -333,7 +350,7 @@ class UrdfKinematicTree:
             joint = self.joints[name]
             if joint.joint_type == "fixed":
                 raise ValueError(f"fixed joint {name} cannot be supplied")
-            if joint.mimic is not None:
+            if joint.mimic is not None and name not in override_set:
                 raise ValueError(f"mimic joint {name} cannot be supplied directly")
             array = np.asarray(value, dtype=np.float64)
             if not np.isfinite(array).all():
@@ -348,10 +365,10 @@ class UrdfKinematicTree:
             joint = self.joints[name]
             if joint.joint_type == "fixed":
                 value: object = 0.0
-            elif joint.mimic is not None:
-                value = joint.mimic.multiplier * resolve(joint.mimic.joint) + joint.mimic.offset
             elif name in supplied:
                 value = supplied[name]
+            elif joint.mimic is not None:
+                value = joint.mimic.multiplier * resolve(joint.mimic.joint) + joint.mimic.offset
             else:
                 raise ValueError(f"missing independent joint position: {name}")
             expanded[name] = value
@@ -366,6 +383,8 @@ class UrdfKinematicTree:
         q: np.ndarray,
         joint_order: Sequence[str],
         links: Sequence[str],
+        *,
+        mimic_override_joints: Sequence[str] = (),
     ) -> np.ndarray:
         """Return batched root-to-link transforms with shape ``(B, L, 4, 4)``."""
 
@@ -390,7 +409,8 @@ class UrdfKinematicTree:
             raise ValueError(f"missing requested link: {missing_links}")
 
         independent = self.expanded_joint_positions(
-            {name: values[:, column] for column, name in enumerate(order)}
+            {name: values[:, column] for column, name in enumerate(order)},
+            mimic_override_joints=mimic_override_joints,
         )
         batch = values.shape[0]
         root_transform = np.broadcast_to(np.eye(4, dtype=np.float64), (batch, 4, 4)).copy()
@@ -414,7 +434,12 @@ class UrdfKinematicTree:
         """Return ``inv(T_palm) @ T_tip`` in the source manifest's five-tip order."""
 
         names = (source_hand.palm_link, *source_hand.fingertip_links)
-        transforms = self.forward_links(q, source_hand.joint_order, names)
+        transforms = self.forward_links(
+            q,
+            source_hand.joint_order,
+            names,
+            mimic_override_joints=source_hand.mimic_override_joints,
+        )
         palm_inverse = np.linalg.inv(transforms[:, 0])
         return palm_inverse[:, None, :, :] @ transforms[:, 1:, :, :]
 

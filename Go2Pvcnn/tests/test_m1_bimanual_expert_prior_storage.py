@@ -258,13 +258,25 @@ def _write_full_conversion_fixture(root: Path) -> tuple[str, str]:
     links = ['<link name="R_hand_base_link"/>']
     joints = []
     parent = "R_hand_base_link"
+    mimic_masters = {
+        "R_index_intermediate_joint": "R_index_proximal_joint",
+        "R_middle_intermediate_joint": "R_middle_proximal_joint",
+        "R_pinky_intermediate_joint": "R_pinky_proximal_joint",
+        "R_ring_intermediate_joint": "R_ring_proximal_joint",
+        "R_thumb_intermediate_joint": "R_thumb_proximal_pitch_joint",
+        "R_thumb_distal_joint": "R_thumb_proximal_pitch_joint",
+    }
     for index, name in enumerate(spec.joint_order):
         child = f"moving_{index}"
         links.append(f'<link name="{child}"/>')
         kind = "prismatic" if index == 0 else "revolute"
+        mimic_xml = (
+            f'<mimic joint="{mimic_masters[name]}" multiplier="1" offset="0"/>'
+            if name in mimic_masters else ""
+        )
         joints.append(
             f'<joint name="{name}" type="{kind}"><parent link="{parent}"/>'
-            f'<child link="{child}"/><axis xyz="1 0 0"/></joint>'
+            f'<child link="{child}"/><axis xyz="1 0 0"/>{mimic_xml}</joint>'
         )
         parent = child
     for index, tip in enumerate(spec.fingertip_links):

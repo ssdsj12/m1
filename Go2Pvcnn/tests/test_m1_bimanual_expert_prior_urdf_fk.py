@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from textwrap import dedent
 
 import numpy as np
 import pytest
 
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.sources import (
+    SOURCE_HANDS,
     SourceHandSpec,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.urdf_fk import (
@@ -66,6 +68,48 @@ def test_mimic_joint_uses_master_multiplier_and_offset(tmp_path):
     expanded = tree.expanded_joint_positions({"j0": 0.4})
 
     assert expanded["j1"] == pytest.approx(0.3)
+
+
+def test_explicit_mimic_override_uses_recorded_value_without_weakening_default(tmp_path):
+    tree = UrdfKinematicTree.from_file(
+        _write_urdf(tmp_path, _two_joint_urdf(mimic=True, multiplier=0.5, offset=0.1))
+    )
+
+    with pytest.raises(ValueError, match="cannot be supplied directly"):
+        tree.forward_links(np.array([[0.4, 1.2]]), ("j0", "j1"), ("tip",))
+
+    result = tree.forward_links(
+        np.array([[0.4, 1.2]]),
+        ("j0", "j1"),
+        ("tip",),
+        mimic_override_joints=("j1",),
+    )
+
+    np.testing.assert_allclose(result[0, 0, :3, 3], [2.0 * np.cos(0.4), 2.0 * np.sin(0.4), 0.0])
+    assert tree.expanded_joint_positions({"j0": 0.4})["j1"] == pytest.approx(0.3)
+
+
+def test_pinned_inspire_dofs_explicitly_override_only_urdf_mimic_joints():
+    root = Path(__file__).parents[1] / "data" / "external" / "dexmanipnet"
+    source_root = root / "source_maniptrans"
+    hdf_path = root / "extracted" / "dexmanipnet_favor" / "sequences" / "1001_rh" / "rollouts.hdf5"
+    if not source_root.is_dir() or not hdf_path.is_file():
+        pytest.skip("pinned DexManipNet input is not installed")
+    h5py = pytest.importorskip("h5py")
+    spec = SOURCE_HANDS["inspire_rh"]
+    tree = UrdfKinematicTree.from_file(source_root / spec.urdf_relpath)
+    urdf_mimics = tuple(name for name in spec.joint_order if tree.joints[name].mimic is not None)
+
+    assert spec.mimic_override_joints == urdf_mimics
+    with h5py.File(hdf_path, "r") as stream:
+        q = np.asarray(stream["rollouts/successful/rollout_0/q_rh"][:4], dtype=np.float64)
+    assert q.shape == (4, len(spec.joint_order))
+    with pytest.raises(ValueError, match="cannot be supplied directly"):
+        tree.forward_links(q, spec.joint_order, spec.fingertip_links)
+
+    fingertips = tree.palm_relative_fingertips(q, spec)
+    assert fingertips.shape == (4, 5, 3)
+    assert np.isfinite(fingertips).all()
 
 
 def test_fixed_prismatic_origin_rpy_and_joint_limits_are_parsed(tmp_path):

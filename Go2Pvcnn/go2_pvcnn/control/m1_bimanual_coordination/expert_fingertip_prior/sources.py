@@ -15,6 +15,7 @@ class SourceHandSpec:
     joint_order: tuple[str, ...]
     palm_link: str
     fingertip_links: tuple[str, str, str, str, str]
+    mimic_override_joints: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.name) is not str or not self.name.strip():
@@ -37,6 +38,14 @@ class SourceHandSpec:
             raise ValueError("joint_order must contain non-empty names")
         if len(set(self.joint_order)) != len(self.joint_order):
             raise ValueError("joint_order must contain unique names")
+        if type(self.mimic_override_joints) is not tuple:
+            raise TypeError("mimic_override_joints must be a tuple")
+        if any(type(name) is not str or not name.strip() for name in self.mimic_override_joints):
+            raise ValueError("mimic_override_joints must contain non-empty names")
+        if len(set(self.mimic_override_joints)) != len(self.mimic_override_joints):
+            raise ValueError("mimic_override_joints must contain unique names")
+        if not set(self.mimic_override_joints).issubset(self.joint_order):
+            raise ValueError("mimic_override_joints must be recorded joints")
         if type(self.palm_link) is not str or not self.palm_link.strip():
             raise ValueError("palm_link must be a non-empty string")
         if type(self.fingertip_links) is not tuple:
@@ -96,6 +105,14 @@ SOURCE_HANDS = MappingProxyType({
         joint_order=tuple(f"R_{name}" for name in _INSPIRE_JOINT_SUFFIXES),
         palm_link="R_hand_base_link",
         fingertip_links=("R_thumb_tip", "R_index_tip", "R_middle_tip", "R_ring_tip", "R_pinky_tip"),
+        mimic_override_joints=(
+            "R_index_intermediate_joint",
+            "R_middle_intermediate_joint",
+            "R_pinky_intermediate_joint",
+            "R_ring_intermediate_joint",
+            "R_thumb_intermediate_joint",
+            "R_thumb_distal_joint",
+        ),
     ),
     "inspire_lh": SourceHandSpec(
         name="inspire",
@@ -104,6 +121,14 @@ SOURCE_HANDS = MappingProxyType({
         joint_order=tuple(f"L_{name}" for name in _INSPIRE_JOINT_SUFFIXES),
         palm_link="L_hand_base_link",
         fingertip_links=("L_thumb_tip", "L_index_tip", "L_middle_tip", "L_ring_tip", "L_pinky_tip"),
+        mimic_override_joints=(
+            "L_index_intermediate_joint",
+            "L_middle_intermediate_joint",
+            "L_pinky_intermediate_joint",
+            "L_ring_intermediate_joint",
+            "L_thumb_intermediate_joint",
+            "L_thumb_distal_joint",
+        ),
     ),
     "shadow_rh": SourceHandSpec(
         name="shadow",

@@ -258,6 +258,11 @@ def test_source_spec_requires_tuple_names_and_registry_is_exact_and_immutable():
         "thumb_proximal_yaw_joint", "thumb_proximal_pitch_joint",
         "thumb_intermediate_joint", "thumb_distal_joint",
     )
+    inspire_mimic_override_suffixes = (
+        "index_intermediate_joint", "middle_intermediate_joint",
+        "pinky_intermediate_joint", "ring_intermediate_joint",
+        "thumb_intermediate_joint", "thumb_distal_joint",
+    )
     shadow_joint_order = (
         "FFJ4", "FFJ3", "FFJ2", "FFJ1", "LFJ5", "LFJ4", "LFJ3", "LFJ2", "LFJ1",
         "MFJ4", "MFJ3", "MFJ2", "MFJ1", "RFJ4", "RFJ3", "RFJ2", "RFJ1",
@@ -270,13 +275,16 @@ def test_source_spec_requires_tuple_names_and_registry_is_exact_and_immutable():
             urdf_relpath="maniptrans_envs/assets/inspire_hand/inspire_hand_right.urdf",
             joint_order=tuple(f"R_{name}" for name in inspire_joint_suffixes),
             palm_link="R_hand_base_link",
-            fingertip_links=(
+                fingertip_links=(
                 "R_thumb_tip",
                 "R_index_tip",
                 "R_middle_tip",
                 "R_ring_tip",
-                "R_pinky_tip",
-            ),
+                    "R_pinky_tip",
+                ),
+                mimic_override_joints=tuple(
+                    f"R_{name}" for name in inspire_mimic_override_suffixes
+                ),
         ),
         "inspire_lh": SourceHandSpec(
             name="inspire",
@@ -284,7 +292,10 @@ def test_source_spec_requires_tuple_names_and_registry_is_exact_and_immutable():
             urdf_relpath="maniptrans_envs/assets/inspire_hand/inspire_hand_left.urdf",
             joint_order=tuple(f"L_{name}" for name in inspire_joint_suffixes),
             palm_link="L_hand_base_link",
-            fingertip_links=("L_thumb_tip", "L_index_tip", "L_middle_tip", "L_ring_tip", "L_pinky_tip"),
+                fingertip_links=("L_thumb_tip", "L_index_tip", "L_middle_tip", "L_ring_tip", "L_pinky_tip"),
+                mimic_override_joints=tuple(
+                    f"L_{name}" for name in inspire_mimic_override_suffixes
+                ),
         ),
         "shadow_rh": SourceHandSpec(
             name="shadow",
