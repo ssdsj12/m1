@@ -98,6 +98,16 @@ def test_atomic_extract_validates_before_installing_and_installs_only_complete_t
     assert (destination / "sequences" / "item.bin").read_bytes() == b"complete"
 
 
+def test_atomic_extract_promotes_matching_archive_wrapper_for_required_root(tmp_path):
+    archive = _write_tar(tmp_path, {"installed/sequences/item.bin": b"complete"})
+    destination = tmp_path / "installed"
+
+    atomic_extract_tar(archive, destination, required_root="sequences")
+
+    assert (destination / "sequences" / "item.bin").read_bytes() == b"complete"
+    assert not (destination / "installed").exists()
+
+
 def test_sha256_and_manifest_record_pinned_archives(tmp_path):
     root = tmp_path / "dexmanipnet"
     downloads = root / "downloads"

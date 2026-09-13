@@ -184,6 +184,29 @@ def _validate_required_root(staging: Path, required_root: str | None) -> None:
         raise ValueError(f"required root is missing after extraction: {required_root}")
 
 
+def _extraction_payload_root(
+    staging: Path, destination: Path, required_root: str | None
+) -> Path:
+    """Return the validated archive payload, allowing one exact-name wrapper.
+
+    Published DexManipNet tarballs wrap their contents in a directory named for
+    the archive.  Promote only that exact, sole wrapper so the installed tree
+    keeps the frozen ``destination/sequences`` contract without accepting an
+    arbitrary archive layout.
+    """
+
+    try:
+        _validate_required_root(staging, required_root)
+    except ValueError:
+        wrapper = staging / destination.name
+        children = tuple(sorted(staging.iterdir(), key=lambda path: path.name))
+        if children != (wrapper,):
+            raise
+        _validate_required_root(wrapper, required_root)
+        return wrapper
+    return staging
+
+
 def atomic_extract_tar(
     archive: str | os.PathLike[str],
     destination: str | os.PathLike[str],
@@ -214,8 +237,8 @@ def atomic_extract_tar(
             # ``data`` adds tarfile's platform-aware safety checks after the
             # explicit validation above, including link handling during extract.
             tar.extractall(staging, members=members, filter="data")
-        _validate_required_root(staging, required_root)
-        os.replace(staging, destination_path)
+        payload = _extraction_payload_root(staging, destination_path, required_root)
+        os.replace(payload, destination_path)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
