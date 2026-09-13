@@ -10,6 +10,7 @@ from hashlib import sha256
 import math
 from pathlib import Path, PurePosixPath
 import stat
+from threading import Lock
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree
 
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
 
 
 _REFLECTION = np.asarray(LEFT_REFLECTION, dtype=np.float64)
+_SIGNED_DISTANCE_RNG_SEED = 0
+_SIGNED_DISTANCE_RNG_LOCK = Lock()
 
 
 def _finite_geometry(values: np.ndarray, *, name: str, trailing: tuple[int, ...]) -> np.ndarray:
@@ -439,6 +442,24 @@ def _object_relative_points(
     )
 
 
+def _deterministic_signed_distance(
+    mesh: trimesh.Trimesh, points: np.ndarray
+) -> np.ndarray:
+    """Isolate Trimesh's broken-ray fallback from NumPy's caller RNG state."""
+
+    # Trimesh 4.5.1 ray_util.contains_points uses np.random.random when its
+    # forward and backward rays disagree.  Serialize this legacy global RNG
+    # domain so every query gets one fixed fallback direction and callers see
+    # their exact incoming state even when the geometry query raises.
+    with _SIGNED_DISTANCE_RNG_LOCK:
+        caller_state = np.random.get_state()
+        try:
+            np.random.seed(_SIGNED_DISTANCE_RNG_SEED)
+            return np.asarray(trimesh.proximity.signed_distance(mesh, points))
+        finally:
+            np.random.set_state(caller_state)
+
+
 def object_relative_surface_kinematics(
     fingertip_palm: np.ndarray,
     root_state: np.ndarray,
@@ -473,7 +494,7 @@ def object_relative_surface_kinematics(
     target_local_velocity = np.asarray(spline(target_time, 1), dtype=np.float64)
     flat = target_local.reshape(-1, 3)
     try:
-        signed = -np.asarray(trimesh.proximity.signed_distance(oriented_mesh, flat)).reshape(
+        signed = -_deterministic_signed_distance(oriented_mesh, flat).reshape(
             target_local.shape[:2]
         )
         _, _, triangle = trimesh.proximity.closest_point_naive(oriented_mesh, flat)

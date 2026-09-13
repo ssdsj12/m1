@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import time
 
 import numpy as np
 import pytest
@@ -279,6 +281,98 @@ def test_moving_object_relative_normal_speed_is_target_spline_analytic_derivativ
     np.testing.assert_allclose(distance[:, 0], 0.1 + target_time**3, atol=1e-10)
     np.testing.assert_allclose(normal_speed[:, 0], 3.0 * target_time**2, atol=1e-10)
     assert normal_speed[0, 0] == pytest.approx(0.0, abs=1e-12)
+
+
+def _stationary_surface_query_fixture():
+    import trimesh
+
+    fingertips = np.zeros((2, 5, 3), dtype=np.float64)
+    fingertips[..., 0] = 0.2
+    state = np.zeros((2, 13), dtype=np.float64)
+    state[:, 6] = 1.0
+    return fingertips, state, trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+
+
+def _assert_random_state_equal(actual, expected):
+    assert actual[0] == expected[0]
+    np.testing.assert_array_equal(actual[1], expected[1])
+    assert actual[2:] == expected[2:]
+
+
+def test_surface_distance_is_independent_of_caller_numpy_rng_and_restores_it(monkeypatch):
+    fingertips, state, mesh = _stationary_surface_query_fixture()
+
+    def rng_consuming_signed_distance(_mesh, points):
+        return np.full(len(points), np.random.random(), dtype=np.float64)
+
+    monkeypatch.setattr("trimesh.proximity.signed_distance", rng_consuming_signed_distance)
+    results = []
+    for seed in (7, 918273):
+        np.random.seed(seed)
+        before = np.random.get_state()
+        results.append(object_relative_surface_kinematics(fingertips, state, state, mesh)[0])
+        _assert_random_state_equal(np.random.get_state(), before)
+
+    np.testing.assert_array_equal(results[0], results[1])
+
+
+def test_surface_distance_restores_caller_numpy_rng_after_query_failure(monkeypatch):
+    fingertips, state, mesh = _stationary_surface_query_fixture()
+
+    def failing_signed_distance(_mesh, _points):
+        np.random.random(3)
+        raise RuntimeError("simulated trimesh failure after consuming global RNG")
+
+    monkeypatch.setattr("trimesh.proximity.signed_distance", failing_signed_distance)
+    np.random.seed(271828)
+    before = np.random.get_state()
+
+    with pytest.raises(ValueError, match="object geometry distance query failed"):
+        object_relative_surface_kinematics(fingertips, state, state, mesh)
+
+    _assert_random_state_equal(np.random.get_state(), before)
+
+
+def test_surface_distance_rng_domain_serializes_concurrent_queries(monkeypatch):
+    fingertips, state, mesh = _stationary_surface_query_fixture()
+
+    def interleavable_signed_distance(_mesh, points):
+        first = np.random.random()
+        time.sleep(0.01)
+        second = np.random.random()
+        return np.full(len(points), first + second, dtype=np.float64)
+
+    monkeypatch.setattr("trimesh.proximity.signed_distance", interleavable_signed_distance)
+    np.random.seed(161803)
+    before = np.random.get_state()
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(
+            executor.map(
+                lambda _: object_relative_surface_kinematics(
+                    fingertips, state, state, mesh
+                )[0],
+                range(8),
+            )
+        )
+
+    for result in results[1:]:
+        np.testing.assert_array_equal(result, results[0])
+    _assert_random_state_equal(np.random.get_state(), before)
+
+
+def test_real_trimesh_surface_query_preserves_caller_numpy_rng():
+    fingertips, state, mesh = _stationary_surface_query_fixture()
+    np.random.seed(314159)
+    before = np.random.get_state()
+
+    first = object_relative_surface_kinematics(fingertips, state, state, mesh)[0]
+    _assert_random_state_equal(np.random.get_state(), before)
+    np.random.seed(271828)
+    second_before = np.random.get_state()
+    second = object_relative_surface_kinematics(fingertips, state, state, mesh)[0]
+
+    np.testing.assert_array_equal(second, first)
+    _assert_random_state_equal(np.random.get_state(), second_before)
 
 
 def _write_inspire_fixture(path: Path) -> Path:
