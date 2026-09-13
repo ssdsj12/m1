@@ -89,6 +89,19 @@ def test_explicit_mimic_override_uses_recorded_value_without_weakening_default(t
     assert tree.expanded_joint_positions({"j0": 0.4})["j1"] == pytest.approx(0.3)
 
 
+def test_declared_override_is_a_noop_for_an_already_independent_joint(tmp_path):
+    tree = UrdfKinematicTree.from_file(_write_urdf(tmp_path, _two_joint_urdf()))
+
+    result = tree.forward_links(
+        np.array([[0.4, 1.2]]),
+        ("j0", "j1"),
+        ("tip",),
+        mimic_override_joints=("j1",),
+    )
+
+    np.testing.assert_allclose(result[0, 0, :3, 3], [2.0 * np.cos(0.4), 2.0 * np.sin(0.4), 0.0])
+
+
 def test_pinned_inspire_dofs_explicitly_override_only_urdf_mimic_joints():
     root = Path(__file__).parents[1] / "data" / "external" / "dexmanipnet"
     source_root = root / "source_maniptrans"

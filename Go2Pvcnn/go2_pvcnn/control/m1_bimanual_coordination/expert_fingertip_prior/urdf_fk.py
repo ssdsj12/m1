@@ -338,9 +338,6 @@ class UrdfKinematicTree:
         unknown_overrides = sorted(set(overrides) - set(self.joints))
         if unknown_overrides:
             raise ValueError(f"unknown mimic override joint: {unknown_overrides}")
-        non_mimics = sorted(name for name in overrides if self.joints[name].mimic is None)
-        if non_mimics:
-            raise ValueError(f"mimic override joint is not a mimic: {non_mimics}")
         override_set = set(overrides)
         unknown = sorted(set(positions) - set(self.joints))
         if unknown:
