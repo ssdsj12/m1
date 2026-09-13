@@ -6,11 +6,13 @@ import subprocess
 import sys
 import json
 import importlib.util
+from hashlib import sha256
 
 import pytest
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_train_fingertip_expert.py"
+PLAN = Path(__file__).parents[2] / "docs" / "superpowers" / "plans" / "2026-09-11-t500-dexmanipnet-fingertip-prior.md"
 
 
 def _trainer_module():
@@ -35,6 +37,223 @@ def test_training_script_has_hash_verification_and_nonproduction_smoke_gate():
     assert "synthetic_smoke" in source
     assert "production_deployable" in source
     assert "0.01" in source
+
+
+def test_formal_task11_command_pins_gpu0_cublas_device_and_batch_size():
+    source = PLAN.read_text(encoding="utf-8")
+    expected = (
+        "CUDA_VISIBLE_DEVICES=0 CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONPATH=$PWD "
+        "/home/xk/miniconda3/envs/go2/bin/python scripts/m1_dual_panda_o6_train_fingertip_expert.py "
+        "--dataset-manifest data/external/dexmanipnet/converted/run_a/aggregate_manifest.json "
+        "--output-dir data/external/dexmanipnet/artifacts/expert --member-seeds 42,43,44,45,46 "
+        "--epochs 200 --device cuda:0 --batch-size 128"
+    )
+
+    assert expected in source
+
+
+def test_cuda_determinism_preflight_sets_supported_default(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+
+    _trainer_module()._configure_cuda_determinism("cuda:0")
+
+    assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+
+
+@pytest.mark.parametrize("value", [":4096:8", ":16:8"])
+def test_cuda_determinism_preflight_preserves_supported_setting(
+    monkeypatch: pytest.MonkeyPatch, value: str
+):
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", value)
+
+    _trainer_module()._configure_cuda_determinism("cuda:0")
+
+    assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == value
+
+
+def test_cuda_determinism_preflight_rejects_invalid_setting(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", "invalid")
+
+    with pytest.raises(ValueError, match="CUBLAS_WORKSPACE_CONFIG"):
+        _trainer_module()._configure_cuda_determinism("cuda:0")
+
+
+def test_cpu_determinism_preflight_does_not_change_environment(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+
+    _trainer_module()._configure_cuda_determinism("cpu")
+
+    assert "CUBLAS_WORKSPACE_CONFIG" not in os.environ
+
+
+def test_invalid_cuda_setting_rejects_before_output_state_is_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    output = tmp_path / "cuda-rejected"
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", "invalid")
+
+    with pytest.raises(ValueError, match="CUBLAS_WORKSPACE_CONFIG"):
+        _trainer_module().main([*_smoke_args(output), "--device", "cuda:0"])
+
+    assert not output.exists()
+    assert not (tmp_path / ".cuda-rejected.resume-v1").exists()
+
+
+def _smoke_args(output: Path) -> list[str]:
+    return [
+        "--synthetic-smoke",
+        "--output-dir",
+        str(output),
+        "--epochs",
+        "2",
+        "--batch-size",
+        "8",
+        "--hidden",
+        "8",
+        "--member-seeds",
+        "101,202",
+    ]
+
+
+@pytest.mark.parametrize("failure_point", [(0, 1), (0, 2), (1, 1)])
+def test_interrupted_training_resumes_to_byte_identical_outputs(
+    tmp_path: Path, failure_point: tuple[int, int]
+):
+    module = _trainer_module()
+    uninterrupted = tmp_path / "uninterrupted"
+    resumed = tmp_path / "resumed"
+    module.main(_smoke_args(uninterrupted))
+
+    def fail_after_first_epoch(member_index: int, completed_epoch: int) -> None:
+        if (member_index, completed_epoch) == failure_point:
+            raise RuntimeError("injected epoch failure")
+
+    with pytest.raises(RuntimeError, match="injected epoch failure"):
+        module.main(_smoke_args(resumed), epoch_commit_hook=fail_after_first_epoch)
+
+    resume_workspace = tmp_path / ".resumed.resume-v1"
+    assert not resumed.exists()
+    assert (resume_workspace / "progress.json").is_file()
+
+    module.main(_smoke_args(resumed))
+
+    assert not resume_workspace.exists()
+    expected_manifest = (uninterrupted / "ensemble_manifest.json").read_bytes()
+    actual_manifest = (resumed / "ensemble_manifest.json").read_bytes()
+    assert actual_manifest == expected_manifest
+    manifest = json.loads(actual_manifest)
+    for record in manifest["members"]:
+        relative = record["checkpoint"]
+        expected = (uninterrupted / relative).read_bytes()
+        actual = (resumed / relative).read_bytes()
+        assert actual == expected
+        assert sha256(actual).hexdigest() == record["checkpoint_sha256"]
+
+
+def test_resume_identity_mismatch_rejects_without_publishing_output(tmp_path: Path):
+    module = _trainer_module()
+    output = tmp_path / "identity-mismatch"
+
+    def interrupt(member_index: int, completed_epoch: int) -> None:
+        raise RuntimeError(f"stop {member_index}/{completed_epoch}")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        module.main(_smoke_args(output), epoch_commit_hook=interrupt)
+    progress = tmp_path / ".identity-mismatch.resume-v1" / "progress.json"
+    before = progress.read_bytes()
+
+    changed = [*_smoke_args(output), "--learning-rate", "0.002"]
+    with pytest.raises(ValueError, match="resume identity"):
+        module.main(changed)
+
+    assert not output.exists()
+    assert progress.read_bytes() == before
+
+
+def test_explicit_resume_checkpoint_rejects_training_configuration_mismatch(tmp_path: Path):
+    module = _trainer_module()
+    initial = tmp_path / "explicit-initial"
+    destination = tmp_path / "explicit-rejected"
+    module.main(_smoke_args(initial))
+
+    changed = [
+        *_smoke_args(destination),
+        "--batch-size",
+        "4",
+        "--resume-checkpoint",
+        str(initial),
+    ]
+    with pytest.raises(ValueError, match="training identity"):
+        module.main(changed)
+
+    assert not destination.exists()
+    assert not (tmp_path / ".explicit-rejected.resume-v1").exists()
+
+
+def test_resume_checkpoint_corruption_rejects_without_publishing_output(tmp_path: Path):
+    module = _trainer_module()
+    output = tmp_path / "checkpoint-corruption"
+
+    def interrupt(member_index: int, completed_epoch: int) -> None:
+        raise RuntimeError(f"stop {member_index}/{completed_epoch}")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        module.main(_smoke_args(output), epoch_commit_hook=interrupt)
+    workspace = tmp_path / ".checkpoint-corruption.resume-v1"
+    progress = json.loads((workspace / "progress.json").read_text(encoding="utf-8"))
+    checkpoint = workspace / progress["members"][0]["last"]["path"]
+    checkpoint.write_bytes(checkpoint.read_bytes() + b"corrupt")
+
+    with pytest.raises(ValueError, match="checkpoint SHA-256 mismatch"):
+        module.main(_smoke_args(output))
+
+    assert not output.exists()
+    assert workspace.exists()
+
+
+def test_unidentified_resume_directory_is_rejected_and_preserved(tmp_path: Path):
+    module = _trainer_module()
+    output = tmp_path / "occupied"
+    workspace = tmp_path / ".occupied.resume-v1"
+    workspace.mkdir()
+    marker = workspace / "user-file.txt"
+    marker.write_text("do not delete", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="resume workspace"):
+        module.main(_smoke_args(output))
+
+    assert not output.exists()
+    assert marker.read_text(encoding="utf-8") == "do not delete"
+
+
+def test_atomic_progress_write_is_not_blocked_by_stale_interrupted_temporary(tmp_path: Path):
+    module = _trainer_module()
+    destination = tmp_path / "progress.json"
+    stale = tmp_path / ".progress.json.tmp"
+    stale.write_bytes(b"partial")
+
+    module._atomic_bytes(destination, b"complete")
+
+    assert destination.read_bytes() == b"complete"
+    assert stale.read_bytes() == b"partial"
+
+
+def test_resume_checkpoint_record_cannot_escape_workspace(tmp_path: Path):
+    module = _trainer_module()
+    workspace = tmp_path / "workspace"
+    (workspace / "checkpoints").mkdir(parents=True)
+    outside = tmp_path / "outside.pt"
+    outside.write_bytes(b"checkpoint")
+
+    with pytest.raises(ValueError, match="path"):
+        module._record_file(
+            workspace,
+            {
+                "path": "checkpoints/../../outside.pt",
+                "sha256": sha256(outside.read_bytes()).hexdigest(),
+            },
+            label="last",
+        )
 
 
 def test_resume_directory_retains_selected_member_when_epochs_are_complete(tmp_path: Path):

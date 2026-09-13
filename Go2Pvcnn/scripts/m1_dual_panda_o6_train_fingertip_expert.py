@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import random
 import shutil
 import tempfile
@@ -47,6 +47,20 @@ _ARRAY_NAMES = frozenset(
         "source_sha256",
     }
 )
+_SUPPORTED_CUBLAS_WORKSPACE_CONFIGS = frozenset({":4096:8", ":16:8"})
+
+
+def _configure_cuda_determinism(device: str | torch.device) -> None:
+    """Validate cuBLAS determinism before any CUDA operation is attempted."""
+
+    if torch.device(device).type != "cuda":
+        return
+    value = os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    if value not in _SUPPORTED_CUBLAS_WORKSPACE_CONFIGS:
+        supported = ", ".join(sorted(_SUPPORTED_CUBLAS_WORKSPACE_CONFIGS))
+        raise ValueError(
+            f"CUBLAS_WORKSPACE_CONFIG must be one of {supported} for deterministic CUDA training; got {value!r}"
+        )
 
 
 @dataclass(frozen=True)
@@ -84,9 +98,10 @@ def _ensemble_manifest_sha256(body: dict[str, object]) -> str:
 
 def _atomic_bytes(path: Path, value: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
+    temporary = Path(temporary_name)
     try:
-        with temporary.open("xb") as handle:
+        with os.fdopen(descriptor, "wb") as handle:
             handle.write(value)
             handle.flush()
             os.fsync(handle.fileno())
@@ -97,9 +112,10 @@ def _atomic_bytes(path: Path, value: bytes) -> None:
 
 def _atomic_torch_save(path: Path, value: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
+    temporary = Path(temporary_name)
     try:
-        with temporary.open("xb") as handle:
+        with os.fdopen(descriptor, "wb") as handle:
             torch.save(value, handle)
             handle.flush()
             os.fsync(handle.fileno())
@@ -223,6 +239,306 @@ def _checkpoint_sha(path: Path) -> str:
     return sha256(path.read_bytes()).hexdigest()
 
 
+def _resume_workspace_path(destination: Path) -> Path:
+    return destination.with_name(f".{destination.name}.resume-v1")
+
+
+def _training_identity(
+    *,
+    aggregate_sha: str,
+    member_seeds: tuple[int, ...],
+    hidden: tuple[int, ...],
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    acceleration_weight: float,
+    jerk_weight: float,
+    device: torch.device,
+    synthetic_smoke: bool,
+) -> dict[str, object]:
+    return {
+        "format_version": 1,
+        "dataset_aggregate_sha256": aggregate_sha,
+        "member_seeds": list(member_seeds),
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "model": {
+            "class": "FingertipMixtureNet",
+            "format_version": 1,
+            "hidden": list(hidden),
+        },
+        "optimizer": {
+            "class": "torch.optim.AdamW",
+            "learning_rate": learning_rate,
+        },
+        "regularization": {
+            "acceleration_weight": acceleration_weight,
+            "jerk_weight": jerk_weight,
+        },
+        "software": {
+            "torch_version": torch.__version__,
+            "numpy_version": np.__version__,
+        },
+        "device": str(device),
+        "synthetic_smoke": synthetic_smoke,
+    }
+
+
+def _identity_sha256(identity: dict[str, object]) -> str:
+    return sha256(_canonical_json(identity)).hexdigest()
+
+
+def _progress_document(identity: dict[str, object]) -> dict[str, object]:
+    seeds = identity["member_seeds"]
+    assert isinstance(seeds, list)
+    body: dict[str, object] = {
+        "format_version": 1,
+        "identity": identity,
+        "identity_sha256": _identity_sha256(identity),
+        "members": [
+            {
+                "member_index": index,
+                "seed": seed,
+                "completed_epochs": 0,
+                "last": None,
+                "best": None,
+            }
+            for index, seed in enumerate(seeds)
+        ],
+    }
+    return {**body, "progress_sha256": sha256(_canonical_json(body)).hexdigest()}
+
+
+def _read_progress(path: Path) -> dict[str, object]:
+    progress_path = path / "progress.json"
+    if not progress_path.is_file() or progress_path.is_symlink():
+        raise ValueError("resume workspace is missing a regular progress.json identity")
+    try:
+        document = json.loads(progress_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("resume workspace progress is invalid") from error
+    if type(document) is not dict:
+        raise ValueError("resume workspace progress is invalid")
+    declared = document.get("progress_sha256")
+    body = dict(document)
+    body.pop("progress_sha256", None)
+    if type(declared) is not str or declared != sha256(_canonical_json(body)).hexdigest():
+        raise ValueError("resume workspace progress SHA-256 mismatch")
+    identity = document.get("identity")
+    if (
+        document.get("format_version") != 1
+        or type(identity) is not dict
+        or document.get("identity_sha256") != _identity_sha256(identity)
+        or type(document.get("members")) is not list
+    ):
+        raise ValueError("resume workspace identity is invalid")
+    return document
+
+
+def _write_progress(path: Path, document: dict[str, object]) -> None:
+    body = dict(document)
+    body.pop("progress_sha256", None)
+    _atomic_bytes(
+        path / "progress.json",
+        _canonical_json({**body, "progress_sha256": sha256(_canonical_json(body)).hexdigest()}),
+    )
+
+
+def _record_file(path: Path, value: object, *, label: str) -> Path:
+    if type(value) is not dict or set(value) != {"path", "sha256"}:
+        raise ValueError(f"resume {label} checkpoint record is invalid")
+    relative, declared = value.get("path"), value.get("sha256")
+    pure = PurePosixPath(relative) if type(relative) is str else None
+    if (
+        pure is None
+        or pure.is_absolute()
+        or len(pure.parts) != 2
+        or pure.parts[0] != "checkpoints"
+        or any(part in {"", ".", ".."} for part in pure.parts)
+    ):
+        raise ValueError(f"resume {label} checkpoint path is invalid")
+    checkpoint = path.joinpath(*pure.parts)
+    if not checkpoint.is_file() or checkpoint.is_symlink():
+        raise ValueError(f"resume {label} checkpoint is missing")
+    if type(declared) is not str or _checkpoint_sha(checkpoint) != declared:
+        raise ValueError(f"resume {label} checkpoint SHA-256 mismatch")
+    return checkpoint
+
+
+def _finite_state(value: object) -> bool:
+    if isinstance(value, torch.Tensor):
+        return bool(torch.isfinite(value).all().item())
+    if isinstance(value, dict):
+        return all(_finite_state(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return all(_finite_state(item) for item in value)
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return True
+
+
+class _ResumeWorkspace:
+    """Persist epoch-boundary state without ever presenting it as final output."""
+
+    def __init__(self, path: Path, identity: dict[str, object]) -> None:
+        self.path = path
+        self.identity = identity
+        self.identity_sha256 = _identity_sha256(identity)
+        if path.exists():
+            if not path.is_dir() or path.is_symlink():
+                raise ValueError("resume workspace must be a regular directory")
+            document = _read_progress(path)
+            if document["identity_sha256"] != self.identity_sha256 or document["identity"] != identity:
+                raise ValueError("resume identity does not match the requested training configuration")
+            self.document = document
+            self._validate_records()
+        else:
+            path.mkdir()
+            self.document = _progress_document(identity)
+            _write_progress(path, self.document)
+
+    def _member_record(self, member_index: int, seed: int) -> dict[str, object]:
+        records = self.document["members"]
+        if type(records) is not list or member_index >= len(records):
+            raise ValueError("resume member records are invalid")
+        record = records[member_index]
+        if (
+            type(record) is not dict
+            or record.get("member_index") != member_index
+            or record.get("seed") != seed
+        ):
+            raise ValueError("resume member identity is invalid")
+        return record
+
+    def _validate_records(self) -> None:
+        seeds = self.identity["member_seeds"]
+        epochs = self.identity["epochs"]
+        records = self.document["members"]
+        if type(seeds) is not list or type(epochs) is not int or type(records) is not list or len(records) != len(seeds):
+            raise ValueError("resume member records are invalid")
+        for index, seed in enumerate(seeds):
+            record = self._member_record(index, seed)
+            completed = record.get("completed_epochs")
+            if type(completed) is not int or not 0 <= completed <= epochs:
+                raise ValueError("resume completed epoch is invalid")
+            if completed == 0:
+                if record.get("last") is not None or record.get("best") is not None:
+                    raise ValueError("empty resume member has checkpoint records")
+                continue
+            _record_file(self.path, record.get("last"), label="last")
+            _record_file(self.path, record.get("best"), label="best")
+
+    def load_member(self, *, member_index: int, seed: int, hidden: tuple[int, ...]) -> _ResumeState | None:
+        record = self._member_record(member_index, seed)
+        if record["completed_epochs"] == 0:
+            return None
+        last_path = _record_file(self.path, record["last"], label="last")
+        best_path = _record_file(self.path, record["best"], label="best")
+        try:
+            state = torch.load(last_path, map_location="cpu", weights_only=True)
+        except (OSError, RuntimeError, ValueError, TypeError) as error:
+            raise ValueError("resume last checkpoint could not be safely loaded") from error
+        if (
+            type(state) is not dict
+            or state.get("format_version") != 1
+            or state.get("training_identity_sha256") != self.identity_sha256
+            or state.get("member_index") != member_index
+            or state.get("seed") != seed
+            or state.get("hidden") != hidden
+            or state.get("dataset_aggregate_sha256") != self.identity["dataset_aggregate_sha256"]
+            or state.get("epoch") != record["completed_epochs"]
+            or type(state.get("best_validation_nll")) is not float
+            or not isinstance(state.get("model_state"), dict)
+            or not isinstance(state.get("optimizer_state"), dict)
+            or not _finite_state(state)
+        ):
+            raise ValueError("resume checkpoint metadata or state is invalid")
+        return _ResumeState(state=state, selected_checkpoint=best_path.read_bytes())
+
+    def commit_epoch(
+        self,
+        *,
+        member_index: int,
+        seed: int,
+        state: dict[str, object],
+        best_changed: bool,
+    ) -> None:
+        """Publish checkpoints first, then atomically advance their progress pointer."""
+
+        record = self._member_record(member_index, seed)
+        epoch = state["epoch"]
+        if type(epoch) is not int or epoch != record["completed_epochs"] + 1:
+            raise ValueError("resume epochs must be committed in sequence")
+        next_slot = epoch % 2
+        last_path = self.path / "checkpoints" / f"member-{member_index:02d}-last-{next_slot}.pt"
+        _atomic_torch_save(last_path, state)
+        last_record = {
+            "path": last_path.relative_to(self.path).as_posix(),
+            "sha256": _checkpoint_sha(last_path),
+        }
+        best_record = record["best"]
+        if best_changed:
+            best_path = self.path / "checkpoints" / f"member-{member_index:02d}-best-{next_slot}.pt"
+            _atomic_torch_save(best_path, state)
+            best_record = {
+                "path": best_path.relative_to(self.path).as_posix(),
+                "sha256": _checkpoint_sha(best_path),
+            }
+        if best_record is None:
+            raise RuntimeError("first committed epoch did not select a best checkpoint")
+        record.update(
+            {
+                "completed_epochs": epoch,
+                "last": last_record,
+                "best": best_record,
+            }
+        )
+        _write_progress(self.path, self.document)
+
+    def import_member(
+        self,
+        *,
+        member_index: int,
+        seed: int,
+        state: dict[str, object],
+        selected_checkpoint: bytes,
+    ) -> None:
+        record = self._member_record(member_index, seed)
+        if record["completed_epochs"] != 0:
+            raise ValueError("cannot import into a non-empty resume member")
+        epoch = state.get("epoch")
+        if type(epoch) is not int or not 1 <= epoch <= self.identity["epochs"]:
+            raise ValueError("resume checkpoint epoch is incompatible with requested epochs")
+        state = dict(state)
+        state["training_identity_sha256"] = self.identity_sha256
+        last_path = self.path / "checkpoints" / f"member-{member_index:02d}-last-0.pt"
+        best_path = self.path / "checkpoints" / f"member-{member_index:02d}-best-0.pt"
+        _atomic_torch_save(last_path, state)
+        _atomic_bytes(best_path, selected_checkpoint)
+        record.update(
+            {
+                "completed_epochs": state["epoch"],
+                "last": {"path": last_path.relative_to(self.path).as_posix(), "sha256": _checkpoint_sha(last_path)},
+                "best": {"path": best_path.relative_to(self.path).as_posix(), "sha256": _checkpoint_sha(best_path)},
+            }
+        )
+        _write_progress(self.path, self.document)
+
+    def best_checkpoint(self, *, member_index: int, seed: int) -> Path:
+        record = self._member_record(member_index, seed)
+        return _record_file(self.path, record["best"], label="best")
+
+    def remove_after_publish(self) -> None:
+        document = _read_progress(self.path)
+        if document["identity_sha256"] != self.identity_sha256 or document["identity"] != self.identity:
+            raise ValueError("refusing to remove a resume workspace with changed identity")
+        suffix = ".resume-v1"
+        output_name = self.path.name[1 : -len(suffix)] if self.path.name.startswith(".") else ""
+        if not output_name or _resume_workspace_path(self.path.parent / output_name) != self.path or self.path.is_symlink():
+            raise ValueError("refusing to remove an unexpected resume workspace path")
+        shutil.rmtree(self.path)
+
+
 @dataclass(frozen=True)
 class _ResumeState:
     state: dict[str, object]
@@ -236,6 +552,7 @@ def _load_resume(
     seed: int,
     hidden: tuple[int, ...],
     aggregate_sha: str,
+    training_identity_sha: str | None = None,
 ) -> _ResumeState | None:
     if path is None:
         return None
@@ -265,6 +582,15 @@ def _load_resume(
         or manifest.get("hidden") != list(hidden)
     ):
         raise ValueError("resume ensemble manifest does not match the verified aggregate and model")
+    manifest_identity = manifest.get("training_identity")
+    manifest_identity_sha = manifest.get("training_identity_sha256")
+    if training_identity_sha is not None and (
+        type(manifest_identity) is not dict
+        or type(manifest_identity_sha) is not str
+        or manifest_identity_sha != _identity_sha256(manifest_identity)
+        or manifest_identity_sha != training_identity_sha
+    ):
+        raise ValueError("resume ensemble training identity does not match the requested configuration")
     records = manifest.get("members")
     if type(records) is not list:
         raise ValueError("resume ensemble member records are invalid")
@@ -291,6 +617,10 @@ def _load_resume(
         or state.get("seed") != seed
         or state.get("hidden") != hidden
         or state.get("dataset_aggregate_sha256") != aggregate_sha
+        or (
+            training_identity_sha is not None
+            and state.get("training_identity_sha256") != training_identity_sha
+        )
         or type(state.get("epoch")) is not int
         or type(state.get("best_validation_nll")) is not float
         or not isinstance(state.get("model_state"), dict)
@@ -308,7 +638,7 @@ def _train_member(
     train_data: GroupShardDataset,
     validation_data: GroupShardDataset,
     aggregate_sha: str,
-    output: Path,
+    workspace: _ResumeWorkspace,
     epochs: int,
     batch_size: int,
     learning_rate: float,
@@ -316,13 +646,30 @@ def _train_member(
     jerk_weight: float,
     device: torch.device,
     resume: Path | None,
+    epoch_commit_hook: Callable[[int, int], None] | None = None,
 ) -> tuple[FingertipMixtureNet, dict[str, object]]:
+    _configure_cuda_determinism(device)
     _set_seed(seed)
     model = FingertipMixtureNet(hidden=hidden).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    resume_state = _load_resume(
-        resume, member_index=member_index, seed=seed, hidden=hidden, aggregate_sha=aggregate_sha
-    )
+    resume_state = workspace.load_member(member_index=member_index, seed=seed, hidden=hidden)
+    if resume_state is None:
+        resume_state = _load_resume(
+            resume,
+            member_index=member_index,
+            seed=seed,
+            hidden=hidden,
+            aggregate_sha=aggregate_sha,
+            training_identity_sha=workspace.identity_sha256,
+        )
+        if resume_state is not None:
+            workspace.import_member(
+                member_index=member_index,
+                seed=seed,
+                state=resume_state.state,
+                selected_checkpoint=resume_state.selected_checkpoint,
+            )
+            resume_state = workspace.load_member(member_index=member_index, seed=seed, hidden=hidden)
     start_epoch = 0
     best_validation_nll = math.inf
     if resume_state is not None:
@@ -331,10 +678,6 @@ def _train_member(
         start_epoch = int(resume_state.state["epoch"])
         best_validation_nll = float(resume_state.state["best_validation_nll"])
     validation_loader = _loader(validation_data, batch_size=batch_size, seed=seed, shuffle=False)
-    best_path = output / "checkpoints" / f"member-{member_index:02d}-best.pt"
-    last_path = output / "checkpoints" / f"member-{member_index:02d}-last.pt"
-    if resume_state is not None:
-        _atomic_bytes(best_path, resume_state.selected_checkpoint)
     for epoch in range(start_epoch, epochs):
         model.train()
         for network_input, target in _loader(train_data, batch_size=batch_size, seed=seed + epoch, shuffle=True):
@@ -358,14 +701,23 @@ def _train_member(
             "epoch": epoch + 1,
             "best_validation_nll": min(best_validation_nll, validation_nll),
             "dataset_aggregate_sha256": aggregate_sha,
+            "training_identity_sha256": workspace.identity_sha256,
             "model_state": model.state_dict(),
             "optimizer_state": optimizer.state_dict(),
         }
-        _atomic_torch_save(last_path, state)
-        if validation_nll < best_validation_nll:
+        best_changed = validation_nll < best_validation_nll
+        if best_changed:
             best_validation_nll = validation_nll
             state["best_validation_nll"] = best_validation_nll
-            _atomic_torch_save(best_path, state)
+        workspace.commit_epoch(
+            member_index=member_index,
+            seed=seed,
+            state=state,
+            best_changed=best_changed,
+        )
+        if epoch_commit_hook is not None:
+            epoch_commit_hook(member_index, epoch + 1)
+    best_path = workspace.best_checkpoint(member_index=member_index, seed=seed)
     if not best_path.exists():
         raise RuntimeError("no best validation checkpoint was selected")
     selected = torch.load(best_path, map_location=device, weights_only=True)
@@ -375,7 +727,7 @@ def _train_member(
         "member_index": member_index,
         "seed": seed,
         "best_validation_nll": float(selected["best_validation_nll"]),
-        "checkpoint": best_path.relative_to(output).as_posix(),
+        "checkpoint": f"checkpoints/member-{member_index:02d}-best.pt",
         "checkpoint_sha256": _checkpoint_sha(best_path),
     }
 
@@ -518,7 +870,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    epoch_commit_hook: Callable[[int, int], None] | None = None,
+) -> int:
     args = build_parser().parse_args(argv)
     if bool(args.synthetic_smoke) == bool(args.dataset_manifest):
         raise ValueError("choose exactly one of --dataset-manifest and --synthetic-smoke")
@@ -530,6 +886,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("hidden must be comma-separated integer widths") from error
     if not hidden or any(width <= 0 for width in hidden):
         raise ValueError("hidden widths are invalid")
+    _configure_cuda_determinism(args.device)
+    device = torch.device(args.device)
     destination = Path(args.output_dir).resolve()
     if destination.exists():
         raise FileExistsError(f"output directory already exists: {destination}")
@@ -542,10 +900,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         test_data, test_document = _load_group_split(manifest_path, "test")
         if document["aggregate_sha256"] != validation_document["aggregate_sha256"] or document["aggregate_sha256"] != test_document["aggregate_sha256"]:
             raise ValueError("aggregate changed during verified split loading")
-        device = torch.device(args.device)
+        identity = _training_identity(
+            aggregate_sha=document["aggregate_sha256"],
+            member_seeds=tuple(args.member_seeds),
+            hidden=hidden,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            acceleration_weight=args.acceleration_weight,
+            jerk_weight=args.jerk_weight,
+            device=device,
+            synthetic_smoke=bool(args.synthetic_smoke),
+        )
+        resume = Path(args.resume_checkpoint).resolve() if args.resume_checkpoint else None
+        if resume is not None:
+            _load_resume(
+                resume,
+                member_index=0,
+                seed=args.member_seeds[0],
+                hidden=hidden,
+                aggregate_sha=document["aggregate_sha256"],
+                training_identity_sha=_identity_sha256(identity),
+            )
+        workspace = _ResumeWorkspace(_resume_workspace_path(destination), identity)
         members: list[FingertipMixtureNet] = []
         member_records: list[dict[str, object]] = []
-        resume = Path(args.resume_checkpoint).resolve() if args.resume_checkpoint else None
         for index, seed in enumerate(args.member_seeds):
             member, record = _train_member(
                 member_index=index,
@@ -554,7 +933,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 train_data=train_data,
                 validation_data=validation_data,
                 aggregate_sha=document["aggregate_sha256"],
-                output=stage,
+                workspace=workspace,
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 learning_rate=args.learning_rate,
@@ -562,9 +941,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 jerk_weight=args.jerk_weight,
                 device=device,
                 resume=resume,
+                epoch_commit_hook=epoch_commit_hook,
             )
             members.append(member)
             member_records.append(record)
+        for record in member_records:
+            index = int(record["member_index"])
+            seed = int(record["seed"])
+            source = workspace.best_checkpoint(member_index=index, seed=seed)
+            destination_checkpoint = stage / str(record["checkpoint"])
+            _atomic_bytes(destination_checkpoint, source.read_bytes())
+            if _checkpoint_sha(destination_checkpoint) != record["checkpoint_sha256"]:
+                raise RuntimeError("published checkpoint copy changed SHA-256")
         metrics = _ensemble_metrics(members, test_data, batch_size=args.batch_size, device=device)
         if not all(math.isfinite(value) for value in metrics.values()):
             raise FloatingPointError("held-out metrics are non-finite")
@@ -579,6 +967,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         body = {
             "format_version": 1,
             "dataset_aggregate_sha256": document["aggregate_sha256"],
+            "training_identity": identity,
+            "training_identity_sha256": workspace.identity_sha256,
             "member_seeds": list(args.member_seeds),
             "hidden": list(hidden),
             "members": member_records,
@@ -589,6 +979,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         manifest_sha = _ensemble_manifest_sha256(body)
         _atomic_bytes(stage / "ensemble_manifest.json", _canonical_json({**body, "ensemble_manifest_sha256": manifest_sha}))
         os.replace(stage, destination)
+        workspace.remove_after_publish()
         print(json.dumps({**body, "ensemble_manifest_sha256": manifest_sha}, sort_keys=True))
         return 0
     except BaseException:
