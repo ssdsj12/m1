@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import copy
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from hashlib import sha256
 import json
 import math
@@ -37,6 +37,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.ensemble_
     PRODUCTION_MEMBER_SEEDS,
     adamw_contract,
     ensemble_manifest_sha256,
+    evaluate_ensemble_metrics,
     validate_adamw_state,
     validate_ensemble_artifact,
     validate_model_state,
@@ -341,6 +342,7 @@ class _Ensemble:
     hidden: tuple[int, ...]
     teacher_seed: int
     synthetic: bool
+    reported_metrics: dict[str, float] = field(default_factory=dict)
 
 
 def _regular(path: Path, label: str) -> None:
@@ -365,7 +367,27 @@ def _load_ensemble(
     return _Ensemble(
         validated.models, str(manifest["ensemble_manifest_sha256"]), expected_dataset_sha,
         tuple(manifest["hidden"]), expected_seeds[0], bool(manifest["synthetic_smoke"]),
+        dict(manifest["metrics"]),
     )
+
+
+def _validate_recomputed_ensemble_metrics(
+    models: Sequence[FingertipMixtureNet], dataset: GroupShardDataset,
+    reported_metrics: Mapping[str, object], *, batch_size: int, device: torch.device,
+) -> dict[str, float]:
+    recomputed = evaluate_ensemble_metrics(
+        tuple(models), dataset.inputs, dataset.targets, batch_size=batch_size, device=device,
+    )
+    if set(recomputed) != set(reported_metrics):
+        raise ValueError("reported held-out ensemble metric schema differs from recomputed metrics")
+    for key, actual in recomputed.items():
+        reported = reported_metrics[key]
+        if (
+            type(reported) not in (int, float) or type(reported) is bool
+            or not math.isclose(actual, float(reported), rel_tol=1e-5, abs_tol=1e-7)
+        ):
+            raise ValueError(f"reported held-out ensemble metric {key} differs from recomputed inference")
+    return recomputed
 
 
 def _ensemble_outputs(models: Sequence[FingertipMixtureNet], inputs: torch.Tensor) -> tuple[MixtureDistribution, ...]:
@@ -623,6 +645,15 @@ def _open_partial_teacher_samples(
     )
 
 
+def _validate_teacher_stage_files(stage: Path) -> None:
+    _require_safe_directory(stage)
+    entries = {entry.name: entry for entry in stage.iterdir()}
+    if set(entries) != {"manifest.json", "samples.npy"}:
+        raise ValueError("teacher sample staging must contain exactly manifest.json and samples.npy")
+    for name, path in entries.items():
+        _require_regular_file(path, label=f"teacher sample staging {name}")
+
+
 def _prepare_teacher_sample_store(
     root: str | Path,
     models: Sequence[FingertipMixtureNet],
@@ -706,6 +737,7 @@ def _prepare_teacher_sample_store(
         manifest = {**body, "manifest_sha256": sha256(_canonical_json(body)).hexdigest()}
         _atomic_bytes(stage / "manifest.json", _canonical_json(manifest))
         _load_teacher_sample_store(stage, identity)
+        _validate_teacher_stage_files(stage)
         os.replace(stage, destination)
         store = _load_teacher_sample_store(destination, identity)
         _remove_owned_teacher_staging(
@@ -1116,6 +1148,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_synthetic=bool(args.synthetic_smoke),
             nonproduction_synthetic=nonproduction_synthetic,
         )
+        _validate_recomputed_ensemble_metrics(
+            ensemble.models, test, ensemble.reported_metrics,
+            batch_size=args.batch_size, device=device,
+        )
+        for member in ensemble.models:
+            member.cpu().eval()
         identity = _distillation_identity(
             aggregate_sha=document["aggregate_sha256"], ensemble_sha=ensemble.manifest_sha256,
             hidden=hidden, epochs=args.epochs, batch_size=args.batch_size,

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+import io
 import math
 import os
 from pathlib import Path
@@ -14,7 +15,8 @@ import stat
 
 import torch
 
-from .model import FingertipMixtureNet
+from .contracts import PRIOR_DT
+from .model import FingertipMixtureNet, mixture_log_prob
 
 
 _MANIFEST_FIELDS = {
@@ -48,12 +50,37 @@ def ensemble_manifest_sha256(body: dict[str, object]) -> str:
     return sha256(_canonical_json(body)).hexdigest()
 
 
-def _sha256_file(path: Path) -> str:
-    digest = sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _read_regular_bytes(path: Path, *, label: str) -> bytes:
+    """Read a regular non-symlink through one descriptor for hash and decode/load."""
+
+    _require_safe_directory(path.parent)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError(f"{label} must be a readable regular file") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"{label} must be a regular file and not a symlink")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            return handle.read()
+    finally:
+        os.close(descriptor)
+
+
+def _canonical_source_bytes(path: Path) -> bytes:
+    return path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
+def _current_training_source_sha256() -> dict[str, str]:
+    go2_root = Path(__file__).resolve().parents[4]
+    paths = {
+        "trainer": go2_root / "scripts" / "m1_dual_panda_o6_train_fingertip_expert.py",
+        "model": Path(__file__).with_name("model.py"),
+        "contracts": Path(__file__).with_name("contracts.py"),
+    }
+    return {name: sha256(_canonical_source_bytes(path)).hexdigest() for name, path in paths.items()}
 
 
 def _lexical_absolute(path: Path) -> Path:
@@ -237,6 +264,8 @@ def _validate_training_identity(
         or semantics["aggregate_sha256"] != sha256(_canonical_json(sources)).hexdigest()
     ):
         raise ValueError("ensemble training identity semantics SHA is invalid")
+    if not synthetic and sources != _current_training_source_sha256():
+        raise ValueError("production ensemble training source semantics do not match current code")
     device, cublas = identity["device"], identity["cublas_workspace_config"]
     if type(device) is not dict or device.get("type") not in {"cpu", "cuda"}:
         raise ValueError("ensemble training identity device is invalid")
@@ -252,7 +281,92 @@ def _validate_training_identity(
         or cublas not in {":4096:8", ":16:8"}
     ):
         raise ValueError("ensemble training identity device/CUBLAS is invalid")
+    if not synthetic and (identity["epochs"] != 200 or device["type"] != "cuda"):
+        raise ValueError("production ensemble identity requires exactly 200 epochs on CUDA")
+    if not synthetic and (type(software["torch_cuda_build"]) is not str or not software["torch_cuda_build"]):
+        raise ValueError("production ensemble identity requires a CUDA-enabled Torch build")
     return identity
+
+
+def _mixture_quantile(
+    means: torch.Tensor, std: torch.Tensor, weights: torch.Tensor, probability: float,
+) -> torch.Tensor:
+    lower = (means - 10.0 * std).amin(dim=-1)
+    upper = (means + 10.0 * std).amax(dim=-1)
+    target = torch.full_like(lower, probability)
+    for _ in range(36):
+        midpoint = (lower + upper) * 0.5
+        cdf = (
+            0.5 * (1.0 + torch.erf((midpoint.unsqueeze(-1) - means) / (std * math.sqrt(2.0))))
+            * weights
+        ).sum(dim=-1)
+        lower = torch.where(cdf < target, midpoint, lower)
+        upper = torch.where(cdf < target, upper, midpoint)
+    return (lower + upper) * 0.5
+
+
+def evaluate_ensemble_metrics(
+    models: tuple[FingertipMixtureNet, ...], inputs: torch.Tensor, targets: torch.Tensor,
+    *, batch_size: int, device: torch.device,
+) -> dict[str, float]:
+    """Recompute the frozen held-out gates directly from checkpoint inference."""
+
+    if not models or batch_size <= 0 or inputs.shape[0] != targets.shape[0]:
+        raise ValueError("held-out ensemble evaluation inputs are invalid")
+    first_squared = endpoint_squared = zero_first_squared = zero_endpoint_squared = 0.0
+    covered = dimensions = nll_total = 0.0
+    samples = 0
+    for model in models:
+        model.to(device).eval()
+    with torch.no_grad():
+        for start in range(0, inputs.shape[0], batch_size):
+            network_input = inputs[start:start + batch_size].to(device)
+            target = targets[start:start + batch_size].to(device)
+            outputs = tuple(model(network_input) for model in models)
+            logits = torch.stack([output.logits for output in outputs], dim=1)
+            means = torch.stack([output.mean for output in outputs], dim=1)
+            log_std = torch.stack([output.log_std for output in outputs], dim=1)
+            member_count = len(models)
+            component_weights = logits.softmax(-1) / member_count
+            predictive_mean = (component_weights[..., None, None, None] * means).sum(dim=(1, 2))
+            member_log_probs = [mixture_log_prob(output, target) for output in outputs]
+            nll_total += float((-torch.logsumexp(
+                torch.stack(member_log_probs, 1) - math.log(member_count), dim=1,
+            ).sum()).item())
+            first_squared += float((predictive_mean[:, 0] - target[:, 0]).square().sum().item())
+            zero_first_squared += float(target[:, 0].square().sum().item())
+            predicted_endpoint = predictive_mean.sum(dim=1) * PRIOR_DT
+            target_endpoint = target.sum(dim=1) * PRIOR_DT
+            endpoint_squared += float((predicted_endpoint - target_endpoint).square().sum().item())
+            zero_endpoint_squared += float(target_endpoint.square().sum().item())
+            flat_means = means.permute(0, 3, 4, 5, 1, 2).reshape(*target.shape, -1)
+            flat_std = log_std.exp().permute(0, 3, 4, 5, 1, 2).reshape(*target.shape, -1)
+            flat_weights = component_weights[:, None, None, None, :, :].expand(
+                target.shape[0], target.shape[1], target.shape[2], target.shape[3],
+                member_count, logits.shape[-1],
+            ).reshape(*target.shape, -1)
+            lower = _mixture_quantile(flat_means, flat_std, flat_weights, 0.1)
+            upper = _mixture_quantile(flat_means, flat_std, flat_weights, 0.9)
+            covered += float(((target >= lower) & (target <= upper)).sum().item())
+            dimensions += target.numel()
+            samples += target.shape[0]
+    if samples == 0:
+        raise ValueError("held-out group split is empty")
+    first_count = samples * 5 * 3
+    first_rmse = math.sqrt(first_squared / first_count)
+    endpoint_rmse = math.sqrt(endpoint_squared / first_count)
+    baseline_first_rmse = math.sqrt(zero_first_squared / first_count)
+    baseline_endpoint_rmse = math.sqrt(zero_endpoint_squared / first_count)
+    return {
+        "test_nll": nll_total / samples,
+        "first_step_velocity_rmse": first_rmse,
+        "first_step_zero_rmse": baseline_first_rmse,
+        "first_step_improvement": (baseline_first_rmse - first_rmse) / baseline_first_rmse,
+        "endpoint_rmse": endpoint_rmse,
+        "endpoint_zero_rmse": baseline_endpoint_rmse,
+        "endpoint_improvement": (baseline_endpoint_rmse - endpoint_rmse) / baseline_endpoint_rmse,
+        "interval_80_coverage": covered / dimensions,
+    }
 
 
 def _validate_metrics(
@@ -315,9 +429,9 @@ def validate_ensemble_artifact(
     root = _require_safe_directory(root)
     _require_safe_directory(root / "checkpoints")
     manifest_path = root / "ensemble_manifest.json"
-    _require_regular_file(manifest_path, label="ensemble manifest")
+    manifest_bytes = _read_regular_bytes(manifest_path, label="ensemble manifest")
     try:
-        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        document = json.loads(manifest_bytes.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("ensemble manifest is invalid") from error
     if type(document) is not dict or set(document) != _MANIFEST_FIELDS:
@@ -368,11 +482,11 @@ def validate_ensemble_artifact(
         ):
             raise ValueError("ensemble member roster is invalid or out of order")
         checkpoint = root / expected_relative
-        _require_regular_file(checkpoint, label="ensemble checkpoint")
-        if _sha256_file(checkpoint) != record["checkpoint_sha256"]:
+        checkpoint_bytes = _read_regular_bytes(checkpoint, label="ensemble checkpoint")
+        if sha256(checkpoint_bytes).hexdigest() != record["checkpoint_sha256"]:
             raise ValueError("ensemble checkpoint SHA-256 mismatch")
         try:
-            state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+            state = torch.load(io.BytesIO(checkpoint_bytes), map_location="cpu", weights_only=True)
         except (OSError, RuntimeError, ValueError, TypeError, pickle.UnpicklingError) as error:
             raise ValueError("ensemble checkpoint could not be safely loaded") from error
         if (
@@ -400,5 +514,5 @@ def validate_ensemble_artifact(
 
 __all__ = [
     "PRODUCTION_MEMBER_SEEDS", "ValidatedEnsemble", "adamw_contract", "ensemble_manifest_sha256",
-    "validate_adamw_state", "validate_ensemble_artifact", "validate_model_state",
+    "evaluate_ensemble_metrics", "validate_adamw_state", "validate_ensemble_artifact", "validate_model_state",
 ]

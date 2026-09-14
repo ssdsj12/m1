@@ -10,6 +10,8 @@ from hashlib import sha256
 
 import pytest
 
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior import ensemble_artifact
+
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_train_fingertip_expert.py"
 PLAN = Path(__file__).parents[2] / "docs" / "superpowers" / "plans" / "2026-09-11-t500-dexmanipnet-fingertip-prior.md"
@@ -74,6 +76,52 @@ def test_production_member_roster_rejects_before_dataset_or_output_state(
     assert not output.exists()
     assert not module._resume_workspace_path(output).exists()
     assert not list(tmp_path.glob(".wrong-production-roster.train-*"))
+
+
+def test_formal_ensemble_identity_requires_current_sources_200_epochs_and_cuda(monkeypatch):
+    module = _trainer_module()
+    identity = _workspace_identity(module)
+    identity.update({
+        "member_seeds": [42, 43, 44, 45, 46],
+        "epochs": 200,
+        "synthetic_smoke": False,
+        "device": {
+            "type": "cuda", "uuid": "GPU-test", "name": "test",
+            "compute_capability": [8, 9],
+        },
+        "cublas_workspace_config": ":4096:8",
+    })
+    identity["training_semantics"]["source_sha256"] = module._training_source_sha256()
+    identity["training_semantics"]["aggregate_sha256"] = module._training_semantics_sha256(
+        identity["training_semantics"]["source_sha256"]
+    )
+    identity = json.loads(json.dumps(identity))
+
+    ensemble_artifact._validate_training_identity(
+        identity, dataset_sha256=identity["dataset_aggregate_sha256"],
+        member_seeds=(42, 43, 44, 45, 46), hidden=(8,), synthetic=False,
+    )
+    for field, value in (("epochs", 199), ("device", {"type": "cpu"})):
+        changed = json.loads(json.dumps(identity))
+        changed[field] = value
+        if field == "device":
+            changed["cublas_workspace_config"] = None
+        with pytest.raises(ValueError, match="production|epoch|CUDA|device"):
+            ensemble_artifact._validate_training_identity(
+                changed, dataset_sha256=identity["dataset_aggregate_sha256"],
+                member_seeds=(42, 43, 44, 45, 46), hidden=(8,), synthetic=False,
+            )
+
+    changed = json.loads(json.dumps(identity))
+    changed["training_semantics"]["source_sha256"]["model"] = "f" * 64
+    changed["training_semantics"]["aggregate_sha256"] = module._training_semantics_sha256(
+        changed["training_semantics"]["source_sha256"]
+    )
+    with pytest.raises(ValueError, match="source|semantic"):
+        ensemble_artifact._validate_training_identity(
+            changed, dataset_sha256=identity["dataset_aggregate_sha256"],
+            member_seeds=(42, 43, 44, 45, 46), hidden=(8,), synthetic=False,
+        )
 
 
 def test_cuda_determinism_preflight_sets_supported_default(monkeypatch: pytest.MonkeyPatch):

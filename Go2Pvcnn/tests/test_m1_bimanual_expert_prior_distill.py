@@ -185,6 +185,54 @@ def test_ensemble_loader_rejects_symlinked_checkpoint_directory(tmp_path: Path):
         )
 
 
+def test_ensemble_checkpoint_hash_and_load_use_one_immutable_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    module, ensemble = _synthetic_ensemble_fixture(tmp_path)
+    manifest = json.loads((ensemble / "ensemble_manifest.json").read_text())
+    expected = module._load_ensemble(
+        ensemble, expected_dataset_sha=manifest["dataset_aggregate_sha256"], allow_synthetic=True,
+    )
+    checkpoint = ensemble / "checkpoints/member-00-best.pt"
+    replacement = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    first_key = next(iter(replacement["model_state"]))
+    replacement["model_state"][first_key] = torch.full_like(replacement["model_state"][first_key], 9.0)
+    replacement_path = tmp_path / "replacement.pt"
+    torch.save(replacement, replacement_path)
+    original_reader = ensemble_artifact._read_regular_bytes
+
+    def replace_after_snapshot(path: Path, *, label: str) -> bytes:
+        snapshot = original_reader(path, label=label)
+        if path == checkpoint:
+            checkpoint.write_bytes(replacement_path.read_bytes())
+        return snapshot
+
+    monkeypatch.setattr(ensemble_artifact, "_read_regular_bytes", replace_after_snapshot)
+    loaded = module._load_ensemble(
+        ensemble, expected_dataset_sha=manifest["dataset_aggregate_sha256"], allow_synthetic=True,
+    )
+    for key, value in loaded.models[0].state_dict().items():
+        torch.testing.assert_close(value, expected.models[0].state_dict()[key], rtol=0.0, atol=0.0)
+
+
+def test_recomputed_heldout_metrics_reject_coordinated_manifest_self_report(tmp_path: Path):
+    module, ensemble_path = _synthetic_ensemble_fixture(tmp_path)
+    manifest = json.loads((ensemble_path / "ensemble_manifest.json").read_text())
+    ensemble = module._load_ensemble(
+        ensemble_path, expected_dataset_sha=manifest["dataset_aggregate_sha256"], allow_synthetic=True,
+    )
+    dataset, _ = module._load_group_split(
+        ensemble_path / "synthetic-shards" / "aggregate_manifest.json", "test",
+    )
+    forged = dict(manifest["metrics"])
+    forged["test_nll"] += 1.0
+
+    with pytest.raises(ValueError, match="recomputed|held-out|metric"):
+        module._validate_recomputed_ensemble_metrics(
+            ensemble.models, dataset, forged, batch_size=16, device=torch.device("cpu"),
+        )
+
+
 class _FixedMixture(nn.Module):
     def __init__(self, logits: list[float], means: list[float]) -> None:
         super().__init__()
@@ -286,6 +334,31 @@ def test_teacher_sample_store_failure_never_publishes_or_pollutes(tmp_path: Path
     assert calls == 1
     assert not (tmp_path / "samples").exists()
     assert not list(tmp_path.glob(".samples.stage-*"))
+
+
+def test_teacher_sample_store_rejects_extra_staging_entry_before_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    module = _module()
+    dataset = module.GroupShardDataset(
+        torch.zeros(2, 42), torch.zeros(2, 20, 5, 3), ("g0", "g1")
+    )
+    original_atomic = module._atomic_bytes
+
+    def inject_extra(path: Path, value: bytes) -> None:
+        original_atomic(path, value)
+        if path.name == "manifest.json":
+            (path.parent / "unexpected.bin").write_bytes(b"untrusted")
+
+    monkeypatch.setattr(module, "_atomic_bytes", inject_extra)
+    destination = tmp_path / "samples"
+    with pytest.raises(ValueError, match="exact|required|staging"):
+        module._prepare_teacher_sample_store(
+            destination, (FingertipMixtureNet(hidden=(8,)),), dataset,
+            samples_per_state=2, seed=42, dataset_sha256="a" * 64,
+            ensemble_sha256="b" * 64, chunk_size=2,
+        )
+    assert not destination.exists()
 
 
 def test_teacher_sample_store_recovers_fixed_identity_owned_sigkill_staging(
@@ -837,6 +910,7 @@ def test_real_gate_failure_returns_nonzero_without_final_artifact_and_hashes_dia
         (_FixedMixture([0.0] * 4, [0.0] * 4),), "b" * 64, aggregate, (8,), 42, False
     )
     monkeypatch.setattr(module, "_load_ensemble", lambda *args, **kwargs: ensemble)
+    monkeypatch.setattr(module, "_validate_recomputed_ensemble_metrics", lambda *args, **kwargs: {})
     monkeypatch.setattr(module, "_prepare_teacher_sample_store", lambda *args, **kwargs: object())
 
     def deterministic_model(*args, **kwargs):

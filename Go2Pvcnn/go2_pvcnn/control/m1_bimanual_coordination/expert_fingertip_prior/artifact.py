@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from hashlib import sha256
+import io
 import json
 import math
 import os
@@ -67,6 +68,25 @@ def _canonical_json(value: object) -> bytes:
 def _regular(path: Path, *, label: str) -> None:
     if not path.is_file() or path.is_symlink():
         raise ValueError(f"{label} must be a regular file")
+
+
+def _read_regular_bytes(path: Path, *, label: str) -> bytes:
+    """Open once without following symlinks and return that immutable file snapshot."""
+
+    _safe_directory(path.parent, create=False)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError(f"{label} must be a readable regular file") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"{label} must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            return handle.read()
+    finally:
+        os.close(descriptor)
 
 
 def _safe_directory(path: str | Path, *, create: bool) -> Path:
@@ -168,11 +188,10 @@ def _metadata_for_schema() -> StudentArtifactMetadata:
     )
 
 
-def _json_document(path: Path, *, label: str) -> dict[str, object]:
-    _regular(path, label=label)
+def _json_document_from_bytes(raw: bytes, *, label: str) -> dict[str, object]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
         raise ValueError(f"{label} is invalid JSON") from error
     if type(value) is not dict:
         raise ValueError(f"{label} must be a JSON object")
@@ -442,27 +461,38 @@ def save_student_artifact(
         raise
 
 
-def load_student_artifact(root: str | Path) -> LoadedStudent:
+def load_student_artifact(
+    root: str | Path, *, expected_metadata_sha256: str | None = None,
+) -> LoadedStudent:
     """Load only a regular, complete, SHA-verified artifact using weights-only Torch loading."""
 
     artifact = _safe_directory(root, create=False)
     if {path.name for path in artifact.iterdir()} != _ARTIFACT_FILES:
         raise ValueError("student artifact must contain exactly the required files")
-    metadata_document = _json_document(artifact / "metadata.json", label="artifact metadata")
+    metadata_bytes = _read_regular_bytes(artifact / "metadata.json", label="artifact metadata")
+    if expected_metadata_sha256 is not None:
+        if (
+            type(expected_metadata_sha256) is not str or len(expected_metadata_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in expected_metadata_sha256)
+        ):
+            raise ValueError("expected metadata SHA-256 pin is invalid")
+        if sha256(metadata_bytes).hexdigest() != expected_metadata_sha256:
+            raise ValueError("artifact metadata does not match expected metadata SHA-256 pin")
+    metadata_document = _json_document_from_bytes(metadata_bytes, label="artifact metadata")
     metadata = _metadata_from_document(metadata_document)
-    weights_path = artifact / "student.pt"
-    _regular(weights_path, label="student weights")
-    if sha256_file(weights_path) != metadata.weight_sha256:
+    weights_bytes = _read_regular_bytes(artifact / "student.pt", label="student weights")
+    if sha256(weights_bytes).hexdigest() != metadata.weight_sha256:
         raise ValueError("student weight SHA mismatch")
-    metrics_path, latency_path = artifact / "metrics.json", artifact / "latency.json"
-    metrics = _json_document(metrics_path, label="artifact metrics")
-    latency = _json_document(latency_path, label="artifact latency")
+    metrics_bytes = _read_regular_bytes(artifact / "metrics.json", label="artifact metrics")
+    latency_bytes = _read_regular_bytes(artifact / "latency.json", label="artifact latency")
+    metrics = _json_document_from_bytes(metrics_bytes, label="artifact metrics")
+    latency = _json_document_from_bytes(latency_bytes, label="artifact latency")
     _validate_reports(metrics, latency)
     _validate_provenance(metrics, metadata)
-    _metadata_integrity(metadata_document, metrics_path.read_bytes(), latency_path.read_bytes(), metrics, metadata)
+    _metadata_integrity(metadata_document, metrics_bytes, latency_bytes, metrics, metadata)
     model = FingertipMixtureNet(hidden=metadata.hidden)
     try:
-        state = torch.load(weights_path, map_location="cpu", weights_only=True)
+        state = torch.load(io.BytesIO(weights_bytes), map_location="cpu", weights_only=True)
     except (OSError, RuntimeError, ValueError, TypeError) as error:
         raise ValueError("student weights could not be safely loaded") from error
     model.load_state_dict(_validate_state(model, state), strict=True)
@@ -471,10 +501,12 @@ def load_student_artifact(root: str | Path) -> LoadedStudent:
     return LoadedStudent(model=model, metadata=metadata, metrics=runtime_metrics, latency=latency)
 
 
-def validate_student_artifact(root: str | Path) -> None:
+def validate_student_artifact(
+    root: str | Path, *, expected_metadata_sha256: str | None = None,
+) -> None:
     """Run the complete strict load/approval gate without starting a worker."""
 
-    loaded = load_student_artifact(root)
+    loaded = load_student_artifact(root, expected_metadata_sha256=expected_metadata_sha256)
     if loaded.metrics.get("production_approved") is not True:
         raise ValueError("runtime requires a production_approved student artifact")
 

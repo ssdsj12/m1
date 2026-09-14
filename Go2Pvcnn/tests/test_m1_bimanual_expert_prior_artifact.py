@@ -8,6 +8,7 @@ from hashlib import sha256
 import pytest
 import torch
 
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior import artifact as artifact_module
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact import (
     load_student_artifact,
     save_student_artifact,
@@ -91,6 +92,42 @@ def test_artifact_rejects_weight_tampering_before_deserialization(tmp_path: Path
 
     with pytest.raises(ValueError, match="weight SHA"):
         load_student_artifact(root)
+
+
+def test_artifact_weight_hash_and_deserialization_use_one_immutable_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    root = _write(tmp_path / "artifact")
+    expected = load_student_artifact(root)
+    replacement = FingertipMixtureNet(hidden=(16, 16))
+    with torch.no_grad():
+        for parameter in replacement.parameters():
+            parameter.fill_(9.0)
+    replacement_path = tmp_path / "replacement.pt"
+    torch.save(replacement.state_dict(), replacement_path)
+    original_reader = artifact_module._read_regular_bytes
+
+    def replace_after_snapshot(path: Path, *, label: str) -> bytes:
+        snapshot = original_reader(path, label=label)
+        if label == "student weights":
+            (root / "student.pt").write_bytes(replacement_path.read_bytes())
+        return snapshot
+
+    monkeypatch.setattr(artifact_module, "_read_regular_bytes", replace_after_snapshot)
+    loaded = load_student_artifact(root)
+
+    for key, value in loaded.model.state_dict().items():
+        torch.testing.assert_close(value, expected.model.state_dict()[key], rtol=0.0, atol=0.0)
+
+
+def test_artifact_optional_external_metadata_pin_rejects_coordinated_reauthoring(tmp_path: Path):
+    root = _write(tmp_path / "artifact")
+    metadata_bytes = (root / "metadata.json").read_bytes()
+    pin = sha256(metadata_bytes).hexdigest()
+
+    load_student_artifact(root, expected_metadata_sha256=pin)
+    with pytest.raises(ValueError, match="metadata.*pin|expected metadata"):
+        load_student_artifact(root, expected_metadata_sha256="f" * 64)
 
 
 def test_artifact_rejects_extra_file_and_metadata_self_hash_tampering(tmp_path: Path):
