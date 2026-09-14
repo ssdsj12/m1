@@ -233,6 +233,44 @@ def test_recomputed_heldout_metrics_reject_coordinated_manifest_self_report(tmp_
         )
 
 
+@pytest.mark.parametrize("actual_improvement,actual_coverage", [
+    (0.0999995, 0.6499995),
+    (0.10, 0.9500005),
+])
+def test_recomputed_metrics_tolerance_cannot_cross_production_gate(
+    monkeypatch: pytest.MonkeyPatch, actual_improvement: float, actual_coverage: float,
+):
+    module = _module()
+    reported = {
+        "test_nll": 1.0,
+        "first_step_velocity_rmse": 0.9,
+        "first_step_zero_rmse": 1.0,
+        "first_step_improvement": 0.1,
+        "endpoint_rmse": 0.9,
+        "endpoint_zero_rmse": 1.0,
+        "endpoint_improvement": 0.1,
+        "interval_80_coverage": 0.65 if actual_coverage < 0.65 else 0.95,
+    }
+    actual = {
+        **reported,
+        "first_step_velocity_rmse": 1.0 - actual_improvement,
+        "first_step_improvement": actual_improvement,
+        "endpoint_rmse": 1.0 - actual_improvement,
+        "endpoint_improvement": actual_improvement,
+        "interval_80_coverage": actual_coverage,
+    }
+    monkeypatch.setattr(module, "evaluate_ensemble_metrics", lambda *args, **kwargs: actual)
+    dataset = module.GroupShardDataset(
+        torch.zeros(1, 42), torch.zeros(1, 20, 5, 3), ("g0",),
+    )
+
+    with pytest.raises(ValueError, match="production|gate|held-out"):
+        module._validate_recomputed_ensemble_metrics(
+            (FingertipMixtureNet(hidden=(8,)),), dataset, reported,
+            batch_size=1, device=torch.device("cpu"), require_production=True,
+        )
+
+
 class _FixedMixture(nn.Module):
     def __init__(self, logits: list[float], means: list[float]) -> None:
         super().__init__()
@@ -359,6 +397,39 @@ def test_teacher_sample_store_rejects_extra_staging_entry_before_publish(
             ensemble_sha256="b" * 64, chunk_size=2,
         )
     assert not destination.exists()
+
+
+@pytest.mark.parametrize("extra_kind", ["file", "symlink", "directory"])
+def test_existing_teacher_sample_store_rejects_every_extra_entry(
+    tmp_path: Path, extra_kind: str,
+):
+    module = _module()
+    dataset = module.GroupShardDataset(
+        torch.zeros(2, 42), torch.zeros(2, 20, 5, 3), ("g0", "g1")
+    )
+    destination = tmp_path / "samples"
+    store = module._prepare_teacher_sample_store(
+        destination, (FingertipMixtureNet(hidden=(8,)),), dataset,
+        samples_per_state=2, seed=42, dataset_sha256="a" * 64,
+        ensemble_sha256="b" * 64, chunk_size=2,
+    )
+    del store
+    extra = destination / "unexpected"
+    if extra_kind == "file":
+        extra.write_bytes(b"untrusted")
+    elif extra_kind == "directory":
+        extra.mkdir()
+    else:
+        outside = tmp_path / "outside"
+        outside.write_bytes(b"untrusted")
+        extra.symlink_to(outside)
+    identity = module._teacher_store_identity(
+        sample_count=2, samples_per_state=2, seed=42,
+        dataset_sha256="a" * 64, ensemble_sha256="b" * 64, chunk_size=2,
+    )
+
+    with pytest.raises(ValueError, match="exact|required|teacher sample store"):
+        module._load_teacher_sample_store(destination, identity)
 
 
 def test_teacher_sample_store_recovers_fixed_identity_owned_sigkill_staging(

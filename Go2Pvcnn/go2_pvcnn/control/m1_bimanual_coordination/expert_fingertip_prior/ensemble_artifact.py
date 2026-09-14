@@ -404,6 +404,13 @@ def _validate_metrics(
     return values, deployable
 
 
+def production_ensemble_approved(metrics: object) -> bool:
+    """Derive the production gate from recomputed held-out metrics, without tolerance."""
+
+    _, approved = _validate_metrics(metrics, synthetic=False, nonproduction_synthetic=False)
+    return approved
+
+
 @dataclass(frozen=True)
 class ValidatedEnsemble:
     manifest: dict[str, object]
@@ -514,5 +521,6 @@ def validate_ensemble_artifact(
 
 __all__ = [
     "PRODUCTION_MEMBER_SEEDS", "ValidatedEnsemble", "adamw_contract", "ensemble_manifest_sha256",
-    "evaluate_ensemble_metrics", "validate_adamw_state", "validate_ensemble_artifact", "validate_model_state",
+    "evaluate_ensemble_metrics", "production_ensemble_approved", "validate_adamw_state",
+    "validate_ensemble_artifact", "validate_model_state",
 ]

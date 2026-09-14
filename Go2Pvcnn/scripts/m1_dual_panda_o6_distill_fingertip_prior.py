@@ -38,6 +38,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.ensemble_
     adamw_contract,
     ensemble_manifest_sha256,
     evaluate_ensemble_metrics,
+    production_ensemble_approved,
     validate_adamw_state,
     validate_ensemble_artifact,
     validate_model_state,
@@ -374,6 +375,7 @@ def _load_ensemble(
 def _validate_recomputed_ensemble_metrics(
     models: Sequence[FingertipMixtureNet], dataset: GroupShardDataset,
     reported_metrics: Mapping[str, object], *, batch_size: int, device: torch.device,
+    require_production: bool = False,
 ) -> dict[str, float]:
     recomputed = evaluate_ensemble_metrics(
         tuple(models), dataset.inputs, dataset.targets, batch_size=batch_size, device=device,
@@ -387,6 +389,8 @@ def _validate_recomputed_ensemble_metrics(
             or not math.isclose(actual, float(reported), rel_tol=1e-5, abs_tol=1e-7)
         ):
             raise ValueError(f"reported held-out ensemble metric {key} differs from recomputed inference")
+    if require_production and not production_ensemble_approved(recomputed):
+        raise ValueError("recomputed held-out ensemble metrics do not pass the production gate")
     return recomputed
 
 
@@ -491,21 +495,56 @@ def _teacher_store_identity(
 
 def _load_teacher_sample_store(root: Path, identity: dict[str, object]) -> _TeacherSampleStore:
     _require_safe_directory(root)
-    manifest_path, samples_path = root / "manifest.json", root / "samples.npy"
-    _regular(manifest_path, "teacher sample manifest")
-    _regular(samples_path, "teacher sample array")
-    document = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if type(document) is not dict or set(document) != set(identity) | {"samples_sha256", "manifest_sha256"}:
-        raise ValueError("teacher sample manifest schema is invalid")
-    if {key: document.get(key) for key in identity} != identity:
-        raise ValueError("teacher sample store identity mismatch")
-    body = dict(document)
-    declared_manifest = body.pop("manifest_sha256", None)
-    if declared_manifest != sha256(_canonical_json(body)).hexdigest():
-        raise ValueError("teacher sample manifest SHA mismatch")
-    if document.get("samples_sha256") != sha256_file(samples_path):
-        raise ValueError("teacher sample array SHA mismatch")
-    samples = np.load(samples_path, mmap_mode="r", allow_pickle=False)
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        root_descriptor = os.open(root, directory_flags)
+    except OSError as error:
+        raise ValueError("teacher sample store must be a safe regular directory") from error
+    manifest_descriptor = samples_descriptor = None
+    try:
+        if set(os.listdir(root_descriptor)) != {"manifest.json", "samples.npy"}:
+            raise ValueError("teacher sample store must contain exactly manifest.json and samples.npy")
+        file_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            manifest_descriptor = os.open("manifest.json", file_flags, dir_fd=root_descriptor)
+            samples_descriptor = os.open("samples.npy", file_flags, dir_fd=root_descriptor)
+        except OSError as error:
+            raise ValueError("teacher sample store entries must be regular non-symlink files") from error
+        for descriptor, label in (
+            (manifest_descriptor, "teacher sample manifest"),
+            (samples_descriptor, "teacher sample array"),
+        ):
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError(f"{label} must be a regular file")
+        with os.fdopen(manifest_descriptor, "rb", closefd=False) as handle:
+            manifest_bytes = handle.read()
+        try:
+            document = json.loads(manifest_bytes.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as error:
+            raise ValueError("teacher sample manifest is invalid") from error
+        if type(document) is not dict or set(document) != set(identity) | {"samples_sha256", "manifest_sha256"}:
+            raise ValueError("teacher sample manifest schema is invalid")
+        if {key: document.get(key) for key in identity} != identity:
+            raise ValueError("teacher sample store identity mismatch")
+        body = dict(document)
+        declared_manifest = body.pop("manifest_sha256", None)
+        if declared_manifest != sha256(_canonical_json(body)).hexdigest():
+            raise ValueError("teacher sample manifest SHA mismatch")
+        digest = sha256()
+        os.lseek(samples_descriptor, 0, os.SEEK_SET)
+        while chunk := os.read(samples_descriptor, 1024 * 1024):
+            digest.update(chunk)
+        if document.get("samples_sha256") != digest.hexdigest():
+            raise ValueError("teacher sample array SHA mismatch")
+        samples = np.load(
+            f"/proc/self/fd/{samples_descriptor}", mmap_mode="r", allow_pickle=False,
+        )
+    finally:
+        if manifest_descriptor is not None:
+            os.close(manifest_descriptor)
+        if samples_descriptor is not None:
+            os.close(samples_descriptor)
+        os.close(root_descriptor)
     if not isinstance(samples, np.memmap) or list(samples.shape) != identity["shape"] or samples.dtype != np.float32:
         raise ValueError("teacher sample array violates frozen shape/dtype")
     for start in range(0, samples.shape[0], 128):
@@ -1151,6 +1190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _validate_recomputed_ensemble_metrics(
             ensemble.models, test, ensemble.reported_metrics,
             batch_size=args.batch_size, device=device,
+            require_production=not bool(args.synthetic_smoke),
         )
         for member in ensemble.models:
             member.cpu().eval()
