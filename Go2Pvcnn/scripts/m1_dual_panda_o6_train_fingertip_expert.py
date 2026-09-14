@@ -32,6 +32,10 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.model imp
     mixture_nll,
     temporal_regularizer,
 )
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.ensemble_artifact import (
+    PRODUCTION_MEMBER_SEEDS,
+    validate_ensemble_artifact,
+)
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.storage import (
     deterministic_group_split,
     verify_aggregate_manifest,
@@ -1090,6 +1094,8 @@ def main(
     args = build_parser().parse_args(argv)
     if bool(args.synthetic_smoke) == bool(args.dataset_manifest):
         raise ValueError("choose exactly one of --dataset-manifest and --synthetic-smoke")
+    if not args.synthetic_smoke and tuple(args.member_seeds) != PRODUCTION_MEMBER_SEEDS:
+        raise ValueError("production member roster must be exactly 42,43,44,45,46")
     float_values = (args.learning_rate, args.acceleration_weight, args.jerk_weight)
     if (
         args.epochs <= 0
@@ -1204,6 +1210,12 @@ def main(
         }
         manifest_sha = _ensemble_manifest_sha256(body)
         _atomic_bytes(stage / "ensemble_manifest.json", _canonical_json({**body, "ensemble_manifest_sha256": manifest_sha}))
+        validate_ensemble_artifact(
+            stage, expected_dataset_sha256=document["aggregate_sha256"],
+            expected_member_seeds=tuple(args.member_seeds),
+            expected_synthetic=bool(args.synthetic_smoke),
+            expected_nonproduction_synthetic=nonproduction_synthetic,
+        )
         os.replace(stage, destination)
         workspace.remove_after_publish()
         print(json.dumps({**body, "ensemble_manifest_sha256": manifest_sha}, sort_keys=True))

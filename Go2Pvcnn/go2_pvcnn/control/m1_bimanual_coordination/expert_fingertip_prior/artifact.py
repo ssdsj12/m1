@@ -371,9 +371,6 @@ def save_student_artifact(
     if ".." in lexical.parts:
         raise ValueError(f"unsafe parent traversal in artifact path: {lexical}")
     destination = lexical if lexical.is_absolute() else Path.cwd() / lexical
-    _safe_directory(destination.parent, create=True)
-    if os.path.lexists(destination):
-        raise FileExistsError(f"student artifact destination already exists: {destination}")
     metric_document = dict(metrics)
     latency_document = dict(latency)
     approval = metric_document.pop("production_approved", latency_document.get("production_approved"))
@@ -385,12 +382,18 @@ def save_student_artifact(
     reports = {"metrics": metric_document, "provenance": dict(provenance)}
     _validate_reports(reports, latency_document)
     _validate_provenance(reports, metadata)
+    expected_approval = _production_approved(metric_document, provenance, latency_document["p99_ms"])
+    if approval is not expected_approval:
+        raise ValueError("artifact production approval does not match recomputed gates")
     training = _validate_distillation_training(
         default_distillation_training() if distillation_training is None else dict(distillation_training)
     )
     state = _state_for_save(model)
     if model.hidden != metadata.hidden:
         raise ValueError("student model architecture does not match metadata hidden widths")
+    _safe_directory(destination.parent, create=True)
+    if os.path.lexists(destination):
+        raise FileExistsError(f"student artifact destination already exists: {destination}")
     stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent))
     try:
         weights_path = stage / "student.pt"

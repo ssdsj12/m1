@@ -187,6 +187,9 @@ ensemble 聚合 aleatoric 与成员间 epistemic 不确定性，用于给蒸馏�
 
 专家 ensemble 只存在于离线训练目录，不能被 Hand MPC 或 Play 直接加载。若 held-out 指标未通过，
 不得开始学生蒸馏，也不得把未通过的教师标成可部署先验。
+训练器和蒸馏器共享同一严格 ensemble verifier：完整 manifest schema/self-hash、固定且无重复的
+成员 seed 顺序、checkpoint 路径与 SHA、dataset/训练身份、有限且内部一致的 held-out 指标及由指标
+重新计算的教师 gate 必须同时成立。manifest 自称 `production_deployable` 不能绕过这些验证。
 
 ### 第二阶段：紧凑学生蒸馏
 
@@ -200,6 +203,8 @@ ensemble 聚合 aleatoric 与成员间 epistemic 不确定性，用于给蒸馏�
 “成员等权、成员内四分量 softmax”：先分别归一化每个成员，再赋予严格 `1/M` 的成员权重，
 因此任一成员 logits 的整体平移不能改变密度或固定 generator 的样本。教师样本以绑定 dataset
 aggregate SHA、ensemble manifest SHA、采样 seed 和每状态样本数的确定性磁盘分片/memmap 原子发布；
+生成过程使用固定的身份所有者文件、固定 staging 路径和逐 chunk 原子 SHA 进度；异常终止后仅在身份、
+路径和进度均严格匹配时续写，普通失败则只清理已证明属于本次身份且不含 symlink 的 staging。
 学生 batch 按需读取，内存复杂度不得随完整教师样本集增长。混合分量不做基于编号的硬对齐，
 避免分量置换造成错误监督。只有冻结学生进入运行 artifact；教师 ensemble 保留在本地、忽略 Git，
 用于复核和重新蒸馏。
@@ -215,7 +220,9 @@ provenance 和训练合同；`metrics.json` 不含机器相关的最终批准位
 权重、metrics 和 identity 的比较。
 学生使用输出目录专属 resume workspace，在 epoch 边界原子提交模型和优化器状态；最终目录仅在完整
 训练、独立重复和质量门通过后原子发布。真实数据 gate 失败必须非零退出，且不得发布可供运行时
-误用的最终 artifact；仅可在明确 nondeployable 的诊断目录保留带 SHA 的失败证据。
+误用的最终 artifact；仅可在明确 nondeployable 的诊断目录保留带 SHA 的失败证据。resume 在
+`load_state_dict` 前验证模型 exact keys/shape/dtype/finite，并验证 AdamW 参数 ID、moment shape/dtype/finite
+及完整参数组语义；任何协调重写 checkpoint 与 progress SHA 仍不得改变训练身份。
 
 ## Hand MPC 接入
 

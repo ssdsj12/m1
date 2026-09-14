@@ -33,6 +33,14 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts
     PHASE_ORDER, PRIOR_DT, MixtureDistribution, StudentArtifactMetadata,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.download import sha256_file
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.ensemble_artifact import (
+    PRODUCTION_MEMBER_SEEDS,
+    adamw_contract,
+    ensemble_manifest_sha256,
+    validate_adamw_state,
+    validate_ensemble_artifact,
+    validate_model_state,
+)
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.model import (
     FingertipMixtureNet, mixture_log_prob, mixture_nll, temporal_regularizer,
 )
@@ -44,6 +52,7 @@ _ARRAY_NAMES = frozenset({
     "future_fingertip_velocity_palm", "source_group", "source_sha256",
 })
 _SUPPORTED_CUBLAS_WORKSPACE_CONFIGS = frozenset({":4096:8", ":16:8"})
+_SYNTHETIC_MEMBER_SEEDS = (1701, 2718)
 
 
 @dataclass(frozen=True)
@@ -74,7 +83,7 @@ def _canonical_json(value: object) -> bytes:
 
 
 def _ensemble_manifest_sha256(body: dict[str, object]) -> str:
-    return sha256(_canonical_json(body)).hexdigest()
+    return ensemble_manifest_sha256(body)
 
 
 def _lexical_absolute(path: str | Path) -> Path:
@@ -338,65 +347,25 @@ def _regular(path: Path, label: str) -> None:
     _require_regular_file(path, label=label)
 
 
-def _load_ensemble(path: str | Path, *, expected_dataset_sha: str, allow_synthetic: bool) -> _Ensemble:
+def _load_ensemble(
+    path: str | Path, *, expected_dataset_sha: str, allow_synthetic: bool,
+    nonproduction_synthetic: bool = False,
+) -> _Ensemble:
     root = _lexical_absolute(path)
     _require_safe_directory(root)
-    manifest_path = root / "ensemble_manifest.json"
-    _regular(manifest_path, "ensemble manifest")
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ValueError("ensemble manifest is invalid") from error
-    if type(manifest) is not dict:
-        raise ValueError("ensemble manifest is invalid")
-    declared = manifest.get("ensemble_manifest_sha256")
-    body = dict(manifest)
-    body.pop("ensemble_manifest_sha256", None)
-    if type(declared) is not str or declared != _ensemble_manifest_sha256(body):
-        raise ValueError("ensemble manifest SHA-256 mismatch")
-    if manifest.get("format_version") != 1 or manifest.get("dataset_aggregate_sha256") != expected_dataset_sha:
-        raise ValueError("ensemble does not match verified dataset aggregate")
-    synthetic = manifest.get("synthetic_smoke") is True
-    if not allow_synthetic and (synthetic or manifest.get("production_deployable") is not True):
+    expected_seeds = _SYNTHETIC_MEMBER_SEEDS if allow_synthetic else PRODUCTION_MEMBER_SEEDS
+    validated = validate_ensemble_artifact(
+        root, expected_dataset_sha256=expected_dataset_sha,
+        expected_member_seeds=expected_seeds, expected_synthetic=allow_synthetic,
+        expected_nonproduction_synthetic=nonproduction_synthetic,
+    )
+    manifest = validated.manifest
+    if not allow_synthetic and manifest["production_deployable"] is not True:
         raise ValueError("ensemble is not deployable")
-    hidden_value = manifest.get("hidden")
-    records = manifest.get("members")
-    if type(hidden_value) is not list or not hidden_value or any(type(width) is not int or width <= 0 for width in hidden_value):
-        raise ValueError("ensemble architecture is invalid")
-    if type(records) is not list or len(records) < 2:
-        raise ValueError("ensemble members are invalid")
-    hidden = tuple(hidden_value)
-    models: list[FingertipMixtureNet] = []
-    for index, record in enumerate(records):
-        expected_path = f"checkpoints/member-{index:02d}-best.pt"
-        if (
-            type(record) is not dict or record.get("member_index") != index or type(record.get("seed")) is not int
-            or record.get("checkpoint") != expected_path or type(record.get("checkpoint_sha256")) is not str
-        ):
-            raise ValueError("ensemble member record is invalid")
-        checkpoint = root / expected_path
-        _regular(checkpoint, "ensemble checkpoint")
-        if sha256_file(checkpoint) != record["checkpoint_sha256"]:
-            raise ValueError("ensemble checkpoint SHA-256 mismatch")
-        try:
-            state = torch.load(checkpoint, map_location="cpu", weights_only=True)
-        except (OSError, RuntimeError, ValueError, TypeError) as error:
-            raise ValueError("ensemble checkpoint could not be safely loaded") from error
-        if not isinstance(state, dict) or state.get("format_version") != 1 or state.get("member_index") != index or state.get("seed") != record["seed"] or state.get("hidden") != hidden or state.get("dataset_aggregate_sha256") != expected_dataset_sha or not isinstance(state.get("model_state"), dict):
-            raise ValueError("ensemble checkpoint state is invalid")
-        model = FingertipMixtureNet(hidden=hidden)
-        expected_state = model.state_dict()
-        weights = state["model_state"]
-        if set(weights) != set(expected_state):
-            raise ValueError("ensemble checkpoint model state keys are invalid")
-        for key, reference in expected_state.items():
-            value = weights[key]
-            if not isinstance(value, torch.Tensor) or value.dtype != reference.dtype or value.shape != reference.shape or not torch.isfinite(value).all().item():
-                raise ValueError("ensemble checkpoint model state is invalid")
-        model.load_state_dict(weights, strict=True)
-        model.eval()
-        models.append(model)
-    return _Ensemble(tuple(models), declared, expected_dataset_sha, hidden, int(records[0]["seed"]), synthetic)
+    return _Ensemble(
+        validated.models, str(manifest["ensemble_manifest_sha256"]), expected_dataset_sha,
+        tuple(manifest["hidden"]), expected_seeds[0], bool(manifest["synthetic_smoke"]),
+    )
 
 
 def _ensemble_outputs(models: Sequence[FingertipMixtureNet], inputs: torch.Tensor) -> tuple[MixtureDistribution, ...]:
@@ -523,6 +492,137 @@ def _load_teacher_sample_store(root: Path, identity: dict[str, object]) -> _Teac
     return _TeacherSampleStore(root, samples, document)
 
 
+def _teacher_staging_paths(destination: Path) -> tuple[Path, Path]:
+    return (
+        destination.parent / f".{destination.name}.owner-v1.json",
+        destination.parent / f".{destination.name}.stage-v1",
+    )
+
+
+def _teacher_owner_document(
+    destination: Path, identity: dict[str, object], *, completed_count: int,
+    chunks: Sequence[dict[str, object]] = (),
+) -> dict[str, object]:
+    identity_sha = sha256(_canonical_json(identity)).hexdigest()
+    body: dict[str, object] = {
+        "format_version": 1,
+        "destination": str(destination),
+        "stage_name": f".{destination.name}.stage-v1",
+        "identity": identity,
+        "identity_sha256": identity_sha,
+        "completed_count": completed_count,
+        "chunks": [dict(chunk) for chunk in chunks],
+    }
+    return {**body, "progress_sha256": sha256(_canonical_json(body)).hexdigest()}
+
+
+def _load_teacher_owner(
+    owner_path: Path, destination: Path, identity: dict[str, object],
+) -> dict[str, object]:
+    _require_regular_file(owner_path, label="teacher sample staging owner")
+    try:
+        document = json.loads(owner_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("teacher sample staging owner is invalid") from error
+    expected_fields = {
+        "format_version", "destination", "stage_name", "identity", "identity_sha256",
+        "completed_count", "chunks", "progress_sha256",
+    }
+    if type(document) is not dict or set(document) != expected_fields:
+        raise ValueError("teacher sample staging owner schema is invalid")
+    body = dict(document)
+    declared_progress = body.pop("progress_sha256")
+    if declared_progress != sha256(_canonical_json(body)).hexdigest():
+        raise ValueError("teacher sample staging owner progress SHA mismatch")
+    if (
+        document["format_version"] != 1
+        or document["destination"] != str(destination)
+        or document["stage_name"] != f".{destination.name}.stage-v1"
+        or document["identity"] != identity
+        or document["identity_sha256"] != sha256(_canonical_json(identity)).hexdigest()
+    ):
+        raise ValueError("teacher sample staging owner identity mismatch")
+    completed = document["completed_count"]
+    if type(completed) is not int or not 0 <= completed <= int(identity["sample_count"]):
+        raise ValueError("teacher sample staging progress is invalid")
+    chunks = document["chunks"]
+    if type(chunks) is not list:
+        raise ValueError("teacher sample staging chunk progress is invalid")
+    cursor = 0
+    for chunk in chunks:
+        expected_stop = min(cursor + int(identity["chunk_size"]), int(identity["sample_count"]))
+        if (
+            type(chunk) is not dict or set(chunk) != {"start", "stop", "sha256"}
+            or chunk["start"] != cursor or chunk["stop"] != expected_stop
+            or type(chunk["sha256"]) is not str or len(chunk["sha256"]) != 64
+            or any(character not in "0123456789abcdef" for character in chunk["sha256"])
+        ):
+            raise ValueError("teacher sample staging chunk progress is invalid")
+        cursor = expected_stop
+    if cursor != completed:
+        raise ValueError("teacher sample staging chunk progress does not match completed count")
+    return document
+
+
+def _write_teacher_owner(
+    owner_path: Path, destination: Path, identity: dict[str, object], *, completed_count: int,
+    chunks: Sequence[dict[str, object]] = (),
+) -> None:
+    if os.path.lexists(owner_path):
+        _load_teacher_owner(owner_path, destination, identity)
+    _atomic_bytes(
+        owner_path,
+        _canonical_json(_teacher_owner_document(
+            destination, identity, completed_count=completed_count, chunks=chunks,
+        )),
+    )
+
+
+def _remove_owned_teacher_staging(
+    owner_path: Path, stage: Path, destination: Path, identity: dict[str, object],
+    *, stage_may_be_missing: bool = False,
+) -> None:
+    """Delete only the exact, regular staging tree named by a valid owner checkpoint."""
+
+    _load_teacher_owner(owner_path, destination, identity)
+    if os.path.lexists(stage):
+        _require_safe_directory(stage)
+        shutil.rmtree(stage)
+    elif not stage_may_be_missing:
+        raise ValueError("owned teacher sample staging directory is missing")
+    _require_regular_file(owner_path, label="teacher sample staging owner")
+    owner_path.unlink()
+
+
+def _open_partial_teacher_samples(
+    stage: Path, identity: dict[str, object], *, completed_count: int,
+    chunks: Sequence[dict[str, object]],
+) -> np.memmap:
+    sample_path = stage / "samples.npy"
+    if os.path.lexists(sample_path):
+        _require_regular_file(sample_path, label="partial teacher sample array")
+        output = np.load(sample_path, mmap_mode="r+", allow_pickle=False)
+        if (
+            not isinstance(output, np.memmap)
+            or list(output.shape) != identity["shape"]
+            or output.dtype != np.float32
+        ):
+            raise ValueError("partial teacher sample array violates frozen shape/dtype")
+        for chunk in chunks:
+            start, stop = int(chunk["start"]), int(chunk["stop"])
+            values = np.asarray(output[start:stop])
+            if not np.isfinite(values).all():
+                raise ValueError("completed teacher samples must be finite")
+            if sha256(values.tobytes(order="C")).hexdigest() != chunk["sha256"]:
+                raise ValueError("completed teacher sample chunk SHA mismatch")
+        return output
+    if completed_count != 0:
+        raise ValueError("partial teacher sample array is missing after recorded progress")
+    return np.lib.format.open_memmap(
+        sample_path, mode="w+", dtype=np.float32, shape=tuple(identity["shape"]),
+    )
+
+
 def _prepare_teacher_sample_store(
     root: str | Path,
     models: Sequence[FingertipMixtureNet],
@@ -547,21 +647,57 @@ def _prepare_teacher_sample_store(
     if os.path.lexists(destination):
         if stat.S_ISLNK(os.lstat(destination).st_mode):
             raise ValueError("teacher sample store must not be a symlink")
-        return _load_teacher_sample_store(destination, identity)
+        store = _load_teacher_sample_store(destination, identity)
+        owner_path, stage = _teacher_staging_paths(destination)
+        if os.path.lexists(owner_path):
+            _remove_owned_teacher_staging(
+                owner_path, stage, destination, identity, stage_may_be_missing=True,
+            )
+        elif os.path.lexists(stage):
+            raise ValueError("unowned teacher sample staging directory must not be removed")
+        return store
     _ensure_safe_directory(destination.parent)
-    stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent))
+    owner_path, stage = _teacher_staging_paths(destination)
+    if os.path.lexists(owner_path):
+        owner = _load_teacher_owner(owner_path, destination, identity)
+        completed_count = int(owner["completed_count"])
+        chunks = list(owner["chunks"])
+        if os.path.lexists(stage):
+            _require_safe_directory(stage)
+        elif completed_count == 0:
+            os.mkdir(stage)
+        else:
+            raise ValueError("owned teacher sample staging directory is missing")
+    else:
+        if os.path.lexists(stage):
+            raise ValueError("unowned teacher sample staging directory must not be removed")
+        _write_teacher_owner(owner_path, destination, identity, completed_count=0)
+        os.mkdir(stage)
+        completed_count = 0
+        chunks = []
     try:
         sample_path = stage / "samples.npy"
-        output = np.lib.format.open_memmap(
-            sample_path, mode="w+", dtype=np.float32, shape=tuple(identity["shape"]),
+        output = _open_partial_teacher_samples(
+            stage, identity, completed_count=completed_count, chunks=chunks,
         )
         with torch.no_grad():
-            for start in range(0, len(dataset), chunk_size):
+            for start in range(completed_count, len(dataset), chunk_size):
                 stop = min(start + chunk_size, len(dataset))
                 output[start:stop] = _sample_ensemble(
                     models, dataset.inputs[start:stop], samples_per_state=samples_per_state,
                     seed=seed + start,
                 ).numpy()
+                output.flush()
+                with sample_path.open("rb") as handle:
+                    os.fsync(handle.fileno())
+                chunks.append({
+                    "start": start,
+                    "stop": stop,
+                    "sha256": sha256(np.asarray(output[start:stop]).tobytes(order="C")).hexdigest(),
+                })
+                _write_teacher_owner(
+                    owner_path, destination, identity, completed_count=stop, chunks=chunks,
+                )
         output.flush()
         del output
         with sample_path.open("rb") as handle:
@@ -569,10 +705,16 @@ def _prepare_teacher_sample_store(
         body = {**identity, "samples_sha256": sha256_file(sample_path)}
         manifest = {**body, "manifest_sha256": sha256(_canonical_json(body)).hexdigest()}
         _atomic_bytes(stage / "manifest.json", _canonical_json(manifest))
+        _load_teacher_sample_store(stage, identity)
         os.replace(stage, destination)
-        return _load_teacher_sample_store(destination, identity)
-    except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
+        store = _load_teacher_sample_store(destination, identity)
+        _remove_owned_teacher_staging(
+            owner_path, stage, destination, identity, stage_may_be_missing=True,
+        )
+        return store
+    except Exception:
+        if not os.path.lexists(destination):
+            _remove_owned_teacher_staging(owner_path, stage, destination, identity)
         raise
 
 
@@ -690,6 +832,7 @@ def _distillation_identity(
         "batch_size": batch_size,
         "learning_rate": learning_rate,
         "hidden": list(hidden),
+        "optimizer": adamw_contract(learning_rate),
         "distillation_loss": DISTILLATION_CONFIG,
         "software": {
             "torch_version": str(torch.__version__),
@@ -779,7 +922,9 @@ class _StudentResumeWorkspace:
         if sha256_file(checkpoint) != record["sha256"]:
             raise ValueError("student resume checkpoint SHA mismatch")
 
-    def load(self, *, hidden: tuple[int, ...]) -> dict[str, object] | None:
+    def load(self, *, hidden: tuple[int, ...], steps_per_epoch: int) -> dict[str, object] | None:
+        if type(steps_per_epoch) is not int or steps_per_epoch <= 0:
+            raise ValueError("student resume steps per epoch are invalid")
         if self.document["completed_epochs"] == 0:
             return None
         checkpoint = self.path / self.document["checkpoint"]["path"]
@@ -802,6 +947,13 @@ class _StudentResumeWorkspace:
             or not _finite_state(state)
         ):
             raise ValueError("student resume checkpoint state is invalid")
+        model = FingertipMixtureNet(hidden=hidden)
+        validate_model_state(model, state["model_state"], label="student resume checkpoint")
+        validate_adamw_state(
+            model, state["optimizer_state"], contract=self.identity.get("optimizer"),
+            expected_step=int(state["epoch"]) * steps_per_epoch,
+            label="student resume checkpoint",
+        )
         return state
 
     def commit_epoch(self, state: dict[str, object]) -> None:
@@ -849,8 +1001,18 @@ def _train_student(
 ) -> FingertipMixtureNet:
     _set_seed(seed, device)
     model = FingertipMixtureNet(hidden=hidden).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    state = workspace.load(hidden=hidden)
+    optimizer_contract = adamw_contract(learning_rate)
+    if workspace.identity.get("optimizer") != optimizer_contract:
+        raise ValueError("student workspace AdamW identity does not match requested optimizer")
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=optimizer_contract["learning_rate"],
+        betas=tuple(optimizer_contract["betas"]), eps=optimizer_contract["eps"],
+        weight_decay=optimizer_contract["weight_decay"], amsgrad=optimizer_contract["amsgrad"],
+        maximize=optimizer_contract["maximize"], foreach=optimizer_contract["foreach"],
+        capturable=optimizer_contract["capturable"], differentiable=optimizer_contract["differentiable"],
+        fused=optimizer_contract["fused"],
+    )
+    state = workspace.load(hidden=hidden, steps_per_epoch=math.ceil(len(train) / batch_size))
     start_epoch = 0
     if state is not None:
         model.load_state_dict(state["model_state"], strict=True)
@@ -911,7 +1073,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.epochs <= 0 or args.batch_size <= 0 or args.learning_rate <= 0.0 or args.samples_per_state <= 0:
+    if (
+        args.epochs <= 0 or args.batch_size <= 0 or args.samples_per_state <= 0
+        or not math.isfinite(args.learning_rate) or args.learning_rate <= 0.0
+    ):
         raise ValueError("distillation values are invalid")
     if args.synthetic_smoke and (args.dataset_manifest or args.ensemble_dir):
         raise ValueError("synthetic smoke cannot consume caller-provided inputs")
@@ -942,7 +1107,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         test, test_doc = _load_group_split(manifest_path, "test")
         if train_doc["aggregate_sha256"] != document["aggregate_sha256"] or test_doc["aggregate_sha256"] != document["aggregate_sha256"]:
             raise ValueError("dataset aggregate changed during verified loading")
-        ensemble = _load_ensemble(ensemble_dir, expected_dataset_sha=document["aggregate_sha256"], allow_synthetic=bool(args.synthetic_smoke))
+        nonproduction_synthetic = bool(
+            args.synthetic_smoke
+            or document.get("verified_inputs", {}).get("nonproduction_synthetic") is True
+        )
+        ensemble = _load_ensemble(
+            ensemble_dir, expected_dataset_sha=document["aggregate_sha256"],
+            allow_synthetic=bool(args.synthetic_smoke),
+            nonproduction_synthetic=nonproduction_synthetic,
+        )
         identity = _distillation_identity(
             aggregate_sha=document["aggregate_sha256"], ensemble_sha=ensemble.manifest_sha256,
             hidden=hidden, epochs=args.epochs, batch_size=args.batch_size,
@@ -1026,7 +1199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             teacher_seed=ensemble.teacher_seed, distillation_seed=args.seed, code_commit=_git_commit(), weight_sha256="0" * 64,
             hidden=hidden, input_field_order=MODEL_INPUT_FIELD_ORDER, output_axis_order=MIXTURE_OUTPUT_AXIS_ORDER,
         )
-        provenance = {"nonproduction_synthetic": bool(args.synthetic_smoke), "dataset_aggregate_sha256": document["aggregate_sha256"], "teacher_ensemble_manifest_sha256": ensemble.manifest_sha256}
+        provenance = {"nonproduction_synthetic": nonproduction_synthetic, "dataset_aggregate_sha256": document["aggregate_sha256"], "teacher_ensemble_manifest_sha256": ensemble.manifest_sha256}
         first = stage / "student"
         pinned = save_student_artifact(
             first, model=cpu_model, metadata=metadata, metrics=metrics, latency=latency,

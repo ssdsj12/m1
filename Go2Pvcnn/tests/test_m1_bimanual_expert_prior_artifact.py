@@ -249,6 +249,33 @@ def test_artifact_identity_excludes_the_machine_dependent_approval_result(tmp_pa
     assert json.loads((tmp_path / "unqualified" / "latency.json").read_text())["production_approved"] is False
 
 
+@pytest.mark.parametrize("synthetic,claimed", [(False, False), (True, True)])
+def test_artifact_save_rejects_untrusted_incoherent_approval_before_publication(
+    tmp_path: Path, synthetic: bool, claimed: bool,
+):
+    metrics = {
+        "student_nll": 1.0, "teacher_nll": 1.0, "nll_delta_per_dim": 0.0,
+        "first_step_velocity_rmse": 0.8, "first_step_zero_rmse": 1.0,
+        "first_step_improvement": 0.2, "endpoint_rmse": 0.8,
+        "teacher_endpoint_rmse": 0.8, "endpoint_zero_rmse": 1.0,
+        "endpoint_improvement": 0.2, "production_approved": claimed,
+        "deterministic_repeat_verified": True,
+    }
+    root = tmp_path / "artifact"
+    with pytest.raises(ValueError, match="approval"):
+        save_student_artifact(
+            root, model=FingertipMixtureNet(hidden=(16, 16)), metadata=_metadata(),
+            metrics=metrics,
+            latency={"warmups": 100, "measurements": 1000, "p99_ms": 1.0},
+            provenance={
+                "nonproduction_synthetic": synthetic,
+                "dataset_aggregate_sha256": "a" * 64,
+                "teacher_ensemble_manifest_sha256": "b" * 64,
+            },
+        )
+    assert not root.exists()
+
+
 def test_artifact_loader_rejects_a_symlink_root(tmp_path: Path):
     root = _write(tmp_path / "artifact")
     linked = tmp_path / "linked-artifact"

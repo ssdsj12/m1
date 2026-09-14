@@ -15,6 +15,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts
     MixtureDistribution,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.model import FingertipMixtureNet
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior import ensemble_artifact
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "m1_dual_panda_o6_distill_fingertip_prior.py"
@@ -37,6 +38,22 @@ def _eval_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _synthetic_ensemble_fixture(tmp_path: Path):
+    module = _module()
+    _, ensemble = module._synthetic_ensemble(tmp_path / "fixture", epochs=1)
+    return module, ensemble
+
+
+def _rewrite_ensemble_manifest(module, ensemble: Path, mutate) -> None:
+    path = ensemble / "ensemble_manifest.json"
+    document = json.loads(path.read_text())
+    mutate(document)
+    body = dict(document)
+    body.pop("ensemble_manifest_sha256", None)
+    document["ensemble_manifest_sha256"] = module._ensemble_manifest_sha256(body)
+    path.write_bytes(module._canonical_json(document))
 
 
 def _teacher() -> MixtureDistribution:
@@ -90,6 +107,82 @@ def test_ensemble_teacher_aggregation_keeps_each_member_four_component_contract(
     assert log_prob.shape == (2,)
     assert samples.shape == (2, 3, 20, 5, 3)
     assert torch.isfinite(log_prob).all() and torch.isfinite(samples).all()
+
+
+def test_ensemble_loader_rejects_coordinated_duplicate_member_seeds(tmp_path: Path):
+    module, ensemble = _synthetic_ensemble_fixture(tmp_path)
+    manifest = json.loads((ensemble / "ensemble_manifest.json").read_text())
+    dataset_sha = manifest["dataset_aggregate_sha256"]
+    _rewrite_ensemble_manifest(
+        module, ensemble,
+        lambda document: document.update({"member_seeds": [1701, 1701]}),
+    )
+
+    with pytest.raises(ValueError, match="roster|seed"):
+        module._load_ensemble(ensemble, expected_dataset_sha=dataset_sha, allow_synthetic=True)
+
+
+def test_ensemble_loader_rejects_coordinated_wrong_training_identity(tmp_path: Path):
+    module, ensemble = _synthetic_ensemble_fixture(tmp_path)
+    manifest = json.loads((ensemble / "ensemble_manifest.json").read_text())
+    dataset_sha = manifest["dataset_aggregate_sha256"]
+
+    def mutate(document):
+        document["training_identity"]["dataset_aggregate_sha256"] = "c" * 64
+        document["training_identity_sha256"] = module.sha256(
+            module._canonical_json(document["training_identity"])
+        ).hexdigest()
+
+    _rewrite_ensemble_manifest(module, ensemble, mutate)
+    with pytest.raises(ValueError, match="training identity|dataset"):
+        module._load_ensemble(ensemble, expected_dataset_sha=dataset_sha, allow_synthetic=True)
+
+
+def test_ensemble_loader_rejects_coordinated_arbitrary_metrics_and_deployable_flag(tmp_path: Path):
+    module, ensemble = _synthetic_ensemble_fixture(tmp_path)
+    manifest = json.loads((ensemble / "ensemble_manifest.json").read_text())
+    dataset_sha = manifest["dataset_aggregate_sha256"]
+
+    def mutate(document):
+        document["metrics"]["first_step_improvement"] = 0.99
+        document["production_deployable"] = True
+
+    _rewrite_ensemble_manifest(module, ensemble, mutate)
+    with pytest.raises(ValueError, match="metrics|deployable"):
+        module._load_ensemble(ensemble, expected_dataset_sha=dataset_sha, allow_synthetic=True)
+
+
+def test_shared_ensemble_gate_never_deploys_a_nonproduction_dataset():
+    metrics = {
+        "test_nll": 1.0,
+        "first_step_velocity_rmse": 0.8,
+        "first_step_zero_rmse": 1.0,
+        "first_step_improvement": 0.2,
+        "endpoint_rmse": 0.8,
+        "endpoint_zero_rmse": 1.0,
+        "endpoint_improvement": 0.2,
+        "interval_80_coverage": 0.8,
+    }
+
+    _, deployable = ensemble_artifact._validate_metrics(
+        metrics, synthetic=False, nonproduction_synthetic=True,
+    )
+
+    assert deployable is False
+
+
+def test_ensemble_loader_rejects_symlinked_checkpoint_directory(tmp_path: Path):
+    module, ensemble = _synthetic_ensemble_fixture(tmp_path)
+    manifest = json.loads((ensemble / "ensemble_manifest.json").read_text())
+    external = tmp_path / "external-checkpoints"
+    (ensemble / "checkpoints").rename(external)
+    (ensemble / "checkpoints").symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        module._load_ensemble(
+            ensemble, expected_dataset_sha=manifest["dataset_aggregate_sha256"],
+            allow_synthetic=True,
+        )
 
 
 class _FixedMixture(nn.Module):
@@ -193,6 +286,139 @@ def test_teacher_sample_store_failure_never_publishes_or_pollutes(tmp_path: Path
     assert calls == 1
     assert not (tmp_path / "samples").exists()
     assert not list(tmp_path.glob(".samples.stage-*"))
+
+
+def test_teacher_sample_store_recovers_fixed_identity_owned_sigkill_staging(
+    tmp_path: Path, monkeypatch,
+):
+    module = _module()
+    dataset = module.GroupShardDataset(
+        torch.zeros(5, 42), torch.zeros(5, 20, 5, 3), tuple(f"g{i}" for i in range(5))
+    )
+    members = (FingertipMixtureNet(hidden=(8,)),)
+    original = module._sample_ensemble
+    calls = 0
+
+    def interrupted(models, inputs, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise KeyboardInterrupt("simulated SIGKILL boundary")
+        return original(models, inputs, **kwargs)
+
+    monkeypatch.setattr(module, "_sample_ensemble", interrupted)
+    destination = tmp_path / "samples"
+    with pytest.raises(KeyboardInterrupt, match="SIGKILL"):
+        module._prepare_teacher_sample_store(
+            destination, members, dataset, samples_per_state=2, seed=42,
+            dataset_sha256="a" * 64, ensemble_sha256="b" * 64, chunk_size=2,
+        )
+    owner = tmp_path / ".samples.owner-v1.json"
+    stage = tmp_path / ".samples.stage-v1"
+    assert owner.is_file() and not owner.is_symlink()
+    assert stage.is_dir() and not stage.is_symlink()
+    assert not destination.exists()
+    assert set(tmp_path.glob(".samples.stage-*")) == {stage}
+
+    resumed_calls = 0
+    def resumed(models, inputs, **kwargs):
+        nonlocal resumed_calls
+        resumed_calls += 1
+        return original(models, inputs, **kwargs)
+    monkeypatch.setattr(module, "_sample_ensemble", resumed)
+    recovered = module._prepare_teacher_sample_store(
+        destination, members, dataset, samples_per_state=2, seed=42,
+        dataset_sha256="a" * 64, ensemble_sha256="b" * 64, chunk_size=2,
+    )
+    clean = module._prepare_teacher_sample_store(
+        tmp_path / "clean", members, dataset, samples_per_state=2, seed=42,
+        dataset_sha256="a" * 64, ensemble_sha256="b" * 64, chunk_size=2,
+    )
+    assert resumed_calls == 5  # two remaining recovered chunks plus three clean chunks
+    assert recovered.manifest["samples_sha256"] == clean.manifest["samples_sha256"]
+    assert not owner.exists() and not stage.exists()
+
+
+def test_teacher_sample_store_never_deletes_mismatched_or_symlink_staging(tmp_path: Path):
+    module = _module()
+    dataset = module.GroupShardDataset(
+        torch.zeros(2, 42), torch.zeros(2, 20, 5, 3), ("g0", "g1")
+    )
+    destination = tmp_path / "samples"
+    identity = module._teacher_store_identity(
+        sample_count=2, samples_per_state=2, seed=42,
+        dataset_sha256="a" * 64, ensemble_sha256="b" * 64, chunk_size=128,
+    )
+    wrong_identity = {**identity, "seed": 43}
+    owner, stage = module._teacher_staging_paths(destination)
+    stage.mkdir()
+    marker = stage / "must-survive"
+    marker.write_text("owned by someone else")
+    owner.write_bytes(module._canonical_json(
+        module._teacher_owner_document(destination, wrong_identity, completed_count=0)
+    ))
+    with pytest.raises(ValueError, match="identity"):
+        module._prepare_teacher_sample_store(
+            destination, (_FixedMixture([0.0] * 4, [0.0] * 4),), dataset,
+            samples_per_state=2, seed=42, dataset_sha256="a" * 64,
+            ensemble_sha256="b" * 64,
+        )
+    assert marker.read_text() == "owned by someone else"
+    assert owner.exists()
+
+    owner.unlink()
+    marker.unlink()
+    stage.rmdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_marker = outside / "must-survive"
+    outside_marker.write_text("not staging")
+    owner.write_bytes(module._canonical_json(
+        module._teacher_owner_document(destination, identity, completed_count=0)
+    ))
+    stage.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        module._prepare_teacher_sample_store(
+            destination, (_FixedMixture([0.0] * 4, [0.0] * 4),), dataset,
+            samples_per_state=2, seed=42, dataset_sha256="a" * 64,
+            ensemble_sha256="b" * 64,
+        )
+    assert outside_marker.read_text() == "not staging"
+    assert owner.exists() and stage.is_symlink()
+
+
+def test_teacher_sample_store_rejects_forged_completed_progress_without_chunk_hashes(
+    tmp_path: Path, monkeypatch,
+):
+    module = _module()
+    dataset = module.GroupShardDataset(
+        torch.zeros(5, 42), torch.zeros(5, 20, 5, 3), tuple(f"g{i}" for i in range(5))
+    )
+    destination = tmp_path / "samples"
+    identity = module._teacher_store_identity(
+        sample_count=5, samples_per_state=2, seed=42,
+        dataset_sha256="a" * 64, ensemble_sha256="b" * 64, chunk_size=2,
+    )
+    owner, stage = module._teacher_staging_paths(destination)
+    stage.mkdir()
+    np.lib.format.open_memmap(
+        stage / "samples.npy", mode="w+", dtype=np.float32, shape=tuple(identity["shape"]),
+    ).flush()
+    owner.write_bytes(module._canonical_json(
+        module._teacher_owner_document(destination, identity, completed_count=5)
+    ))
+    monkeypatch.setattr(
+        module, "_sample_ensemble",
+        lambda *args, **kwargs: pytest.fail("forged progress skipped teacher sampling"),
+    )
+
+    with pytest.raises(ValueError, match="chunk|progress"):
+        module._prepare_teacher_sample_store(
+            destination, (FingertipMixtureNet(hidden=(8,)),), dataset,
+            samples_per_state=2, seed=42, dataset_sha256="a" * 64,
+            ensemble_sha256="b" * 64, chunk_size=2,
+        )
+    assert not destination.exists()
 
 
 def test_teacher_sample_store_rejects_symlink_and_coordinated_nonfinite_tampering(tmp_path: Path):
@@ -465,7 +691,66 @@ def test_student_resume_rejects_coordinated_legacy_progress_and_checkpoint_field
     progress_file.write_bytes(module._canonical_json(progress))
     workspace = module._StudentResumeWorkspace(progress_path, identity)
     with pytest.raises(ValueError, match="state"):
-        workspace.load(hidden=(8,))
+        workspace.load(hidden=(8,), steps_per_epoch=1)
+
+
+@pytest.mark.parametrize("corruption", [
+    "model_shape", "model_dtype", "optimizer_lr", "optimizer_moment_shape",
+    "optimizer_missing_flag", "optimizer_param_ids", "optimizer_step",
+])
+def test_student_resume_rejects_coordinated_model_and_adamw_semantic_corruption(
+    tmp_path: Path, corruption: str,
+):
+    module = _module()
+    dataset = module.GroupShardDataset(
+        torch.zeros(3, 42), torch.zeros(3, 20, 5, 3), ("g0", "g1", "g2")
+    )
+    store = module._prepare_teacher_sample_store(
+        tmp_path / "teacher", (FingertipMixtureNet(hidden=(8,)),), dataset,
+        samples_per_state=2, seed=42, dataset_sha256="a" * 64,
+        ensemble_sha256="b" * 64,
+    )
+    identity = module._distillation_identity(
+        aggregate_sha="a" * 64, ensemble_sha="b" * 64, hidden=(8,), epochs=1,
+        batch_size=3, learning_rate=1e-3, samples_per_state=2, seed=42,
+        device=torch.device("cpu"), synthetic_smoke=False,
+    )
+    root = tmp_path / ".student.resume-v1"
+    workspace = module._StudentResumeWorkspace(root, identity)
+    module._train_student(
+        dataset, store, hidden=(8,), epochs=1, batch_size=3, learning_rate=1e-3,
+        seed=42, device=torch.device("cpu"), workspace=workspace,
+    )
+    progress_path = root / "progress.json"
+    progress = json.loads(progress_path.read_text())
+    checkpoint_path = root / progress["checkpoint"]["path"]
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    model_key = next(iter(checkpoint["model_state"]))
+    parameter_id = checkpoint["optimizer_state"]["param_groups"][0]["params"][0]
+    if corruption == "model_shape":
+        checkpoint["model_state"][model_key] = checkpoint["model_state"][model_key].reshape(-1)
+    elif corruption == "model_dtype":
+        checkpoint["model_state"][model_key] = checkpoint["model_state"][model_key].double()
+    elif corruption == "optimizer_lr":
+        checkpoint["optimizer_state"]["param_groups"][0]["lr"] = 0.5
+    elif corruption == "optimizer_moment_shape":
+        checkpoint["optimizer_state"]["state"][parameter_id]["exp_avg"] = torch.zeros(1)
+    elif corruption == "optimizer_missing_flag":
+        checkpoint["optimizer_state"]["param_groups"][0].pop("decoupled_weight_decay")
+    elif corruption == "optimizer_step":
+        checkpoint["optimizer_state"]["state"][parameter_id]["step"] = torch.tensor(999.0)
+    else:
+        checkpoint["optimizer_state"]["param_groups"][0]["params"][0] = 999
+    torch.save(checkpoint, checkpoint_path)
+    progress["checkpoint"]["sha256"] = module.sha256_file(checkpoint_path)
+    body = dict(progress)
+    body.pop("progress_sha256")
+    progress["progress_sha256"] = module.sha256(module._canonical_json(body)).hexdigest()
+    progress_path.write_bytes(module._canonical_json(progress))
+
+    workspace = module._StudentResumeWorkspace(root, identity)
+    with pytest.raises(ValueError, match="model|optimizer|AdamW|state"):
+        workspace.load(hidden=(8,), steps_per_epoch=1)
 
 
 def test_distillation_module_does_not_import_the_expert_cli_as_a_library():
@@ -514,6 +799,27 @@ def test_distillation_cuda_preflight_rejects_before_creating_output(tmp_path: Pa
     assert "CUBLAS_WORKSPACE_CONFIG" in completed.stderr
     assert not output.exists()
     assert not output.with_name(f".{output.name}.resume-v1").exists()
+
+
+@pytest.mark.parametrize("learning_rate", ["nan", "inf", "-inf"])
+def test_distillation_rejects_nonfinite_learning_rate_before_any_state(
+    tmp_path: Path, monkeypatch, learning_rate: str,
+):
+    module = _module()
+    output = tmp_path / "student"
+    monkeypatch.setattr(
+        module, "_synthetic_ensemble",
+        lambda *args, **kwargs: pytest.fail("nonfinite learning rate reached data preparation"),
+    )
+
+    with pytest.raises(ValueError, match="distillation values"):
+        module.main([
+            "--synthetic-smoke", "--output-dir", str(output),
+            f"--learning-rate={learning_rate}",
+        ])
+    assert not output.exists()
+    assert not output.with_name(f".{output.name}.resume-v1").exists()
+    assert not list(tmp_path.glob(".student.distill-*"))
 
 
 def test_real_gate_failure_returns_nonzero_without_final_artifact_and_hashes_diagnostic(

@@ -53,6 +53,29 @@ def test_formal_task11_command_pins_gpu0_cublas_device_and_batch_size():
     assert expected in source
 
 
+def test_production_member_roster_rejects_before_dataset_or_output_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    module = _trainer_module()
+    output = tmp_path / "wrong-production-roster"
+    monkeypatch.setattr(
+        module,
+        "_resolve_manifest",
+        lambda *_args, **_kwargs: pytest.fail("wrong roster reached dataset loading"),
+    )
+
+    with pytest.raises(ValueError, match="production member.*42.*46|roster"):
+        module.main([
+            "--dataset-manifest", "unused.json",
+            "--output-dir", str(output),
+            "--member-seeds", "1,2,3,4,5",
+        ])
+
+    assert not output.exists()
+    assert not module._resume_workspace_path(output).exists()
+    assert not list(tmp_path.glob(".wrong-production-roster.train-*"))
+
+
 def test_cuda_determinism_preflight_sets_supported_default(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
 

@@ -520,9 +520,16 @@ def load_student_artifact(root: Path) -> LoadedStudent:
 
 Train the compact student on real labels plus fixed Monte-Carlo teacher samples. Each ensemble member is
 normalized before applying its exact `1/M` member weight. Atomically materialize SHA-pinned teacher samples
-as a deterministic disk memmap and read only batch-sized records during training. The student has an
+as a deterministic disk memmap and read only batch-sized records during training. A fixed identity-owned
+staging directory records atomically SHA-bound chunk progress, resumes after process death, and is deleted
+only after exact owner/path validation with symlinks rejected. The student has an
 output-specific `.resume-v1` workspace with epoch-boundary model/optimizer checkpoints and a strict identity
 covering data, ensemble, sampling, hyperparameters, source semantics, software, device, and CUBLAS settings.
+Before loading state, resume requires exact model keys/shapes/dtypes/finite values and the complete pinned
+AdamW parameter roster, IDs, moments, dtypes, finite values, and parameter-group options. The expert producer
+and distillation consumer share one verifier for exact ensemble schema/self-hash, the ordered unique
+`42,43,44,45,46` production roster, checkpoint paths/SHAs, coordinated training identity, finite internally
+consistent metrics, and a freshly derived teacher gate; self-declared deployability is never trusted.
 Gate export on `student_nll - teacher_nll <=0.05 nat/dim`, endpoint RMSE increase `<=5%`, both zero-baseline
 improvements `>=10%`, deterministic repeated weights/metrics/identity, and CPU p99 `<2 ms` over 1000 measured
 runs after 100 warm-ups. Keep measured latency and the derived `production_approved` bit in a separately
@@ -815,6 +822,8 @@ CUBLAS workspace configuration, or synthetic/production mismatch is rejected. Co
 written before resume-workspace format v1 may be imported only when every member already equals the
 requested final epoch; they are validated and migrated, never continued with unverifiable optimizer semantics.
 The resume workspace is removed only after the final `expert/` directory is atomically published.
+The final ensemble is passed through the same strict verifier used by distillation before publication; metrics
+and the `production_deployable` flag are recomputed against the frozen gates rather than trusted as claims.
 
 - [ ] **Step 4: Distill the student twice**
 
@@ -833,7 +842,9 @@ metadata or latency files: each measured latency remains exact and is instead va
 `qualification_sha256`. Expected: weights, metric JSON, and deterministic identities match; student NLL increase
 is `<=0.05 nat/dim`, endpoint RMSE increase `<=5%`, zero-baseline improvements remain `>=10%`, and each CPU
 p99 is `<2 ms`. Rerunning either exact command resumes only its own `.student_a.resume-v1` or
-`.student_b.resume-v1`; any identity mismatch is rejected. A real gate failure exits nonzero, retains only a
+`.student_b.resume-v1`; any identity, model-state, or exact AdamW-state mismatch is rejected before state load.
+Teacher sample generation resumes its fixed identity-owned memmap from the last SHA-bound chunk without
+accumulating random staging directories. A real gate failure exits nonzero, retains only a
 SHA-pinned `nondeployable.json` diagnostic in that resume workspace, and does not create the requested final
 artifact directory.
 
