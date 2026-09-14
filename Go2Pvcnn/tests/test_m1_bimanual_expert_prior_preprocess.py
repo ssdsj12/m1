@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 from pathlib import Path
-import time
+from threading import Event
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior import (
+    preprocess as preprocess_module,
+)
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts import (
     PRIOR_HORIZON,
     PriorPhase,
@@ -299,65 +304,64 @@ def _assert_random_state_equal(actual, expected):
     assert actual[2:] == expected[2:]
 
 
-def test_surface_distance_is_independent_of_caller_numpy_rng_and_restores_it(monkeypatch):
+def test_surface_distance_never_accesses_numpy_global_rng(monkeypatch):
     fingertips, state, mesh = _stationary_surface_query_fixture()
 
-    def rng_consuming_signed_distance(_mesh, points):
-        return np.full(len(points), np.random.random(), dtype=np.float64)
+    def forbidden_global_rng(*_args, **_kwargs):
+        raise AssertionError("surface distance must not access NumPy's global RNG")
 
-    monkeypatch.setattr("trimesh.proximity.signed_distance", rng_consuming_signed_distance)
-    results = []
-    for seed in (7, 918273):
-        np.random.seed(seed)
-        before = np.random.get_state()
-        results.append(object_relative_surface_kinematics(fingertips, state, state, mesh)[0])
-        _assert_random_state_equal(np.random.get_state(), before)
+    for name in ("get_state", "set_state", "seed", "random"):
+        monkeypatch.setattr(np.random, name, forbidden_global_rng)
 
-    np.testing.assert_array_equal(results[0], results[1])
+    distance = object_relative_surface_kinematics(fingertips, state, state, mesh)[0]
+
+    assert np.isfinite(distance).all()
 
 
-def test_surface_distance_restores_caller_numpy_rng_after_query_failure(monkeypatch):
+def test_surface_distance_failure_does_not_access_numpy_global_rng(monkeypatch):
     fingertips, state, mesh = _stationary_surface_query_fixture()
 
-    def failing_signed_distance(_mesh, _points):
-        np.random.random(3)
-        raise RuntimeError("simulated trimesh failure after consuming global RNG")
+    def failing_closest_point(_mesh, _points):
+        raise RuntimeError("simulated deterministic trimesh failure")
 
-    monkeypatch.setattr("trimesh.proximity.signed_distance", failing_signed_distance)
-    np.random.seed(271828)
-    before = np.random.get_state()
+    def forbidden_global_rng(*_args, **_kwargs):
+        raise AssertionError("failure handling must not access NumPy's global RNG")
+
+    monkeypatch.setattr("trimesh.proximity.closest_point", failing_closest_point)
+    for name in ("get_state", "set_state", "seed", "random"):
+        monkeypatch.setattr(np.random, name, forbidden_global_rng)
 
     with pytest.raises(ValueError, match="object geometry distance query failed"):
         object_relative_surface_kinematics(fingertips, state, state, mesh)
 
-    _assert_random_state_equal(np.random.get_state(), before)
 
-
-def test_surface_distance_rng_domain_serializes_concurrent_queries(monkeypatch):
+def test_surface_distance_does_not_corrupt_concurrent_external_numpy_rng(monkeypatch):
     fingertips, state, mesh = _stationary_surface_query_fixture()
+    original_closest_point = preprocess_module.trimesh.proximity.closest_point
+    entered = Event()
+    release = Event()
 
-    def interleavable_signed_distance(_mesh, points):
-        first = np.random.random()
-        time.sleep(0.01)
-        second = np.random.random()
-        return np.full(len(points), first + second, dtype=np.float64)
+    def coordinated_closest_point(query_mesh, points):
+        entered.set()
+        assert release.wait(timeout=2.0)
+        return original_closest_point(query_mesh, points)
 
-    monkeypatch.setattr("trimesh.proximity.signed_distance", interleavable_signed_distance)
+    monkeypatch.setattr("trimesh.proximity.closest_point", coordinated_closest_point)
     np.random.seed(161803)
-    before = np.random.get_state()
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        results = list(
-            executor.map(
-                lambda _: object_relative_surface_kinematics(
-                    fingertips, state, state, mesh
-                )[0],
-                range(8),
-            )
+    expected = np.random.RandomState(161803).random_sample(8)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            object_relative_surface_kinematics, fingertips, state, state, mesh
         )
+        assert entered.wait(timeout=2.0)
+        external_during_query = np.random.random(4)
+        release.set()
+        assert np.isfinite(future.result()[0]).all()
+    external_after_query = np.random.random(4)
 
-    for result in results[1:]:
-        np.testing.assert_array_equal(result, results[0])
-    _assert_random_state_equal(np.random.get_state(), before)
+    np.testing.assert_array_equal(
+        np.concatenate((external_during_query, external_after_query)), expected
+    )
 
 
 def test_real_trimesh_surface_query_preserves_caller_numpy_rng():
@@ -373,6 +377,207 @@ def test_real_trimesh_surface_query_preserves_caller_numpy_rng():
 
     np.testing.assert_array_equal(second, first)
     _assert_random_state_equal(np.random.get_state(), second_before)
+
+
+def test_nonfallback_signed_distance_is_exactly_trimesh_compatible(monkeypatch):
+    import trimesh
+
+    mesh = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    points = np.array(
+        [[0.15, 0.01, 0.02], [-0.04, 0.03, 0.02], [0.02, -0.16, 0.01]],
+        dtype=np.float64,
+    )
+
+    expected = trimesh.proximity.signed_distance(mesh, points)
+
+    def empty_rays_only(_intersector, ray_points):
+        assert ray_points.shape == (0, 3)
+        return np.zeros(0, dtype=bool)
+
+    monkeypatch.setattr(
+        preprocess_module,
+        "_contains_points_with_fixed_fallback",
+        empty_rays_only,
+    )
+    actual = preprocess_module._deterministic_signed_distance(mesh, points)
+
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_signed_distance_mixed_surface_triangle_and_raycast_indices_match_trimesh(
+    monkeypatch,
+):
+    import trimesh
+
+    mesh = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    # Index zero has zero distance, indices 1, 2, 6, 7 project onto a closest
+    # triangle, and indices 3, 4, 5 require the raycast branch.  Keeping the
+    # zero-distance row first proves that normal indices stay in the original
+    # query domain rather than the compressed nonzero domain.
+    points = np.array(
+        [
+            [0.1, 0.0, 0.0],
+            [0.15, 0.01, 0.02],
+            [-0.04, 0.03, 0.02],
+            [0.2, 0.2, 0.2],
+            [0.2, 0.2, 0.0],
+            [0.2, 0.05, 0.2],
+            [0.0, 0.0, 0.0],
+            [0.02, -0.16, 0.01],
+        ],
+        dtype=np.float64,
+    )
+    expected = trimesh.proximity.signed_distance(mesh, points)
+    original_contains = preprocess_module._contains_points_with_fixed_fallback
+    raycast_queries = []
+
+    def recording_contains(intersector, query):
+        raycast_queries.append(np.asarray(query).copy())
+        return original_contains(intersector, query)
+
+    monkeypatch.setattr(
+        preprocess_module, "_contains_points_with_fixed_fallback", recording_contains
+    )
+    actual = preprocess_module._deterministic_signed_distance(mesh, points)
+
+    np.testing.assert_array_equal(actual, expected)
+    assert len(raycast_queries) == 1
+    np.testing.assert_array_equal(raycast_queries[0], points[[3, 4, 5]])
+    np.testing.assert_array_equal(points[0], [0.1, 0.0, 0.0])
+
+
+def test_fixed_fallback_direction_exactly_matches_legacy_random_state_zero():
+    import trimesh
+
+    expected = trimesh.util.unitize(
+        np.random.RandomState(0).random_sample(3) - 0.5
+    )
+
+    np.testing.assert_array_equal(
+        preprocess_module._CONTAINS_FALLBACK_DIRECTION, expected
+    )
+
+
+def test_broken_ray_fallback_result_matches_legacy_seed_zero():
+    class DirectionSensitiveIntersector:
+        mesh = SimpleNamespace(
+            bounds=np.array([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]], dtype=np.float64)
+        )
+
+        def __init__(self):
+            self.fallback_directions = []
+
+        def intersects_location(self, ray_origins, ray_directions):
+            ray_count = len(ray_origins) // 2
+            if ray_count == 2:
+                np.testing.assert_array_equal(
+                    ray_directions[:2],
+                    np.tile(preprocess_module._CONTAINS_DEFAULT_DIRECTION, (2, 1)),
+                )
+                # Point zero is broken (one forward, two backward hits), while
+                # point one agrees as inside (one hit in each direction).
+                ray_index = np.array([0, 2, 2, 1, 3], dtype=np.int64)
+            else:
+                assert ray_count == 1
+                self.fallback_directions.append(ray_directions[0].copy())
+                ray_index = np.array([0, 1], dtype=np.int64)
+            return (
+                np.zeros((len(ray_index), 3), dtype=np.float64),
+                ray_index,
+                np.zeros(len(ray_index), dtype=np.int64),
+            )
+
+    points = np.array(
+        [[0.0, 0.0, 0.0], [0.25, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        dtype=np.float64,
+    )
+    legacy = DirectionSensitiveIntersector()
+    caller_state = np.random.get_state()
+    try:
+        np.random.seed(0)
+        expected = preprocess_module.trimesh.ray.ray_util.contains_points(
+            legacy, points
+        )
+    finally:
+        np.random.set_state(caller_state)
+    deterministic = DirectionSensitiveIntersector()
+
+    actual = preprocess_module._contains_points_with_fixed_fallback(
+        deterministic, points
+    )
+
+    np.testing.assert_array_equal(actual, expected)
+    np.testing.assert_array_equal(actual, [True, True, False])
+    assert len(legacy.fallback_directions) == 1
+    assert len(deterministic.fallback_directions) == 1
+    np.testing.assert_array_equal(
+        deterministic.fallback_directions[0], legacy.fallback_directions[0]
+    )
+
+
+def test_broken_ray_fallback_uses_an_explicit_fixed_non_degenerate_direction(monkeypatch):
+    class BrokenRayIntersector:
+        mesh = SimpleNamespace(
+            bounds=np.array([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]], dtype=np.float64)
+        )
+
+        def intersects_location(self, ray_origins, ray_directions):
+            assert ray_origins.shape == (2, 3)
+            assert ray_directions.shape == (2, 3)
+            # One forward hit and two backward hits make the parity disagree,
+            # with neither direction classified as free space.
+            return np.zeros((3, 3)), np.array([0, 1, 1]), np.zeros(3, dtype=np.int64)
+
+    observed = []
+
+    def explicit_contains(_intersector, points, check_direction=None):
+        observed.append(np.asarray(check_direction, dtype=np.float64))
+        assert points.shape == (1, 3)
+        return np.ones(1, dtype=bool)
+
+    monkeypatch.setattr("trimesh.ray.ray_util.contains_points", explicit_contains)
+
+    inside = preprocess_module._contains_points_with_fixed_fallback(
+        BrokenRayIntersector(), np.zeros((1, 3), dtype=np.float64)
+    )
+
+    assert inside.tolist() == [True]
+    assert len(observed) == 1
+    assert observed[0].shape == (3,)
+    assert np.isfinite(observed[0]).all()
+    assert np.linalg.norm(observed[0]) == pytest.approx(1.0, abs=1e-15)
+
+
+def _forked_surface_distance(queue):
+    try:
+        import trimesh
+
+        mesh = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+        result = preprocess_module._deterministic_signed_distance(
+            mesh, np.array([[0.15, 0.01, 0.02]], dtype=np.float64)
+        )
+        queue.put(bool(np.isfinite(result).all()))
+    except BaseException as error:
+        queue.put(f"{type(error).__name__}: {error}")
+
+
+def test_surface_query_has_no_module_lock_and_forked_child_completes():
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("fork start method is unavailable")
+    assert not hasattr(preprocess_module, "_SIGNED_DISTANCE_RNG_LOCK")
+    context = multiprocessing.get_context("fork")
+    queue = context.Queue()
+    process = context.Process(target=_forked_surface_distance, args=(queue,))
+    try:
+        process.start()
+        process.join(timeout=2.0)
+    finally:
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=2.0)
+
+    assert process.exitcode == 0
+    assert queue.get(timeout=1.0) is True
 
 
 def _write_inspire_fixture(path: Path) -> Path:

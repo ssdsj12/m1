@@ -10,7 +10,6 @@ from hashlib import sha256
 import math
 from pathlib import Path, PurePosixPath
 import stat
-from threading import Lock
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree
 
@@ -28,8 +27,15 @@ if TYPE_CHECKING:
 
 
 _REFLECTION = np.asarray(LEFT_REFLECTION, dtype=np.float64)
-_SIGNED_DISTANCE_RNG_SEED = 0
-_SIGNED_DISTANCE_RNG_LOCK = Lock()
+_CONTAINS_DEFAULT_DIRECTION = np.array(
+    [0.4395064455, 0.617598629942, 0.652231566745], dtype=np.float64
+)
+# Exact normalized direction drawn by RandomState(0).random_sample(3) - 0.5.
+# Keeping the literal removes all dependency on NumPy's process-global RNG.
+_CONTAINS_FALLBACK_DIRECTION = np.array(
+    [0.20053838696390053, 0.8840530785980371, 0.4221782912174071],
+    dtype=np.float64,
+)
 
 
 def _finite_geometry(values: np.ndarray, *, name: str, trailing: tuple[int, ...]) -> np.ndarray:
@@ -442,22 +448,91 @@ def _object_relative_points(
     )
 
 
+def _contains_points_with_fixed_fallback(intersector: object, points: np.ndarray) -> np.ndarray:
+    """Match Trimesh's contains query with an explicit broken-ray fallback."""
+
+    query = np.asanyarray(points, dtype=np.float64)
+    if not trimesh.util.is_shape(query, (-1, 3)):
+        raise ValueError("points must be (n,3)")
+    contains = np.zeros(len(query), dtype=bool)
+    inside_aabb = trimesh.bounds.contains(intersector.mesh.bounds, query)
+    if not inside_aabb.any():
+        return contains
+
+    directions = np.tile(_CONTAINS_DEFAULT_DIRECTION, (inside_aabb.sum(), 1))
+    _, ray_index, _ = intersector.intersects_location(
+        np.vstack((query[inside_aabb], query[inside_aabb])),
+        np.vstack((directions, -directions)),
+    )
+    if len(ray_index) == 0:
+        return contains
+    bidirectional_hits = np.bincount(
+        ray_index, minlength=len(directions) * 2
+    ).reshape((2, -1))
+    bidirectional_contains = np.mod(bidirectional_hits, 2) == 1
+    agree = np.equal(*bidirectional_contains)
+    mask = inside_aabb.copy()
+    mask[mask] = agree
+    contains[mask] = bidirectional_contains[0][agree]
+
+    one_freespace = (bidirectional_hits == 0).any(axis=0)
+    broken = np.logical_and(np.logical_not(agree), np.logical_not(one_freespace))
+    if broken.any():
+        mask = inside_aabb.copy()
+        mask[mask] = broken
+        contains[mask] = trimesh.ray.ray_util.contains_points(
+            intersector,
+            query[inside_aabb][broken],
+            check_direction=_CONTAINS_FALLBACK_DIRECTION,
+        )
+    return contains
+
+
 def _deterministic_signed_distance(
     mesh: trimesh.Trimesh, points: np.ndarray
 ) -> np.ndarray:
-    """Isolate Trimesh's broken-ray fallback from NumPy's caller RNG state."""
+    """Match Trimesh signed distance without its process-global random fallback."""
 
-    # Trimesh 4.5.1 ray_util.contains_points uses np.random.random when its
-    # forward and backward rays disagree.  Serialize this legacy global RNG
-    # domain so every query gets one fixed fallback direction and callers see
-    # their exact incoming state even when the geometry query raises.
-    with _SIGNED_DISTANCE_RNG_LOCK:
-        caller_state = np.random.get_state()
-        try:
-            np.random.seed(_SIGNED_DISTANCE_RNG_SEED)
-            return np.asarray(trimesh.proximity.signed_distance(mesh, points))
-        finally:
-            np.random.set_state(caller_state)
+    query = np.asanyarray(points, dtype=np.float64)
+    closest, distance, triangle_id = trimesh.proximity.closest_point(mesh, query)
+    nonzero_mask = distance > trimesh.constants.tol.merge
+    if not nonzero_mask.any():
+        return distance
+
+    nonzero = np.where(nonzero_mask)[0]
+    normals = mesh.face_normals[triangle_id]
+    projection = (
+        query[nonzero]
+        - (
+            normals[nonzero].T
+            * np.einsum(
+                "ij,ij->i", query[nonzero] - closest[nonzero], normals[nonzero]
+            )
+        ).T
+    )
+    barycentric = trimesh.triangles.points_to_barycentric(
+        mesh.triangles[triangle_id[nonzero]], projection
+    )
+    on_triangle = ~(
+        (
+            (barycentric < -trimesh.constants.tol.merge)
+            | (barycentric > 1 + trimesh.constants.tol.merge)
+        ).any(axis=1)
+    )
+    on_triangle_nonzero = nonzero[on_triangle]
+    sign = np.sign(
+        np.einsum(
+            "ij,ij->i",
+            normals[on_triangle_nonzero],
+            query[on_triangle_nonzero] - projection[on_triangle],
+        )
+    )
+    distance[on_triangle_nonzero] *= -1.0 * sign
+
+    off_triangle_nonzero = nonzero[~on_triangle]
+    inside = _contains_points_with_fixed_fallback(mesh.ray, query[off_triangle_nonzero])
+    distance[off_triangle_nonzero] *= inside.astype(int) * 2 - 1.0
+    return distance
 
 
 def object_relative_surface_kinematics(
