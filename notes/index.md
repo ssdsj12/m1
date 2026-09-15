@@ -15,6 +15,8 @@
 
 ## Agent Memory Entry
 
+- [T500 OakInkV2 独立 geometry 接入](log/2026-09-15-t500-oakink-geometry-acquisition.md)：SHA resolver与审计/加载接线已审查通过，125 tests；mug两次生成及真实预处理链通过。主操作侧对象探针运行中，CLI/aggregate pin、批量生成与双来源新转换待完成。
+
 - [T500 run_e 身份通过、双来源训练资格拒绝](log/2026-09-15-t500-run-e-expert-artifact.md)：完整 241 shards / 984641 samples 已逐 SHA/NPZ 验证，但全为 FAVOR，OakInkV2 accepted=0；GPU RTI Task 1 BLOCKED，未训练。
 - [调查 dashboard](todo.md)
 - [T500 DexManipNet deterministic shard 转换验证](log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)

@@ -94,6 +94,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
+- T500.5 geometry acquisition：独立resolver `bcf43d8`、审计/加载接线 `a7346f2` 两项审查Approved，parent focused125 passed。两次mug字节一致且真实manifest/URDF/预处理链通过；mug7侧均为非主操作侧，启动eligible O02@0018@00001探针。仍需CLI/aggregate独立pin、批量生成、真实转换窗口和双来源新pin资格；run_e保持不变，无训练/生产prior。见 [获取证据](../log/2026-09-15-t500-oakink-geometry-acquisition.md)。
+
 - T500.5 / GPU RTI Task 1：run_e 身份闭合，但双来源资格拒绝；依赖 authoritative pinned OakInkV2 geometry 与新转换 pin，禁止 FAVOR-only 豁免后直接训练。
 
 - T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–10 已完成至 opt-in wrapper/Probe/Play artifact and diagnostics wiring。Task 11 已在真实 fixed archives 上被对象 geometry 缺失和 Inspire q/URDF mimic mapping 矛盾阻塞；等待 authoritative pinned geometry bundle 与 FK mapping，不能跳过 OakInkV2 或降级 safety/provenance gate。

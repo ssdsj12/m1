@@ -4,6 +4,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- T500 geometry 补齐：独立外部 SHA resolver `bcf43d8`、审计/加载共享接线 `a7346f2` 已通过独立审查，focused125 passed；两次mug生成字节一致并通过真实URDF/预处理链。mug均为非主操作侧，已启动主操作侧O02@0018@00001探针。仍需CLI triple/aggregate独立pin、批量生成、新目录转换和双来源新pin资格；不替换repair、不改run_e、不训练。见 [资产获取记录](log/2026-09-15-t500-oakink-geometry-acquisition.md)。
+
 - GPU RTI Task 1：当前 `run_e` 已是完整 241-shard 转换结果，固定 SHA 和实际 984641 NPZ 样本身份通过；但全为 FAVOR，OakInkV2 accepted=0，双来源生产资格 **BLOCKED**。fixture TDD `84 passed`，未启动训练、无生产 student。旧无-shards BLOCKED 日志仅为历史尝试；见 [当前资格拒绝证据](log/2026-09-15-t500-run-e-expert-artifact.md)。
 
 - T500 Probe baseline headless 静态检查已改为同 parser/namespace 的真实 AST 启动接线验证；见 [基线修复记录](log/2026-09-15-t500-probe-headless-baseline.md)。生产 CLI/控制合同不变。

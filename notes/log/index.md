@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-15：[T500 OakInkV2 geometry acquisition](2026-09-15-t500-oakink-geometry-acquisition.md)：独立resolver与审计/加载接线已审查通过，125 tests；两次mug生成SHA相同且真实预处理链通过。已启动主操作侧对象探针；CLI/aggregate pin、批量生成和双来源转换资格未完成，无训练/物理验收声明。
+
 - 2026-09-15：[T500 run_e expert artifact qualification](2026-09-15-t500-run-e-expert-artifact.md)：241 shards、固定 canonical SHA、984641 manifest/actual NPZ 样本身份通过；全为 FAVOR，OakInkV2 accepted=0，双来源生产资格拒绝且未训练。fixture RED `13 failed, 71 passed` → GREEN `84 passed`；旧无-shards BLOCKED 仅为历史。
 
 - 2026-09-15：[T500 Probe headless baseline test](2026-09-15-t500-probe-headless-baseline.md)：修正 AppLauncher-owned CLI 的源码字面误报，验证同 parser/namespace 的 AST 启动顺序与真实安装注册行为；不改生产 CLI/控制/metadata pin。
