@@ -209,8 +209,10 @@ def test_probe_selects_artifact_but_play_uses_only_canonical_environment_path():
 def test_play_and_probe_prior_are_opt_in_and_passed_to_wrapper():
     for source in (PLAY.read_text(encoding="utf-8"), PROBE.read_text(encoding="utf-8")):
         assert '"--fingertip-prior-artifact"' in source
+        assert '"--fingertip-prior-metadata-sha256"' in source
         assert "default=None" in source
         assert "fingertip_prior_artifact=args.fingertip_prior_artifact" in source
+        assert "fingertip_prior_metadata_sha256=args.fingertip_prior_metadata_sha256" in source
 
 
 def test_entrypoint_help_keeps_isaac_and_prior_loading_out_of_the_import_boundary():
@@ -231,17 +233,57 @@ print(json.dumps({{"isaac": any(name.startswith("isaaclab") for name in sys.modu
             [sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True
         )
         assert "--fingertip-prior-artifact" in result.stdout
+        assert "--fingertip-prior-metadata-sha256" in result.stdout
         assert json.loads(result.stdout.splitlines()[-1]) == {"isaac": False, "prior": False}
 
 
 def test_invalid_prior_artifact_is_rejected_before_isaac_launcher_or_gym(tmp_path):
     for path in (PLAY, PROBE):
         result = subprocess.run(
-            [sys.executable, str(path), "--fingertip-prior-artifact", str(tmp_path / "missing")],
+            [
+                sys.executable,
+                str(path),
+                "--fingertip-prior-artifact",
+                str(tmp_path / "missing"),
+                "--fingertip-prior-metadata-sha256",
+                "a" * 64,
+            ],
             capture_output=True,
             text=True,
             env={**os.environ, "PYTHONPATH": str(ROOT)},
         )
         assert result.returncode != 0
-        assert "student artifact root must be a regular directory" in result.stderr
+        assert "artifact directory is missing" in result.stderr
         assert "No module named 'isaaclab'" not in result.stderr
+
+
+def test_prior_artifact_and_external_metadata_pin_are_an_atomic_cli_pair(tmp_path):
+    for path in (PLAY, PROBE):
+        for arguments, expected in (
+            (
+                ["--fingertip-prior-artifact", str(tmp_path / "missing")],
+                "requires --fingertip-prior-metadata-sha256",
+            ),
+            (
+                ["--fingertip-prior-metadata-sha256", "a" * 64],
+                "requires --fingertip-prior-artifact",
+            ),
+            (
+                [
+                    "--fingertip-prior-artifact",
+                    str(tmp_path / "missing"),
+                    "--fingertip-prior-metadata-sha256",
+                    "A" * 64,
+                ],
+                "64 lowercase hexadecimal",
+            ),
+        ):
+            result = subprocess.run(
+                [sys.executable, str(path), *arguments],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "PYTHONPATH": str(ROOT)},
+            )
+            assert result.returncode != 0
+            assert expected in result.stderr
+            assert "No module named 'isaaclab'" not in result.stderr

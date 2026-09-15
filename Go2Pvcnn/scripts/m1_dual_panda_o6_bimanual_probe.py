@@ -303,6 +303,9 @@ def _artifact_manifest(
             "asset_sha256": metadata["asset_sha256"],
             "source_sha256": metadata["source_sha256"],
             "git_ref": metadata["git_ref"],
+            "fingertip_prior_metadata_sha256": metadata.get(
+                "fingertip_prior_metadata_sha256"
+            ),
         },
         "runtime": {
             "isaac_version": metadata["isaac_version"],
@@ -346,6 +349,7 @@ def _run_trial(
     mode: str,
     latent_artifact: Path | None,
     fingertip_prior_artifact: Path | None,
+    fingertip_prior_metadata_sha256: str | None,
     runtime_factory: Callable[[], object],
     progress_path: Path | None = None,
 ) -> dict[str, object]:
@@ -355,6 +359,7 @@ def _run_trial(
         mode=mode,
         latent_artifact=latent_artifact,
         fingertip_prior_artifact=fingertip_prior_artifact,
+        fingertip_prior_metadata_sha256=fingertip_prior_metadata_sha256,
     )
     try:
         return _run_trial_with_wrapper(
@@ -915,6 +920,35 @@ def _positive_finite_float(value: str) -> float:
     return parsed
 
 
+def _metadata_sha256(value: str) -> str:
+    if len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
+        raise argparse.ArgumentTypeError(
+            "value must be 64 lowercase hexadecimal characters"
+        )
+    return value
+
+
+def _validate_prior_pair(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if (
+        args.fingertip_prior_artifact is not None
+        and args.fingertip_prior_metadata_sha256 is None
+    ):
+        parser.error(
+            "--fingertip-prior-artifact requires "
+            "--fingertip-prior-metadata-sha256"
+        )
+    if (
+        args.fingertip_prior_artifact is None
+        and args.fingertip_prior_metadata_sha256 is not None
+    ):
+        parser.error(
+            "--fingertip-prior-metadata-sha256 requires "
+            "--fingertip-prior-artifact"
+        )
+
+
 def _parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--num-envs", type=int, default=1)
@@ -930,6 +964,9 @@ def _parser():
     parser.add_argument("--latent-artifact", type=Path, default=None)
     parser.add_argument("--fingertip-prior-artifact", type=Path, default=None)
     parser.add_argument(
+        "--fingertip-prior-metadata-sha256", type=_metadata_sha256, default=None
+    )
+    parser.add_argument(
         "--tracking-angular-rate-max-rad-s",
         type=_positive_finite_float,
         default=0.35,
@@ -941,12 +978,16 @@ def _parser():
 def main() -> int:
     parser = _parser()
     early_args, _unknown_launcher_args = parser.parse_known_args()
+    _validate_prior_pair(parser, early_args)
     if early_args.fingertip_prior_artifact is not None:
         from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact import (
             validate_student_artifact,
         )
 
-        validate_student_artifact(early_args.fingertip_prior_artifact)
+        validate_student_artifact(
+            early_args.fingertip_prior_artifact,
+            expected_metadata_sha256=early_args.fingertip_prior_metadata_sha256,
+        )
     # Artifact validation is complete before the launcher can import Isaac or
     # create a simulation. Add its flags only for actual execution.
     from isaaclab.app import AppLauncher
@@ -989,6 +1030,7 @@ def main() -> int:
             mode=args.mode,
             latent_artifact=args.latent_artifact,
             fingertip_prior_artifact=args.fingertip_prior_artifact,
+            fingertip_prior_metadata_sha256=args.fingertip_prior_metadata_sha256,
             runtime_factory=lambda: BimanualRuntime(
                 arm_mpc=DualArmMpcCoordinator(
                     first_target_angular_rate_max_rad_s=(
@@ -1021,6 +1063,7 @@ def main() -> int:
             if args.fingertip_prior_artifact is None
             else str(args.fingertip_prior_artifact)
         ),
+        "fingertip_prior_metadata_sha256": args.fingertip_prior_metadata_sha256,
     }
     report: dict[str, Any] = {
         "schema_version": 1,

@@ -2,6 +2,15 @@
 
 ## Current State
 
+2026-09-15 更新：运行时外部 metadata SHA-256 trust boundary 已接线。prior-on
+必须成对提供 artifact 路径和 64 位小写 SHA；Frozen runtime、Wrapper、Probe、Play
+逐层传递并在 worker/AppLauncher/Isaac 前拒绝缺失、格式错误或不匹配，Probe report
+和 formal manifest 记录同一 pin。focused `43 passed`、expert-prior `299 passed`、pure
+QP `103 passed`；生产 student 与 Isaac prior-on 仍未执行。见
+[runtime pin 验证](../log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)。
+
+2026-09-13 更新：T500.5 Task 11 已下载、SHA/pin/source verify 并安全解压两个 fixed DexManipNet archive；真实转换在任何 shard 前 **BLOCKED**。OakInkV2 archive 的 `1,292` 个 source-compatible side 全部缺少 `seq_info.json` 指向的 `ObjURDF/align_ds/...` geometry；FAVOR 的 `1,937` audit-accepted Inspire/rh 序列均为 12-D q，其中六个直供 joint 与 pinned URDF mimic 声明矛盾，不能虚构 FK。archive wrapper/staging cleanup 的两项 TDD 修复为 `01830be`/`ade81da`，focused `17 passed`。未训练 expert/student，无 deployable artifact，未提出 Isaac/physical claim；详见[完整数据 gate](../log/2026-09-11-t500-dexmanipnet-full-distillation.md)。
+
 2026-09-11 更新：T500.5 DexManipNet 指尖运动先验设计已获用户逐段批准。完整 FAVOR 与
 OakInk V2 将经源手 URDF FK 转为掌坐标五指尖短时概率分布，先训练离线教师 ensemble，
 再蒸馏冻结学生并只作为 O6 Hand MPC
@@ -77,7 +86,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
-- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–10 已完成至 opt-in wrapper/Probe/Play artifact and diagnostics wiring，下一步为 Task 11 artifact-backed benchmark；真实数据/ensemble/student production 门仍未运行。
+- T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–10 已完成至 opt-in wrapper/Probe/Play artifact and diagnostics wiring。Task 11 已在真实 fixed archives 上被对象 geometry 缺失和 Inspire q/URDF mimic mapping 矛盾阻塞；等待 authoritative pinned geometry bundle 与 FK mapping，不能跳过 OakInkV2 或降级 safety/provenance gate。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
@@ -90,6 +99,10 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-15 DexManipNet runtime external metadata pin](../log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)
+
+- [2026-09-13 DexManipNet full-data conversion gate (BLOCKED)](../log/2026-09-11-t500-dexmanipnet-full-distillation.md)
 
 - [2026-09-12 DexManipNet atomic Hand MPC prior integration](../log/2026-09-12-t500-dexmanipnet-hand-mpc-prior-integration.md)
 
@@ -131,8 +144,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
-- Last Feature Commit: Task 10 opt-in Probe/Play prior artifact and diagnostics wiring（local candidate）
-- Last Verified Commit: Task 10 review follow-up plus Tasks 1–10 relevant regression (`199 passed`), help/import boundary and pycompile
+- Last Feature Commit: `ade81da` Task 11 safe archive-wrapper staging cleanup (preceded by `01830be` wrapper promotion)
+- Last Verified Commit: `ade81da` focused download regression (`17 passed`) plus real pinned-input `--verify-only`; Task 11 conversion remains blocked before artifact gates
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
 - Key Files:
   - [DexManipNet 指尖先验实施计划](../../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)
@@ -144,7 +157,7 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Next Step
 
-从 T500.5 Task 11 artifact-backed benchmark 开始继续 12 任务计划；运行时物理主线仍需在
+为 T500.5 提供覆盖 `ObjURDF/align_ds/...` 的 authoritative pinned OakInk geometry bundle，以及将 stored 12-D Inspire q 与 pinned URDF mimic semantics 对齐的 authoritative FK mapping；然后从保留 archive 重跑 Task 11 两次转换。运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，
 再执行正式 30/30 举升、保持、下降和释放验收；若首节点仍追不上实测姿态，
 再单独评估跟踪感知边界。

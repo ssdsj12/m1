@@ -73,6 +73,7 @@ def test_formal_jsonl_and_manifest_pin_exact_artifact_bytes(tmp_path):
             "git_ref": "c" * 40,
             "isaac_version": "5.1.0.0",
             "command": "probe --seeds 42 43",
+            "fingertip_prior_metadata_sha256": "d" * 64,
         },
     }
     report_path = tmp_path / "report.json"
@@ -89,6 +90,7 @@ def test_formal_jsonl_and_manifest_pin_exact_artifact_bytes(tmp_path):
     assert manifest["status"] == "passed"
     assert manifest["pins"]["trials_jsonl"]["sha256"] == probe._sha256(jsonl_path)
     assert manifest["pins"]["aggregate_report"]["sha256"] == probe._sha256(report_path)
+    assert manifest["pins"]["fingertip_prior_metadata_sha256"] == "d" * 64
 
 
 def test_probe_summary_has_prior_atomic_fields_and_disabled_nulls():
@@ -129,6 +131,7 @@ def test_probe_summary_has_prior_atomic_fields_and_disabled_nulls():
 def test_probe_parser_default_and_no_observation_counts_are_real_not_fabricated():
     probe = _load_probe_module()
     assert probe._parser().parse_args([]).fingertip_prior_artifact is None
+    assert probe._parser().parse_args([]).fingertip_prior_metadata_sha256 is None
     configured = probe.make_probe_summary(configured=True)
     final = probe.finalize_probe_prior_summary(configured)
     assert final["prior_qp_rejected_count"] is None
@@ -211,6 +214,7 @@ def test_probe_closes_wrapper_when_reset_raises():
         probe._run_trial(
             object(), ExplodingWrapper, seed=3, trial_index=0, steps=1,
             mode="teacher", latent_artifact=None, fingertip_prior_artifact=None,
+            fingertip_prior_metadata_sha256=None,
             runtime_factory=object,
         )
     assert ExplodingWrapper.instance.closed == [False]
@@ -252,6 +256,20 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
     monkeypatch.setitem(sys.modules, "m1_dual_panda_o6_wrapper", wrapper_module)
     wrapper_spec.loader.exec_module(wrapper_module)
 
+    class UntouchableEnv:
+        @property
+        def unwrapped(self):
+            raise AssertionError("unpaired prior config must not touch Isaac")
+
+    with pytest.raises(ValueError, match="requires fingertip_prior_metadata_sha256"):
+        wrapper_module.M1DualPandaO6BimanualWrapper(
+            UntouchableEnv(), fingertip_prior_artifact="artifact"
+        )
+    with pytest.raises(ValueError, match="requires fingertip_prior_artifact"):
+        wrapper_module.M1DualPandaO6BimanualWrapper(
+            UntouchableEnv(), fingertip_prior_metadata_sha256="a" * 64
+        )
+
     class FirstPrior:
         closed = False
 
@@ -264,8 +282,11 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
     first = FirstPrior()
     calls = 0
 
-    def construct(_path):
+    pin = "a" * 64
+
+    def construct(_path, *, expected_metadata_sha256):
         nonlocal calls
+        assert expected_metadata_sha256 == pin
         calls += 1
         if calls == 1:
             return first
@@ -280,14 +301,20 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
 
     with pytest.raises(ValueError, match="strict artifact failure"):
         wrapper_module.M1DualPandaO6BimanualWrapper(
-            FakeEnv(), fingertip_prior_artifact="approved-artifact"
+            FakeEnv(),
+            fingertip_prior_artifact="approved-artifact",
+            fingertip_prior_metadata_sha256=pin,
         )
     assert first.closed is True
 
     left, right = FirstPrior(), FirstPrior()
     constructed = [left, right]
     monkeypatch.setattr(
-        wrapper_module, "_construct_fingertip_prior", lambda _path: constructed.pop(0)
+        wrapper_module,
+        "_construct_fingertip_prior",
+        lambda _path, *, expected_metadata_sha256: (
+            constructed.pop(0) if expected_metadata_sha256 == pin else None
+        ),
     )
     monkeypatch.setattr(
         wrapper_module, "M1DualPandaO6SnapshotAdapter", lambda *_args, **_kwargs: object()
@@ -305,7 +332,9 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
 
     env = ReadyEnv()
     wrapper = wrapper_module.M1DualPandaO6BimanualWrapper(
-        env, fingertip_prior_artifact="approved-artifact"
+        env,
+        fingertip_prior_artifact="approved-artifact",
+        fingertip_prior_metadata_sha256=pin,
     )
     assert wrapper._fingertip_priors == (left, right)
     assert left is not right
@@ -318,7 +347,9 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
     alias_priors = [FirstPrior(), FirstPrior()]
     alias_queue = list(alias_priors)
     monkeypatch.setattr(
-        wrapper_module, "_construct_fingertip_prior", lambda _path: alias_queue.pop(0)
+        wrapper_module,
+        "_construct_fingertip_prior",
+        lambda _path, *, expected_metadata_sha256: alias_queue.pop(0),
     )
     monkeypatch.setattr(
         wrapper_module.M1DualPandaO6BimanualWrapper,
@@ -327,7 +358,9 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
     )
     with pytest.raises(RuntimeError, match="late aliases"):
         wrapper_module.M1DualPandaO6BimanualWrapper(
-            ReadyEnv(), fingertip_prior_artifact="approved-artifact"
+            ReadyEnv(),
+            fingertip_prior_artifact="approved-artifact",
+            fingertip_prior_metadata_sha256=pin,
         )
     assert all(prior.closed for prior in alias_priors)
 
@@ -339,7 +372,9 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
     latent_priors = [FirstPrior(), FirstPrior()]
     latent_queue = list(latent_priors)
     monkeypatch.setattr(
-        wrapper_module, "_construct_fingertip_prior", lambda _path: latent_queue.pop(0)
+        wrapper_module,
+        "_construct_fingertip_prior",
+        lambda _path, *, expected_metadata_sha256: latent_queue.pop(0),
     )
     monkeypatch.setattr(
         wrapper_module.LatentRuntime,
@@ -352,5 +387,6 @@ def test_wrapper_closes_first_prior_when_second_artifact_construction_fails(monk
             mode="latent",
             latent_artifact="latent",
             fingertip_prior_artifact="approved-artifact",
+            fingertip_prior_metadata_sha256=pin,
         )
     assert all(prior.closed for prior in latent_priors)

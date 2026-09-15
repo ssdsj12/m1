@@ -20,6 +20,7 @@
 - [T500 DexManipNet shard review hardening](log/2026-09-11-t500-dexmanipnet-shard-review-hardening.md)
 - [T500 DexManipNet offline expert ensemble](log/2026-09-11-t500-dexmanipnet-expert-ensemble.md)
 - [T500 DexManipNet strict sequence/provenance 审计验证](log/2026-09-11-t500-dexmanipnet-sequence-audit.md)
+- [T500 DexManipNet 完整数据转换/蒸馏 gate（BLOCKED）](log/2026-09-11-t500-dexmanipnet-full-distillation.md)
 - [branch memory 目录](todo/README.md)
 - [验证日志索引](log/index.md)
 

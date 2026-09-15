@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+from hashlib import sha256
 import os
 from pathlib import Path
 import queue
@@ -76,7 +77,17 @@ def _close_test_workers():
 
 
 def _runtime(path: Path, **cfg: object) -> FrozenO6FingertipPrior:
-    return FrozenO6FingertipPrior.from_artifact(path, cfg=PriorRuntimeCfg(**cfg))
+    return FrozenO6FingertipPrior.from_artifact(
+        path,
+        expected_metadata_sha256=sha256(
+            (path / "metadata.json").read_bytes()
+        ).hexdigest(),
+        cfg=PriorRuntimeCfg(**cfg),
+    )
+
+
+def _metadata_pin(path: Path) -> str:
+    return sha256((path / "metadata.json").read_bytes()).hexdigest()
 
 
 def _sample(**overrides: object) -> O6FingertipPriorInput:
@@ -217,11 +228,12 @@ def test_reaper_retries_without_signaling_or_releasing_before_death():
 def test_worker_slot_budget_fails_closed_until_normal_close_releases(production_artifact, monkeypatch):
     controller = runtime_module._ReaperController(capacity=1)
     monkeypatch.setattr(runtime_module, "_REAPER", controller)
-    first = FrozenO6FingertipPrior.from_artifact(production_artifact)
+    kwargs = {"expected_metadata_sha256": _metadata_pin(production_artifact)}
+    first = FrozenO6FingertipPrior.from_artifact(production_artifact, **kwargs)
     with pytest.raises(RuntimeError, match="capacity"):
-        FrozenO6FingertipPrior.from_artifact(production_artifact)
+        FrozenO6FingertipPrior.from_artifact(production_artifact, **kwargs)
     first.close()
-    second = FrozenO6FingertipPrior.from_artifact(production_artifact)
+    second = FrozenO6FingertipPrior.from_artifact(production_artifact, **kwargs)
     second.close()
 
 
@@ -249,7 +261,10 @@ def test_runtime_worker_uses_spawn_and_context_close_reaps_child(production_arti
 def test_spawn_start_failure_is_bounded_and_normalized(production_artifact, monkeypatch):
     monkeypatch.setattr(runtime_module.mp, "get_context", lambda method: _StartFailureContext())
     with pytest.raises(RuntimeError, match="initialization failed"):
-        FrozenO6FingertipPrior.from_artifact(production_artifact)
+        FrozenO6FingertipPrior.from_artifact(
+            production_artifact,
+            expected_metadata_sha256=_metadata_pin(production_artifact),
+        )
 
 
 def test_finalizer_reaps_abandoned_worker(production_artifact):
@@ -311,7 +326,30 @@ def test_public_constructor_and_private_factory_forgery_reject(production_artifa
     with pytest.raises(TypeError, match="from_artifact"):
         FrozenO6FingertipPrior(forged)  # type: ignore[call-arg]
     assert not hasattr(runtime_module, "_new_prior")
-    runtime = FrozenO6FingertipPrior.from_artifact(production_artifact)
+    runtime = FrozenO6FingertipPrior.from_artifact(
+        production_artifact,
+        expected_metadata_sha256=_metadata_pin(production_artifact),
+    )
+    runtime.close()
+
+
+def test_runtime_requires_and_enforces_external_metadata_pin(production_artifact):
+    with pytest.raises(TypeError, match="expected_metadata_sha256"):
+        FrozenO6FingertipPrior.from_artifact(production_artifact)
+    with pytest.raises(ValueError, match="expected metadata.*pin"):
+        FrozenO6FingertipPrior.from_artifact(
+            production_artifact,
+            expected_metadata_sha256=None,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="metadata.*pin|expected metadata"):
+        FrozenO6FingertipPrior.from_artifact(
+            production_artifact,
+            expected_metadata_sha256="f" * 64,
+        )
+    runtime = FrozenO6FingertipPrior.from_artifact(
+        production_artifact,
+        expected_metadata_sha256=_metadata_pin(production_artifact),
+    )
     runtime.close()
 
 

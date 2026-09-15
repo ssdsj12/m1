@@ -79,23 +79,33 @@ def _close_fingertip_priors(priors: Sequence[object]) -> None:
             pass
 
 
-def _construct_fingertip_prior(path: str | Path) -> object:
+def _construct_fingertip_prior(
+    path: str | Path, *, expected_metadata_sha256: str
+) -> object:
     """Keep the optional runtime package outside the default import path."""
 
     from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.runtime import (
         FrozenO6FingertipPrior,
     )
 
-    return FrozenO6FingertipPrior.from_artifact(path)
+    return FrozenO6FingertipPrior.from_artifact(
+        path, expected_metadata_sha256=expected_metadata_sha256
+    )
 
 
-def _build_fingertip_priors(path: str | Path) -> tuple[object, object]:
+def _build_fingertip_priors(
+    path: str | Path, *, expected_metadata_sha256: str
+) -> tuple[object, object]:
     """Strictly construct independent left/right workers or leave none alive."""
 
     created: list[object] = []
     try:
         for _side in ("left", "right"):
-            created.append(_construct_fingertip_prior(path))
+            created.append(
+                _construct_fingertip_prior(
+                    path, expected_metadata_sha256=expected_metadata_sha256
+                )
+            )
     except BaseException:
         _close_fingertip_priors(created)
         raise
@@ -586,9 +596,24 @@ class M1DualPandaO6BimanualWrapper:
         mode: str = "teacher",
         latent_artifact: str | Path | None = None,
         fingertip_prior_artifact: str | Path | None = None,
+        fingertip_prior_metadata_sha256: str | None = None,
     ) -> None:
         if mode not in {"teacher", "latent"}:
             raise ValueError("mode must be 'teacher' or 'latent'")
+        if (
+            fingertip_prior_artifact is not None
+            and fingertip_prior_metadata_sha256 is None
+        ):
+            raise ValueError(
+                "fingertip_prior_artifact requires fingertip_prior_metadata_sha256"
+            )
+        if (
+            fingertip_prior_artifact is None
+            and fingertip_prior_metadata_sha256 is not None
+        ):
+            raise ValueError(
+                "fingertip_prior_metadata_sha256 requires fingertip_prior_artifact"
+            )
         self.env = env
         self.mode = mode
         self._effort_limits = effort_limits()
@@ -599,8 +624,10 @@ class M1DualPandaO6BimanualWrapper:
         # the Isaac scene, reset it, or advance physics.  There is one isolated
         # worker per physical side; vector lanes share only that side's worker.
         if fingertip_prior_artifact is not None:
+            assert fingertip_prior_metadata_sha256 is not None
             self._fingertip_priors = _build_fingertip_priors(
-                fingertip_prior_artifact
+                fingertip_prior_artifact,
+                expected_metadata_sha256=fingertip_prior_metadata_sha256,
             )
             self._prior_finalizer = weakref.finalize(
                 self, _close_fingertip_priors, self._fingertip_priors

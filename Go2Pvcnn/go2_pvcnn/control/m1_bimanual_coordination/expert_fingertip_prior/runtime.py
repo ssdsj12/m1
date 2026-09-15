@@ -203,8 +203,9 @@ class FrozenO6FingertipPrior:
     """Production construction is restricted to from_artifact."""
     def __init__(self,*args,**kwargs): raise TypeError("use FrozenO6FingertipPrior.from_artifact")
     @classmethod
-    def from_artifact(cls,path: str|Path,*,cfg: PriorRuntimeCfg|None=None):
-        loaded=load_student_artifact(path)
+    def from_artifact(cls,path: str|Path,*,expected_metadata_sha256: str,cfg: PriorRuntimeCfg|None=None):
+        if expected_metadata_sha256 is None: raise ValueError("expected metadata SHA-256 pin is required")
+        loaded=load_student_artifact(path,expected_metadata_sha256=expected_metadata_sha256)
         if loaded.metrics.get("production_approved") is not True: raise ValueError("runtime requires a production_approved student artifact")
         if cfg is not None and not isinstance(cfg,PriorRuntimeCfg): raise TypeError("cfg must be PriorRuntimeCfg")
         worker=_Worker(loaded.model)

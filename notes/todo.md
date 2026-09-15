@@ -4,6 +4,10 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- T500.5 runtime external metadata pin 已完成本地接线：prior-on 的 artifact 与 64 位小写 metadata SHA 必须成对提供，Frozen runtime/Wrapper/Probe/Play 强制逐层传递并在 worker/AppLauncher/Isaac 前拒绝错误配置；Probe report/formal manifest 固定同一 pin。focused `43 passed`、expert-prior `299 passed`、pure QP `103 passed`，生产 student/Isaac prior-on 尚未执行。见 [验证记录](log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)。
+
+- T500.5 Task 11 已完成完整固定 archive 下载、pin/SHA/source 验证和 atomic extraction，但在真实数据转换门 **BLOCKED**：全部 `1,292` 个 source-compatible OakInkV2 side 缺少 `seq_info` 指向的对象 URDF geometry，FAVOR 的 12-D Inspire q 又与 pinned URDF 的六个 mimic joint 声明冲突，不能诚信生成 geometry contact/FK。两项 extractor 修复已作 TDD (`17 passed`)，无 shards/ensemble/student/Isaac claim。见 [完整数据 gate 记录](log/2026-09-11-t500-dexmanipnet-full-distillation.md) 和 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md)。
+
 - T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Tasks 1–9 已完成 strict artifact、runtime-only O6 adapter 和 atomic Hand MPC integration。默认 prior-off 保持精确单次 baseline；prior-on 仅在同周期 baseline 可行后运行 bounded precontact projection 或 contact second QP，任何 prior/second-QP failure 接受同周期 baseline，baseline infeasible 不查询 prior 并沿用旧 fallback。左右真实 palm-frame O6 positions/folded Jacobian/q/qd/contact/phase 已送入各自 Hand MPC；Tasks 1–9 相关回归 `198 passed`。下一步为 Task 10 wrapper artifact/config/diagnostics wiring；见 [Task 9 验证](log/2026-09-12-t500-dexmanipnet-hand-mpc-prior-integration.md)。
 
 - T500.5 DexManipNet 指尖运动先验设计已获用户批准：完整 FAVOR + OakInk V2 只蒸馏掌坐标五指尖短时分布，经 O6 真实 Jacobian 作为 Hand MPC 可退让软代价；不输入任务/对象 ID，不决定掌、物体、机械臂或底盘轨迹。离线实施已完成 Tasks 1–5，仍未下载完整数据、训练模型或接线运行时。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [设计记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)。
@@ -228,6 +232,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 - [T200-semantic-static-course-viewer.md](todo/T200-semantic-static-course-viewer.md)
 
 ## Recent Logs
+
+| 2026-09-15 | T500 DexManipNet runtime external metadata pin | T500.5 runtime deployment gate | artifact/pin atomic pair and strict Frozen/Wrapper/Probe/Play propagation; focused `43 passed`, expert-prior `299 passed`, pure QP `103 passed`; no production Isaac prior-on claim | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [runtime pin log](log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md) |
 
 | 2026-09-02 | M1 + 双 Panda + 双 O6 组合资产 | T500 Tasks 1–3 | normalized O6 sources, single articulation, and final 2000-step Isaac hard gate pass | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [asset log](log/2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md) |
 
