@@ -14,6 +14,7 @@ from typing import Final
 import h5py
 import numpy as np
 
+from .geometry_overlay import VerifiedGeometryResolver
 from .sources import SOURCE_HANDS
 
 
@@ -115,6 +116,15 @@ def _reject(reason: str) -> None:
     raise _SequenceRejected(reason)
 
 
+def _validate_geometry_resolver(
+    geometry_resolver: VerifiedGeometryResolver | None,
+) -> None:
+    if geometry_resolver is not None and not isinstance(
+        geometry_resolver, VerifiedGeometryResolver
+    ):
+        raise ValueError("geometry_resolver must be a VerifiedGeometryResolver")
+
+
 def _validate_loaded_array(
     name: str,
     array: np.ndarray,
@@ -194,18 +204,51 @@ def _contained_regular_file(
     return candidate, False
 
 
-def _resolve_object_geometry(sequence_path: Path, seq_info: dict, side: str) -> Path:
-    raw = seq_info.get(f"obj_{side}_path")
-    if type(raw) is not str or not raw:
-        _reject("missing_object_geometry")
+def _normalized_overlay_reference(raw: str) -> PurePosixPath:
     posix_path = PurePosixPath(raw)
-    if posix_path.is_absolute() or ".." in posix_path.parts or posix_path.suffix.lower() != ".urdf":
+    if (
+        "\\" in raw
+        or "\x00" in raw
+        or posix_path.is_absolute()
+        or any(part in {"", ".", ".."} for part in raw.split("/"))
+        or posix_path.suffix.lower() != ".urdf"
+    ):
+        _reject("invalid_object_geometry")
+    return posix_path
+
+
+def _resolve_object_geometry(
+    sequence_path: Path,
+    seq_info: dict,
+    side: str,
+    source: str,
+    geometry_resolver: VerifiedGeometryResolver | None,
+) -> Path:
+    raw = seq_info.get(f"obj_{side}_path")
+    if type(raw) is not str:
+        _reject("missing_object_geometry")
+    if source == "oakinkv2" and geometry_resolver is not None:
+        posix_path = _normalized_overlay_reference(raw)
+    elif not raw:
+        _reject("missing_object_geometry")
+    else:
+        posix_path = PurePosixPath(raw)
+    if (
+        posix_path.is_absolute()
+        or ".." in posix_path.parts
+        or posix_path.suffix.lower() != ".urdf"
+    ):
         _reject("invalid_object_geometry")
     root = _source_root(sequence_path)
     candidate, missing = _contained_regular_file(root, posix_path)
     if candidate is None:
         if not missing:
             _reject("invalid_object_geometry")
+        if source == "oakinkv2" and geometry_resolver is not None:
+            try:
+                return geometry_resolver.resolve(raw, source=source)
+            except (OSError, TypeError, ValueError):
+                _reject("invalid_object_geometry")
         _reject("missing_object_geometry")
     return candidate
 
@@ -362,6 +405,7 @@ def _load_best(
     source: str,
     side: str,
     context: _AuditContext,
+    geometry_resolver: VerifiedGeometryResolver | None,
 ) -> LoadedHandSequence:
     source, side = _validate_source_side(source, side)
     try:
@@ -389,7 +433,9 @@ def _load_best(
         _reject("unsupported_hand")
     context.hand = hand_key
     joint_dim = len(SOURCE_HANDS[hand_key].joint_order)
-    geometry_path = _resolve_object_geometry(sequence_path, seq_info, side)
+    geometry_path = _resolve_object_geometry(
+        sequence_path, seq_info, side, source, geometry_resolver
+    )
 
     rollout_path = sequence_path / "rollouts.hdf5"
     if not rollout_path.is_file():
@@ -453,22 +499,32 @@ def load_best_successful_rollout(
     path: str | Path,
     source: str,
     side: str,
+    *,
+    geometry_resolver: VerifiedGeometryResolver | None = None,
 ) -> LoadedHandSequence:
     """Validate a sequence atomically and return its deterministic best rollout."""
 
+    _validate_geometry_resolver(geometry_resolver)
     context = _AuditContext()
     try:
-        return _load_best(path, source, side, context)
+        return _load_best(path, source, side, context, geometry_resolver)
     except _SequenceRejected as error:
         raise ValueError(f"sequence rejected: {error}") from error
 
 
-def audit_sequence(path: str | Path, source: str, side: str) -> SequenceAudit:
+def audit_sequence(
+    path: str | Path,
+    source: str,
+    side: str,
+    *,
+    geometry_resolver: VerifiedGeometryResolver | None = None,
+) -> SequenceAudit:
     """Return one stable audit record; invalid sequences never return partial arrays."""
 
+    _validate_geometry_resolver(geometry_resolver)
     context = _AuditContext()
     try:
-        loaded = _load_best(path, source, side, context)
+        loaded = _load_best(path, source, side, context, geometry_resolver)
     except _SequenceRejected as error:
         if not context.input_sha256:
             context.input_sha256 = _best_effort_input_hash(path, side)
