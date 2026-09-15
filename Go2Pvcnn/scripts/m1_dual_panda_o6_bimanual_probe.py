@@ -352,6 +352,7 @@ def _run_trial(
     fingertip_prior_metadata_sha256: str | None,
     runtime_factory: Callable[[], object],
     progress_path: Path | None = None,
+    fingertip_prior_binding: object | None = None,
 ) -> dict[str, object]:
     wrapper = wrapper_type(
         env,
@@ -360,6 +361,7 @@ def _run_trial(
         latent_artifact=latent_artifact,
         fingertip_prior_artifact=fingertip_prior_artifact,
         fingertip_prior_metadata_sha256=fingertip_prior_metadata_sha256,
+        fingertip_prior_binding=fingertip_prior_binding,
     )
     try:
         return _run_trial_with_wrapper(
@@ -979,17 +981,25 @@ def main() -> int:
     parser = _parser()
     early_args, _unknown_launcher_args = parser.parse_known_args()
     _validate_prior_pair(parser, early_args)
-    if early_args.fingertip_prior_artifact is not None:
-        from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact import (
-            validate_student_artifact,
-        )
+    binding = None
+    try:
+        if early_args.fingertip_prior_artifact is not None:
+            from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.runtime_binding import (
+                PreparedO6FingertipPriors,
+            )
 
-        validate_student_artifact(
-            early_args.fingertip_prior_artifact,
-            expected_metadata_sha256=early_args.fingertip_prior_metadata_sha256,
-        )
-    # Artifact validation is complete before the launcher can import Isaac or
-    # create a simulation. Add its flags only for actual execution.
+            binding = PreparedO6FingertipPriors.from_artifact(
+                early_args.fingertip_prior_artifact,
+                expected_metadata_sha256=early_args.fingertip_prior_metadata_sha256,
+            )
+        return _run_with_fingertip_prior(parser, binding)
+    finally:
+        if binding is not None:
+            binding.close()
+
+
+def _run_with_fingertip_prior(parser, binding) -> int:
+    # Pinned workers are already bound before AppLauncher/scene startup.
     from isaaclab.app import AppLauncher
 
     AppLauncher.add_app_launcher_args(parser)
@@ -1031,6 +1041,7 @@ def main() -> int:
             latent_artifact=args.latent_artifact,
             fingertip_prior_artifact=args.fingertip_prior_artifact,
             fingertip_prior_metadata_sha256=args.fingertip_prior_metadata_sha256,
+            fingertip_prior_binding=binding,
             runtime_factory=lambda: BimanualRuntime(
                 arm_mpc=DualArmMpcCoordinator(
                     first_target_angular_rate_max_rad_s=(

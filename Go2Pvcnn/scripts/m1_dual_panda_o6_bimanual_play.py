@@ -54,15 +54,26 @@ def main() -> int:
     parser = _parser()
     early_args, _unknown_launcher_args = parser.parse_known_args()
     _validate_prior_pair(parser, early_args)
-    if early_args.fingertip_prior_artifact is not None:
-        from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.artifact import (
-            validate_student_artifact,
-        )
+    binding = None
+    try:
+        if early_args.fingertip_prior_artifact is not None:
+            from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.runtime_binding import (
+                PreparedO6FingertipPriors,
+            )
 
-        validate_student_artifact(
-            early_args.fingertip_prior_artifact,
-            expected_metadata_sha256=early_args.fingertip_prior_metadata_sha256,
-        )
+            binding = PreparedO6FingertipPriors.from_artifact(
+                early_args.fingertip_prior_artifact,
+                expected_metadata_sha256=early_args.fingertip_prior_metadata_sha256,
+            )
+        return _run_with_fingertip_prior(parser, binding)
+    finally:
+        if binding is not None:
+            binding.close()
+
+
+def _run_with_fingertip_prior(parser, binding) -> int:
+    # The pinned left/right workers are already bound. Never reload their
+    # mutable artifact path after crossing the launcher/scene boundary.
     from isaaclab.app import AppLauncher
 
     AppLauncher.add_app_launcher_args(parser)
@@ -88,6 +99,7 @@ def main() -> int:
         mode=args.mode,
         fingertip_prior_artifact=args.fingertip_prior_artifact,
         fingertip_prior_metadata_sha256=args.fingertip_prior_metadata_sha256,
+        fingertip_prior_binding=binding,
     ) as wrapper:
         wrapper.reset(seed=args.seed)
         previous_phase = wrapper.runtime.mission.phase.name

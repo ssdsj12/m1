@@ -597,6 +597,7 @@ class M1DualPandaO6BimanualWrapper:
         latent_artifact: str | Path | None = None,
         fingertip_prior_artifact: str | Path | None = None,
         fingertip_prior_metadata_sha256: str | None = None,
+        fingertip_prior_binding: object | None = None,
     ) -> None:
         if mode not in {"teacher", "latent"}:
             raise ValueError("mode must be 'teacher' or 'latent'")
@@ -620,10 +621,23 @@ class M1DualPandaO6BimanualWrapper:
         self._closed = False
         self._fingertip_priors: tuple[object, ...] = ()
         self._prior_finalizer: weakref.finalize | None = None
+        self._owns_fingertip_priors = fingertip_prior_binding is None
+        if fingertip_prior_binding is not None:
+            from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.runtime_binding import (
+                PreparedO6FingertipPriors,
+            )
+
+            if type(fingertip_prior_binding) is not PreparedO6FingertipPriors:
+                raise TypeError("fingertip_prior_binding must be PreparedO6FingertipPriors")
+            if fingertip_prior_metadata_sha256 is None:
+                raise ValueError("fingertip_prior_binding requires a metadata SHA-256 pin")
+            self._fingertip_priors = fingertip_prior_binding.for_metadata_pin(
+                fingertip_prior_metadata_sha256
+            )
         # Artifact loading is intentionally first: a bad artifact must not touch
         # the Isaac scene, reset it, or advance physics.  There is one isolated
         # worker per physical side; vector lanes share only that side's worker.
-        if fingertip_prior_artifact is not None:
+        if fingertip_prior_artifact is not None and fingertip_prior_binding is None:
             assert fingertip_prior_metadata_sha256 is not None
             self._fingertip_priors = _build_fingertip_priors(
                 fingertip_prior_artifact,
@@ -707,6 +721,9 @@ class M1DualPandaO6BimanualWrapper:
         return supplied_runtime
 
     def _close_prior_workers(self) -> None:
+        if not self._owns_fingertip_priors:
+            # A pre-launch binding owns these workers across all Probe trials.
+            return
         finalizer = self._prior_finalizer
         if finalizer is not None:
             finalizer()

@@ -22,8 +22,10 @@ T500.5 / Task 11 runtime deployment gate; see the
   `env.unwrapped`; the same pin is used for the independent left and right
   workers. Prior-off remains both fields `None` and creates no prior worker.
 - Probe and Play expose `--fingertip-prior-metadata-sha256`, reject missing or
-  malformed pairs before importing AppLauncher, prevalidate the artifact with
-  that pin, and pass the same value to the Wrapper.
+  malformed pairs before importing AppLauncher, and bind both strictly loaded
+  frozen workers to that pin before launcher/scene startup. They pass the
+  prepared worker binding to the Wrapper, which does not reread the mutable
+  artifact path.
 - Probe report metadata and the formal aggregate manifest both record the
   external pin. A coordinated artifact rewrite therefore cannot silently move
   the runtime or formal evidence to another metadata identity.
@@ -73,10 +75,51 @@ pure-QP layers only.
 
 ## Git Refs
 
-- Baseline Ref: `8534f6c8b026b4828df434d4d44f43964445dd80`
-- Candidate Ref: uncommitted worktree change
+- Initial Pin Baseline Ref: `4df4bce` (actual parent of the delivered pin commit)
+- Initial Pin Candidate Ref: `4bfc11bc60adb927b6ee033b2cffd738e8508e49`
+- Startup Binding Review Baseline Ref: `4bfc11b`
+- Startup Binding Submission Parent: `bc28655` (concurrent headless CLI guard fix)
+- Startup Binding Review Candidate: the commit with subject
+  `fix: bind pinned priors before Isaac startup`; resolve its exact SHA with
+  `git log -1 --format=%H --all --grep='^fix: bind pinned priors before Isaac startup$'`.
+  The final verification command/results and exact commit SHA are additionally
+  recorded in `.superpowers/sdd/runtime-pin-bridge-report.md` (working ledger,
+  deliberately excluded from the feature commit).
 - Key Files: frozen prior runtime, bimanual Wrapper, Probe, Play, and their
   runtime/entrypoint/verification tests
+
+## Startup Binding Review Fix
+
+The initial path prevalidation followed by scene creation and a later Wrapper
+path load left a TOCTOU gap: a substituted artifact could be rejected only
+after Isaac had started. The fix chooses pre-launch runtime binding rather
+than a second post-scene path check.
+
+`PreparedO6FingertipPriors.from_artifact()` constructs both SHA-verified frozen
+workers before importing AppLauncher. Each strict load deserializes its own
+immutable bytes snapshot, and both metadata identities must equal the external
+pin, including weight/report SHAs. A replacement between the two loads is
+rejected before any scene boundary and the first worker is reaped. Once the
+pair is bound, replacing or deleting the artifact cannot change either worker.
+
+The entrypoint owns this prepared pair and closes it in `finally` on normal
+completion and every launcher/scene/Wrapper exception. Probe shares the binding
+across trials; Wrapper close never closes borrowed workers, while direct
+Wrapper artifact construction retains its existing owned-worker lifecycle.
+
+New path-replacement/lifecycle tests first reported `9 failed` before the
+binding module and entrypoint bridge existed. Tests cover replacement after
+binding, replacement between left/right loads, Wrapper no-reread and two-trial
+reuse, exact real AppLauncher import ordering, pin mismatch before startup,
+and cleanup after successful and exceptional entrypoint exits.
+
+Final focused verification (original three pin test files, new startup-binding
+regressions, and the refactored launcher's direct AST guard): `61 passed in
+32.98s`. The `bc28655` AST guard was adjusted only to follow the parser from
+`main` into `_run_with_fingertip_prior`; the exact same-parser AppLauncher
+registration, parsing, and namespace-construction ordering remain required.
+Before that targeted guard adjustment its RED was `1 failed`, proving the
+direct refactor dependency. No launcher flag ownership was changed.
 
 ## Follow-up
 

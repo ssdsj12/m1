@@ -115,9 +115,27 @@ def test_probe_has_required_startup_smoke_cli():
     main = next(
         node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main"
     )
-    startup = [ast.dump(node, include_attributes=False) for node in main.body]
+    assert ast.dump(ast.parse("parser = _parser()").body[0], include_attributes=False) in (
+        ast.dump(node, include_attributes=False) for node in main.body
+    )
+    # Pre-launch pin binding is now owned by main; its launch bridge receives
+    # that very parser, then registers and parses AppLauncher flags in order.
+    assert any(
+        isinstance(node, ast.Return)
+        and ast.dump(node, include_attributes=False)
+        == ast.dump(
+            ast.parse("return _run_with_fingertip_prior(parser, binding)").body[0],
+            include_attributes=False,
+        )
+        for node in ast.walk(main)
+    )
+    launch = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_with_fingertip_prior"
+    )
+    assert [argument.arg for argument in launch.args.args] == ["parser", "binding"]
+    startup = [ast.dump(node, include_attributes=False) for node in launch.body]
     required = (
-        "parser = _parser()",
         "from isaaclab.app import AppLauncher",
         "AppLauncher.add_app_launcher_args(parser)",
         "args = parser.parse_args()",
