@@ -2,6 +2,14 @@
 
 ## Current State
 
+2026-09-15 GPU RTI Task 1：完整 `converted/run_e` 的 aggregate/audit/全部 241 shards SHA
+已重算，manifest 与逐 NPZ 实际样本均 `984641`，固定 SHA
+`dfaa213a89d8a87b267ffd7ed9dc69d5a3f8582204e79a11d575d30140a57c7c`。
+**身份 PASS，训练资格 BLOCKED**：FAVOR accepted `1431` 序列侧 / `984641` 样本，
+OakInkV2 accepted `0`，source-compatible `1292` 侧仍缺 geometry。保留双来源生产门，
+未训练 expert/student，无 production metadata pin；fixture TDD `84 passed`。
+以下早期无-shards记录为历史尝试，不代表当前 run_e；见 [当前资格证据](../log/2026-09-15-t500-run-e-expert-artifact.md)。
+
 2026-09-15 更新：运行时外部 metadata SHA-256 trust boundary 已接线。prior-on
 必须成对提供 artifact 路径和 64 位小写 SHA；Frozen runtime、Wrapper、Probe、Play
 逐层传递并在 worker/AppLauncher/Isaac 前拒绝缺失、格式错误或不匹配，Probe report
@@ -86,6 +94,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Open Children
 
+- T500.5 / GPU RTI Task 1：run_e 身份闭合，但双来源资格拒绝；依赖 authoritative pinned OakInkV2 geometry 与新转换 pin，禁止 FAVOR-only 豁免后直接训练。
+
 - T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–10 已完成至 opt-in wrapper/Probe/Play artifact and diagnostics wiring。Task 11 已在真实 fixed archives 上被对象 geometry 缺失和 Inspire q/URDF mimic mapping 矛盾阻塞；等待 authoritative pinned geometry bundle 与 FK mapping，不能跳过 OakInkV2 或降级 safety/provenance gate。
 
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
@@ -101,6 +111,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-15 run_e 身份 / 双来源资格拒绝](../log/2026-09-15-t500-run-e-expert-artifact.md)
 
 - [2026-09-15 Probe headless baseline test](../log/2026-09-15-t500-probe-headless-baseline.md)
 
@@ -148,6 +160,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Git Refs
 
+- Latest qualification evidence: commit subject `feat: record frozen run-e qualification rejection`, baseline `4624abf`; focused `84 passed`, all expert-prior CPU `314 passed`. This records a blocked qualification, not a production feature acceptance; exact SHA in Task 1 report.
+
 - Last Feature Commit: `ade81da` Task 11 safe archive-wrapper staging cleanup (preceded by `01830be` wrapper promotion)
 - Last Verified Commit: `ade81da` focused download regression (`17 passed`) plus real pinned-input `--verify-only`; Task 11 conversion remains blocked before artifact gates
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`
@@ -160,6 +174,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
   - [现有单臂约束](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/constraints.py)
 
 ## Next Step
+
+GPU RTI Task 1 当前先补齐 authoritative pinned OakInkV2 geometry，取得包含两来源的新版转换/批准 pin 后重跑完整资格；不以当前 FAVOR-only run_e 开始生产训练。
 
 为 T500.5 提供覆盖 `ObjURDF/align_ds/...` 的 authoritative pinned OakInk geometry bundle，以及将 stored 12-D Inspire q 与 pinned URDF mimic semantics 对齐的 authoritative FK mapping；然后从保留 archive 重跑 Task 11 两次转换。运行时物理主线仍需在
 恢复服务器 Vulkan/DRM 访问后运行跨 seed 物理门并核对固定步数账本，

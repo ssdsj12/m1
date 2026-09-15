@@ -77,6 +77,74 @@ def _write(root: Path) -> Path:
     return root
 
 
+def _run_e_identity_fixture():
+    # Tiny identity fixture, not a substitute for full storage hash verification.
+    return {
+        "aggregate_sha256": "dfaa213a89d8a87b267ffd7ed9dc69d5a3f8582204e79a11d575d30140a57c7c",
+        "shards": [{"samples": 4096}] * 240 + [{"samples": 1601}],
+    }
+
+
+def test_frozen_run_e_identity_accepts_exact_pin_and_counts():
+    artifact_module.validate_run_e_corpus_identity(_run_e_identity_fixture())
+
+
+@pytest.mark.parametrize("corruption", ["sha", "count", "samples", "bool", "nan", "missing"])
+def test_frozen_run_e_identity_rejects_malformed_or_changed_facts(corruption):
+    document = _run_e_identity_fixture()
+    if corruption == "sha":
+        document["aggregate_sha256"] = "e" + document["aggregate_sha256"][1:]
+    elif corruption == "count":
+        document["shards"] = document["shards"][:-1]
+    elif corruption == "samples":
+        document["shards"][-1] = {"samples": 1600}
+    elif corruption == "bool":
+        document["shards"][-1] = {"samples": True}
+    elif corruption == "nan":
+        document["shards"][-1] = {"samples": float("nan")}
+    else:
+        del document["aggregate_sha256"]
+    with pytest.raises(ValueError, match="run_e"):
+        artifact_module.validate_run_e_corpus_identity(document)
+
+
+def test_frozen_run_e_training_requires_both_accepted_sources():
+    document = _run_e_identity_fixture()
+    document["shards"] = [dict(row, source_counts={"favor": row["samples"]}) for row in document["shards"]]
+    with pytest.raises(ValueError, match="both favor and oakinkv2"):
+        artifact_module.validate_run_e_training_qualification(document)
+
+    document["shards"][-1]["source_counts"] = {"favor": 1600, "oakinkv2": 1}
+    artifact_module.validate_run_e_training_qualification(document)
+
+
+@pytest.mark.parametrize("counts", [{"favor": True}, {"favor": float("nan")}, {"favor": 4095}, {"other": 4096}, {}])
+def test_frozen_run_e_source_accounting_fails_closed(counts):
+    document = _run_e_identity_fixture()
+    document["shards"] = [dict(row, source_counts={"favor": row["samples"]}) for row in document["shards"]]
+    document["shards"][0]["source_counts"] = counts
+    with pytest.raises(ValueError, match="source"):
+        artifact_module.validate_run_e_training_qualification(document)
+
+
+def test_student_rejects_one_nibble_external_metadata_pin(tmp_path):
+    root = _write(tmp_path / "artifact")
+    pin = artifact_module.sha256_file(root / "metadata.json")
+    changed = ("0" if pin[0] != "0" else "1") + pin[1:]
+    with pytest.raises(ValueError, match="metadata SHA"):
+        load_student_artifact(root, expected_metadata_sha256=changed)
+
+
+def test_student_rejects_one_nibble_teacher_provenance_pin(tmp_path, monkeypatch):
+    root = _write(tmp_path / "artifact")
+    _rewrite_metadata(root, lambda document: document.update({
+        "teacher_ensemble_manifest_sha256": "c" + "b" * 63,
+    }))
+    monkeypatch.setattr(torch, "load", lambda *args, **kwargs: pytest.fail("identity mismatch reached deserialization"))
+    with pytest.raises(ValueError, match="provenance"):
+        load_student_artifact(root)
+
+
 def test_artifact_round_trip_is_eval_only_and_hash_pinned(tmp_path: Path):
     loaded = load_student_artifact(_write(tmp_path / "artifact"))
 

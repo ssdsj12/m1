@@ -4,6 +4,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- GPU RTI Task 1：当前 `run_e` 已是完整 241-shard 转换结果，固定 SHA 和实际 984641 NPZ 样本身份通过；但全为 FAVOR，OakInkV2 accepted=0，双来源生产资格 **BLOCKED**。fixture TDD `84 passed`，未启动训练、无生产 student。旧无-shards BLOCKED 日志仅为历史尝试；见 [当前资格拒绝证据](log/2026-09-15-t500-run-e-expert-artifact.md)。
+
 - T500 Probe baseline headless 静态检查已改为同 parser/namespace 的真实 AST 启动接线验证；见 [基线修复记录](log/2026-09-15-t500-probe-headless-baseline.md)。生产 CLI/控制合同不变。
 
 - T500.5 runtime external metadata pin 已完成本地接线：prior-on 的 artifact 与 64 位小写 metadata SHA 必须成对提供，Frozen runtime/Wrapper/Probe/Play 强制逐层传递并在 worker/AppLauncher/Isaac 前拒绝错误配置；Probe report/formal manifest 固定同一 pin。focused `43 passed`、expert-prior `299 passed`、pure QP `103 passed`，生产 student/Isaac prior-on 尚未执行。见 [验证记录](log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)。

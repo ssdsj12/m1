@@ -15,6 +15,7 @@
 
 ## Agent Memory Entry
 
+- [T500 run_e 身份通过、双来源训练资格拒绝](log/2026-09-15-t500-run-e-expert-artifact.md)：完整 241 shards / 984641 samples 已逐 SHA/NPZ 验证，但全为 FAVOR，OakInkV2 accepted=0；GPU RTI Task 1 BLOCKED，未训练。
 - [调查 dashboard](todo.md)
 - [T500 DexManipNet deterministic shard 转换验证](log/2026-09-11-t500-dexmanipnet-deterministic-shards.md)
 - [T500 DexManipNet shard review hardening](log/2026-09-11-t500-dexmanipnet-shard-review-hardening.md)

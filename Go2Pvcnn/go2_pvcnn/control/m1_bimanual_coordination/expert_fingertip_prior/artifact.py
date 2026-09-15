@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import stat
 import tempfile
+from typing import Final
 
 import numpy as np
 import torch
@@ -30,6 +31,51 @@ DISTILLATION_TRAINING_DEFAULTS = {
     "learning_rate": 1e-3,
     "device": "cpu",
 }
+
+RUN_E_AGGREGATE_SHA256: Final = "dfaa213a89d8a87b267ffd7ed9dc69d5a3f8582204e79a11d575d30140a57c7c"
+RUN_E_SHARD_COUNT: Final = 241
+RUN_E_SAMPLE_COUNT: Final = 984_641
+
+
+def validate_run_e_corpus_identity(verified_manifest: object) -> None:
+    """Check frozen run_e facts AFTER storage.verify_aggregate_manifest(root).
+
+    This deliberately does not replace aggregate/audit/all-shard hashing and
+    does not hard-bind the generic student loader to one training corpus.
+    """
+
+    if type(verified_manifest) is not dict or verified_manifest.get("aggregate_sha256") != RUN_E_AGGREGATE_SHA256:
+        raise ValueError("run_e aggregate SHA-256 does not match the frozen corpus")
+    shards = verified_manifest.get("shards")
+    if type(shards) is not list or len(shards) != RUN_E_SHARD_COUNT:
+        raise ValueError("run_e shard count does not match the frozen corpus")
+    if any(type(row) is not dict or type(row.get("samples")) is not int or row["samples"] <= 0 for row in shards):
+        raise ValueError("run_e shard samples must be positive integers")
+    if sum(row["samples"] for row in shards) != RUN_E_SAMPLE_COUNT:
+        raise ValueError("run_e sample count does not match the frozen corpus")
+
+
+def validate_run_e_training_qualification(verified_manifest: object) -> None:
+    """Require frozen identity AND both accepted production source corpora.
+
+    The caller must first use the existing storage verifier. Identity alone
+    never grants permission to train or waive complete-data provenance gates.
+    """
+
+    validate_run_e_corpus_identity(verified_manifest)
+    totals = {"favor": 0, "oakinkv2": 0}
+    for row in verified_manifest["shards"]:
+        counts = row.get("source_counts")
+        if (
+            type(counts) is not dict or not counts or not set(counts) <= set(totals)
+            or any(type(count) is not int or count <= 0 for count in counts.values())
+            or sum(counts.values()) != row["samples"]
+        ):
+            raise ValueError("run_e source accounting is invalid")
+        for source, count in counts.items():
+            totals[source] += count
+    if any(count <= 0 for count in totals.values()):
+        raise ValueError("run_e production training requires both favor and oakinkv2 accepted samples")
 
 
 def default_distillation_training() -> dict[str, object]:
@@ -512,6 +558,8 @@ def validate_student_artifact(
 
 
 __all__ = [
+    "RUN_E_AGGREGATE_SHA256", "RUN_E_SHARD_COUNT", "RUN_E_SAMPLE_COUNT",
+    "validate_run_e_corpus_identity", "validate_run_e_training_qualification",
     "DISTILLATION_LOSS_CONFIG",
     "DISTILLATION_TRAINING_DEFAULTS",
     "LoadedStudent",

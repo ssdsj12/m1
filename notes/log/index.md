@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-15：[T500 run_e expert artifact qualification](2026-09-15-t500-run-e-expert-artifact.md)：241 shards、固定 canonical SHA、984641 manifest/actual NPZ 样本身份通过；全为 FAVOR，OakInkV2 accepted=0，双来源生产资格拒绝且未训练。fixture RED `13 failed, 71 passed` → GREEN `84 passed`；旧无-shards BLOCKED 仅为历史。
+
 - 2026-09-15：[T500 Probe headless baseline test](2026-09-15-t500-probe-headless-baseline.md)：修正 AppLauncher-owned CLI 的源码字面误报，验证同 parser/namespace 的 AST 启动顺序与真实安装注册行为；不改生产 CLI/控制/metadata pin。
 
 - 2026-09-15：[T500 DexManipNet runtime external metadata pin](2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)：Frozen runtime、Wrapper、Probe 和 Play 现在要求 prior artifact 与外部 64 位小写 metadata SHA-256 成对出现，在 worker/AppLauncher/Isaac 前严格拒绝缺失、格式错误或不匹配；Probe report/formal manifest 记录同一 pin。focused `43 passed`、expert-prior `299 passed`、pure QP `103 passed`；未运行生产 artifact 或 Isaac prior-on。
