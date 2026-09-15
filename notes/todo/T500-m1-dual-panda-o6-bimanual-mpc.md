@@ -96,9 +96,13 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Closed Children Archive
 
+- T500 baseline test 子节点：Probe 的 `--headless` 由 IsaacLab AppLauncher 注册，旧源码字面检查误报；已替换为同 parser 注册、严格解析和同 namespace 启动顺序检查。见 [基线验证](../log/2026-09-15-t500-probe-headless-baseline.md)。不改变 runtime/metadata pin 合同。
+
 - 机械拓扑、首个箱体任务、仿真真值、确定性控制、公共 yaw 平台、分层 MPC、资产边界、安全回退和验收门已完成交互确认。
 
 ## Related Logs
+
+- [2026-09-15 Probe headless baseline test](../log/2026-09-15-t500-probe-headless-baseline.md)
 
 - [2026-09-15 DexManipNet runtime external metadata pin](../log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)
 

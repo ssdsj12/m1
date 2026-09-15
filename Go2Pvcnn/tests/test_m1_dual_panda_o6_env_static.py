@@ -106,8 +106,28 @@ def test_wrapper_handles_root_inclusive_and_legacy_jacobian_body_layouts():
 
 def test_probe_has_required_startup_smoke_cli():
     source = _source(PROBE)
-    for option in ("--num-envs", "--steps", "--seed", "--headless"):
+    for option in ("--num-envs", "--steps", "--seed"):
         assert option in source
+    # --headless belongs to IsaacLab's AppLauncher, not the probe's parser.
+    # Verify executable wiring on the same parser/namespace, in startup order;
+    # a comment or an unrelated launcher call must not satisfy this contract.
+    tree = ast.parse(source)
+    main = next(
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    startup = [ast.dump(node, include_attributes=False) for node in main.body]
+    required = (
+        "parser = _parser()",
+        "from isaaclab.app import AppLauncher",
+        "AppLauncher.add_app_launcher_args(parser)",
+        "args = parser.parse_args()",
+        "app_launcher = AppLauncher(args)",
+    )
+    positions = [
+        startup.index(ast.dump(ast.parse(statement).body[0], include_attributes=False))
+        for statement in required
+    ]
+    assert positions == sorted(positions)
     assert "finite_snapshot" in source
     assert "action_dim" in source
     assert "unexpected_reset_count" in source

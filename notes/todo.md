@@ -4,6 +4,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- T500 Probe baseline headless 静态检查已改为同 parser/namespace 的真实 AST 启动接线验证；见 [基线修复记录](log/2026-09-15-t500-probe-headless-baseline.md)。生产 CLI/控制合同不变。
+
 - T500.5 runtime external metadata pin 已完成本地接线：prior-on 的 artifact 与 64 位小写 metadata SHA 必须成对提供，Frozen runtime/Wrapper/Probe/Play 强制逐层传递并在 worker/AppLauncher/Isaac 前拒绝错误配置；Probe report/formal manifest 固定同一 pin。focused `43 passed`、expert-prior `299 passed`、pure QP `103 passed`，生产 student/Isaac prior-on 尚未执行。见 [验证记录](log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)。
 
 - T500.5 Task 11 已完成完整固定 archive 下载、pin/SHA/source 验证和 atomic extraction，但在真实数据转换门 **BLOCKED**：全部 `1,292` 个 source-compatible OakInkV2 side 缺少 `seq_info` 指向的对象 URDF geometry，FAVOR 的 12-D Inspire q 又与 pinned URDF 的六个 mimic joint 声明冲突，不能诚信生成 geometry contact/FK。两项 extractor 修复已作 TDD (`17 passed`)，无 shards/ensemble/student/Isaac claim。见 [完整数据 gate 记录](log/2026-09-11-t500-dexmanipnet-full-distillation.md) 和 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md)。

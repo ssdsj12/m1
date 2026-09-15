@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-15：[T500 Probe headless baseline test](2026-09-15-t500-probe-headless-baseline.md)：修正 AppLauncher-owned CLI 的源码字面误报，验证同 parser/namespace 的 AST 启动顺序与真实安装注册行为；不改生产 CLI/控制/metadata pin。
+
 - 2026-09-15：[T500 DexManipNet runtime external metadata pin](2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)：Frozen runtime、Wrapper、Probe 和 Play 现在要求 prior artifact 与外部 64 位小写 metadata SHA-256 成对出现，在 worker/AppLauncher/Isaac 前严格拒绝缺失、格式错误或不匹配；Probe report/formal manifest 记录同一 pin。focused `43 passed`、expert-prior `299 passed`、pure QP `103 passed`；未运行生产 artifact 或 Isaac prior-on。
 - 2026-09-13：[T500 DexManipNet full-data conversion gate](2026-09-11-t500-dexmanipnet-full-distillation.md)：fixed archives/source verify and extracted cleanly, but Task 11 is blocked before shards: all `1,292` source-compatible OakInkV2 sides lack required object URDF geometry and FAVOR’s stored 12-D Inspire vectors conflict with the pinned URDF mimic declarations. Extractor wrapper/staging fixes are `01830be`/`ade81da` with `17 passed`; no training, artifact, Isaac, or physical claim.
 - 2026-09-13：[T500 DexManipNet prior Probe/Play entrypoints](2026-09-13-t500-dexmanipnet-prior-entrypoints.md)：Task 10 keeps artifact activation opt-in, validates supplied artifacts before launcher/Isaac startup, constructs distinct left/right strict adapters before wrapper startup, and emits per-side JSON/JSONL prior diagnostics with enabled-only p99 and active-precision variance. Review focused `53 passed`, Tasks 1–10 relevant `199 passed`; no Isaac/artifact physical run.
