@@ -50,6 +50,18 @@ def _nonempty_object(value: object) -> None:
         raise ValueError("expected nonempty evidence object")
 
 
+def _recipe(value: object) -> None:
+    _nonempty_object(value)
+    for field in ("tool", "version"):
+        item = value.get(field)
+        if type(item) is not str or not item or item.strip() != item:
+            raise ValueError("expected recipe tool/version identity")
+    arguments = value.get("arguments")
+    _nonempty_object(arguments)
+    if any(type(key) is not str or not key.strip() for key in arguments):
+        raise ValueError("expected named recipe arguments")
+
+
 def _json_pairs(pairs: list[tuple[str, object]]) -> dict:
     result = {}
     for key, value in pairs:
@@ -218,7 +230,7 @@ def verify_geometry_overlay(root: Path, manifest_path: Path, expected_sha256: st
         raise ValueError("unsupported geometry schema")
     if _keys(manifest["upstream"], set(_UPSTREAM)) != _UPSTREAM:
         raise ValueError("wrong upstream geometry pin")
-    _nonempty_object(manifest["recipe"])
+    _recipe(manifest["recipe"])
     if type(manifest["entries"]) is not list or not manifest["entries"]:
         raise ValueError("expected geometry entries")
     entries = {}

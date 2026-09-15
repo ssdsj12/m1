@@ -19,7 +19,7 @@ def valid_overlay(tmp_path):
     urdf = tmp_path / "objects/object.urdf"
     urdf.write_text('<robot name="object"><link name="base"><visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="mesh.obj" scale="1 1 1"/></geometry></visual><collision><geometry><mesh filename="mesh.obj"/></geometry></collision></link></robot>')
     reference = "ObjURDF/align_ds/object/model.urdf"
-    data = {"schema_version": 1, "upstream": {"repository": "kelvin34501/OakInk-v2", "revision": "21705616140d726607027e70d58b7837f442ffd8", "archive_sha256": "40bb71fb59e1288e5673f32c5bd8fdb501bef15e8b666005b4a6349549983cd2"}, "recipe": {"tool": "fixture", "version": "1", "arguments": []}, "entries": [{"reference": reference, "raw_member": "object_raw/align_ds/object.obj", "raw_sha256": "a" * 64, "urdf": "objects/object.urdf", "urdf_sha256": sha(urdf.read_bytes()), "meshes": [{"path": "objects/mesh.obj", "sha256": sha(mesh.read_bytes())}], "checks": {"fixture": True}}]}
+    data = {"schema_version": 1, "upstream": {"repository": "kelvin34501/OakInk-v2", "revision": "21705616140d726607027e70d58b7837f442ffd8", "archive_sha256": "40bb71fb59e1288e5673f32c5bd8fdb501bef15e8b666005b4a6349549983cd2"}, "recipe": {"tool": "fixture", "version": "1", "arguments": {"seed": 1}}, "entries": [{"reference": reference, "raw_member": "object_raw/align_ds/object.obj", "raw_sha256": "a" * 64, "urdf": "objects/object.urdf", "urdf_sha256": sha(urdf.read_bytes()), "meshes": [{"path": "objects/mesh.obj", "sha256": sha(mesh.read_bytes())}], "checks": {"fixture": True}}]}
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(data))
     return tmp_path, manifest, reference
@@ -50,6 +50,24 @@ def test_wrong_external_pin_rejected(valid_overlay):
     root, manifest, _ = valid_overlay
     with pytest.raises(ValueError):
         verify_geometry_overlay(root, manifest, "0" * 64)
+
+
+@pytest.mark.parametrize("recipe", [
+    {"unrelated": True},
+    {"tool": None, "version": "1", "arguments": {"seed": 1}},
+    {"tool": "", "version": "1", "arguments": {"seed": 1}},
+    {"tool": " fixture ", "version": "1", "arguments": {"seed": 1}},
+    {"tool": "fixture", "version": None, "arguments": {"seed": 1}},
+    {"tool": "fixture", "version": " ", "arguments": {"seed": 1}},
+    {"tool": "fixture", "version": "1"},
+    {"tool": "fixture", "version": "1", "arguments": []},
+    {"tool": "fixture", "version": "1", "arguments": {}},
+    {"tool": "fixture", "version": "1", "arguments": {"": 1}},
+])
+def test_recipe_requires_tool_version_and_arguments(valid_overlay, recipe):
+    edit_manifest(valid_overlay, lambda data: data.__setitem__("recipe", recipe))
+    with pytest.raises(ValueError):
+        verify(valid_overlay)
 
 
 @pytest.mark.parametrize("field", ["reference", "raw_member", "urdf"])
