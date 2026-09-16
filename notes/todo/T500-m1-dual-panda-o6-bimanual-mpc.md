@@ -2,7 +2,9 @@
 
 ## Current State
 
-用户已确认共同模型规格；Task5 [focused实施计划](../../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 已拆为共同动力学/LQ、并行line search、Task3原子发布三个审查门。尚未实现，下一步沿既选Subagent-Driven执行Task1。
+用户已确认共同模型规格；Task5 [focused实施计划](../../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 已拆为共同动力学/LQ、并行line search、Task3原子发布三个审查门。Task1共同动力学/LQ已实现并通过独立审查，下一步沿既选Subagent-Driven执行Task2。
+
+2026-09-16共同模型Task1提交范围`7aa665f..ce6942c`：固定H25、私有55D控制、机器人/箱体等大反向wrench耦合、2x20ms arm与4x10ms O6检查、110D状态转移、完整时域1375x1375 GN方向和hard验证已落地。两轮审查修复了不等式负向溢出误接受与动态约束数导致scratch隐式扩容；最终独立审查无finding。parent真实GPU0 focused `25 passed in 68.55s`，Task3 regression `82 passed in 2.36s`，指针稳定且allocated/reserved增量0。该dense路径仅为正确性后端，不代表实时性能、Play或Isaac物理验收；见 [Task1记录](../log/2026-09-16-t500-gpu-rti-common-model-task1.md)。
 
 GPU Task5共同模型缺口已有书面设计：公开43D动作不变，内部左右6D抓持wrench共同驱动箱体并反作用机器人，40ms节点组合2个arm/4个O6子步；安全硬约束与跟踪软代价分离。待用户书面复核，尚未实现；见[设计记录](../log/2026-09-16-t500-gpu-rti-common-model-design.md)。
 

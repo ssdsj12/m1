@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-16：[GPU RTI共同模型Task1](2026-09-16-t500-gpu-rti-common-model-task1.md)：共同机器人/箱体转移、固定子步、完整时域GN方向与hard验证通过独立审查；parent GPU0 focused25、Task3 regression82，存储地址稳定且显存增量0。仅正确性后端，非Play/性能/Isaac验收。
+
 - 2026-09-16：[GPU RTI共同模型实施计划](2026-09-16-t500-gpu-rti-common-model-plan.md)：3个TDD审查门覆盖共同KKT/LQ、并行整轨迹选择与Task3原子发布；自检完成，无产品代码/运行声明。
 
 - 2026-09-16：[GPU RTI共同模型设计](2026-09-16-t500-gpu-rti-common-model-design.md)：43D公开动作+12D私有抓持wrench、等大反向耦合、40ms固定子步和hard/soft边界已写明；待复核，无Task5代码/运行声明。
