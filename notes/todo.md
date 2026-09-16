@@ -4,6 +4,14 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- GPU Task3审查Approved/no findings；Task5 eager耦合RTI/并行线搜索推进中，prior-off；生产E0/Task4仍未完成。GPU入口当前未开放。
+
+- GPU Task3候选 `1d12e53`：parent82 passed，100次更新固定地址和显存稳定，独立审查中；见 [动力学验证](log/2026-09-16-t500-gpu-state-dynamics-warm-start.md)。
+
+- T500 CPU合同/runtime/reduced dynamics专项29 passed，见 [回归记录](log/2026-09-16-t500-cpu-contract-runtime-regression.md)。
+
+- GPU RTI：Task2 private CUDA合同/CLI已审查通过 `e280b8d`，parent复跑46 passed；Task3批量59+12 KKT凝聚、状态镜像和warm-start推进中。规格§12允许E0前prior-off开发。eligible OakInk左右各216内存窗口通过；仍无新双来源生产pin/训练。见 [当前证据](log/2026-09-16-t500-gpu-rti-contracts.md)。
+
 - T500 geometry 补齐：独立外部 SHA resolver `bcf43d8`、审计/加载共享接线 `a7346f2` 已通过独立审查，focused125 passed；两次mug生成字节一致并通过真实URDF/预处理链。mug均为非主操作侧，已启动主操作侧O02@0018@00001探针。仍需CLI triple/aggregate独立pin、批量生成、新目录转换和双来源新pin资格；不替换repair、不改run_e、不训练。见 [资产获取记录](log/2026-09-15-t500-oakink-geometry-acquisition.md)。
 
 - GPU RTI Task 1：当前 `run_e` 已是完整 241-shard 转换结果，固定 SHA 和实际 984641 NPZ 样本身份通过；但全为 FAVOR，OakInkV2 accepted=0，双来源生产资格 **BLOCKED**。fixture TDD `84 passed`，未启动训练、无生产 student。旧无-shards BLOCKED 日志仅为历史尝试；见 [当前资格拒绝证据](log/2026-09-15-t500-run-e-expert-artifact.md)。

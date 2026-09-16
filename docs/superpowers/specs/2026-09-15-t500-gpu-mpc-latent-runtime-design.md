@@ -11,8 +11,13 @@ path. The existing deterministic CPU implementation remains the reference and
 safety fallback. OSQP CUDA remains a comparison and fallback backend rather than
 the production hot path.
 
-The design is approved section by section, including the RTI revision, but
-remains unimplemented. It does not claim that Triton or CUDA Graph execution is
+The design is approved section by section, including the RTI revision.
+As of 2026-09-16, private CUDA contracts/CLI and persistent state, full KKT
+condensation and warm-start infrastructure are implemented and independently
+reviewed (`e280b8d`, `1d12e53`; focused GPU0 tests pass). The eager RTI planner
+is in progress; production expert qualification is still blocked. See the
+[verification record](../../../notes/log/2026-09-16-t500-gpu-state-dynamics-warm-start.md).
+It does not claim that Triton or CUDA Graph execution is
 already wired into T500, that any GPU backend is faster on this workload, or that
 the full manipulation mission passes Isaac validation.
 

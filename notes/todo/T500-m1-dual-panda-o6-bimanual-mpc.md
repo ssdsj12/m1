@@ -2,6 +2,14 @@
 
 ## Current State
 
+GPU Task3独立审查Approved/no findings；Task5 eager结构化RTI/并行线搜索推进中，prior-off按§12实施。Task4生产指尖prior仍依赖E0资格。当前GPU入口仍拒绝未开放后端，不提供未经验证的GPU Play指令。
+
+2026-09-16 GPU Task3候选 `1d12e53`：111D状态镜像、71x71批量KKT、43effort重构和逐行warm-start完成实现，parent82 passed；100次更新存储地址稳定、allocated/reserved增量0。独立审查进行中；见 [专项验证](../log/2026-09-16-t500-gpu-state-dynamics-warm-start.md)。
+
+2026-09-16 CPU边界专项：[合同/runtime/reduced dynamics回归](../log/2026-09-16-t500-cpu-contract-runtime-regression.md)29 passed，未运行全量物理验收。
+
+2026-09-16：GPU RTI Task2 private CUDA合同/CLI完成 `e280b8d`，独立审查Approved，parent真实GPU0 focused46 passed。Task3状态镜像/59+12 KKT凝聚/warm-start推进中；当前显式GPU solver仍启动前拒绝，不能宣称GPU Play可用。按规格§12不等待E0即可prior-off开发。eligible OakInk真实双主手探针各216内存窗口转换通过；无新shards/pin/训练，旧run_e保持不变。见 [本轮证据](../log/2026-09-16-t500-gpu-rti-contracts.md)。
+
 2026-09-15 GPU RTI Task 1：完整 `converted/run_e` 的 aggregate/audit/全部 241 shards SHA
 已重算，manifest 与逐 NPZ 实际样本均 `984641`，固定 SHA
 `dfaa213a89d8a87b267ffd7ed9dc69d5a3f8582204e79a11d575d30140a57c7c`。
@@ -176,6 +184,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
   - [现有单臂约束](../../Go2Pvcnn/go2_pvcnn/control/m1_panda_coordination/constraints.py)
 
 ## Next Step
+
+GPU主线：完成Task3并独立审查，再推进eager GPU RTI/QP、CPU parity、scan与graph性能门；保留prior-off，直到双来源E0/student资格闭合。Task2 Minor诊断字段行为断言留待入口集成测试完善。
 
 GPU RTI Task 1 当前先补齐 authoritative pinned OakInkV2 geometry，取得包含两来源的新版转换/批准 pin 后重跑完整资格；不以当前 FAVOR-only run_e 开始生产训练。
 

@@ -4,6 +4,14 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- GPU推进状态：Task3独立审查Approved/no findings，Task5 eager RTI推进中；上列验证记录为Task3基础设施范围，非线上GPU Play。
+
+- 2026-09-16：[T500 GPU状态/动力学/warm-start](2026-09-16-t500-gpu-state-dynamics-warm-start.md)：`1d12e53` parent82 passed；100次更新指针稳定、显存增量0，独立审查中，非RTI/物理验收。
+
+- 2026-09-16：[T500 CPU合同/runtime回归](2026-09-16-t500-cpu-contract-runtime-regression.md)：Task2后29 passed；首轮错误文件名无测试，修正后exit0，非全量/物理验收。
+
+- 2026-09-16：[T500 GPU RTI contracts](2026-09-16-t500-gpu-rti-contracts.md)：Task2 Approved、真实GPU0复跑46 passed；Task3推进中。eligible OakInk双手各216内存窗口通过，非完整语料生产资格；无GPU solver/Play/训练声明。
+
 - 2026-09-15：[T500 OakInkV2 geometry acquisition](2026-09-15-t500-oakink-geometry-acquisition.md)：独立resolver与审计/加载接线已审查通过，125 tests；两次mug生成SHA相同且真实预处理链通过。已启动主操作侧对象探针；CLI/aggregate pin、批量生成和双来源转换资格未完成，无训练/物理验收声明。
 
 - 2026-09-15：[T500 run_e expert artifact qualification](2026-09-15-t500-run-e-expert-artifact.md)：241 shards、固定 canonical SHA、984641 manifest/actual NPZ 样本身份通过；全为 FAVOR，OakInkV2 accepted=0，双来源生产资格拒绝且未训练。fixture RED `13 failed, 71 passed` → GREEN `84 passed`；旧无-shards BLOCKED 仅为历史。

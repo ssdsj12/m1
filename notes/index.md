@@ -15,6 +15,14 @@
 
 ## Agent Memory Entry
 
+- GPU当前阶段：Tasks2–3已完成审查，Task5 eager RTI推进中；生产指尖prior/E0、scan/Triton/graphs/Play性能及物理门未完成。
+
+- [T500 GPU状态/动力学/warm-start验证](log/2026-09-16-t500-gpu-state-dynamics-warm-start.md)：parent82 passed，存储/显存稳定，Task3独立审查中；GPU在线planner尚未实现。
+
+- [T500 CPU合同/runtime专项回归](log/2026-09-16-t500-cpu-contract-runtime-regression.md)：Task2后29 passed，非全量/物理验收。
+
+- [T500 GPU RTI 合同验证](log/2026-09-16-t500-gpu-rti-contracts.md)：Task2 审查Approved，真实GPU0复跑46 passed；Task3批量动力学/warm-start推进中。真实OakInk双主手探针各216内存窗口；非完整语料、无训练，GPU solver/Play未就绪。
+
 - [T500 OakInkV2 独立 geometry 接入](log/2026-09-15-t500-oakink-geometry-acquisition.md)：SHA resolver与审计/加载接线已审查通过，125 tests；mug两次生成及真实预处理链通过。主操作侧对象探针运行中，CLI/aggregate pin、批量生成与双来源新转换待完成。
 
 - [T500 run_e 身份通过、双来源训练资格拒绝](log/2026-09-15-t500-run-e-expert-artifact.md)：完整 241 shards / 984641 samples 已逐 SHA/NPZ 验证，但全为 FAVOR，OakInkV2 accepted=0；GPU RTI Task 1 BLOCKED，未训练。
