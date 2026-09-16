@@ -201,7 +201,15 @@ class CoupledLqWorkspace:
         self._weight_invalid = torch.empty_like(self._weight_valid)
         self._weight_absolute = torch.empty(nx, dtype=f32, device=self.device)
         self._weight_elements = torch.empty(nx, dtype=torch.bool, device=self.device)
-        self._finite = _FiniteRows(b, h * 12 * nx, self.device)
+        # Palm linearization is the widest fixed input at the base contract.
+        # User-sized inequality matrices may be wider and must fit the same
+        # persistent reduction storage without relying on out= tensor resizing.
+        finite_width = max(
+            h * 12 * nx,
+            h * max_wrench_constraints * 12,
+            h * max_hard_constraints * nu,
+        )
+        self._finite = _FiniteRows(b, finite_width, self.device)
         self._state_elements = torch.empty_like(self.state, dtype=torch.bool)
         self._control_elements = torch.empty_like(self.control, dtype=torch.bool)
         self._arm_elements = torch.empty_like(self.arm_substep_state, dtype=torch.bool)

@@ -1,4 +1,5 @@
 from dataclasses import FrozenInstanceError, replace
+import warnings
 
 import pytest
 import torch
@@ -127,11 +128,11 @@ def _problem(batch=2, wrench_constraints=3, hard_constraints=2):
     )
 
 
-def _setup(batch=2):
+def _setup(batch=2, wrench_constraints=3, hard_constraints=2):
     cpu, gpu = _dynamics_inputs(batch)
     dynamics = GpuReducedDynamics(batch=batch)
     dynamics.step(**gpu)
-    problem = _problem(batch)
+    problem = _problem(batch, wrench_constraints, hard_constraints)
     work = CoupledLqWorkspace(
         batch=batch,
         max_wrench_constraints=problem.wrench_inequality_matrix.shape[2],
@@ -420,9 +421,49 @@ def test_palm_stage_zero_tracks_predicted_x1_and_responds_to_u0():
     torch.testing.assert_close(work.gradient - base_gradient, expected_gradient_delta, atol=2.0e-4, rtol=2.0e-4)
 
 
+def test_empty_constraint_dimensions_keep_all_true_semantics():
+    _, _, dynamics, problem, work = _setup(
+        batch=2,
+        wrench_constraints=0,
+        hard_constraints=0,
+    )
+    assert work.assemble(problem, dynamics).tolist() == [True, True]
+    state = work.rollout(problem.nominal_control)
+    assert work.validate(state, problem.nominal_control).tolist() == [True, True]
+
+
+def test_large_hard_constraint_count_has_fixed_finite_storage():
+    _, _, dynamics, problem, work = _setup(
+        batch=1,
+        wrench_constraints=0,
+        hard_constraints=25,
+    )
+    required_finite_width = max(25 * 12 * 110, 25 * 25 * 55)
+    assert work._finite.absolute.shape == (1, required_finite_width)
+    pointers = _storage_pointers((vars(work), vars(work._finite)))
+    known = _storage_pointers(
+        (vars(work), vars(work._finite), vars(dynamics), vars(dynamics._finite), vars(problem))
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with _NoNewStorage(known):
+            work.assemble(problem, dynamics)
+            state = work.rollout(problem.nominal_control)
+            valid = work.validate(state, problem.nominal_control)
+    assert valid.tolist() == [True]
+    assert pointers == _storage_pointers((vars(work), vars(work._finite)))
+
+
 def test_resident_methods_keep_storage_and_allocator_stable_after_warmup():
-    _, _, dynamics, problem, work = _setup(batch=1)
+    _, _, dynamics, problem, work = _setup(
+        batch=1,
+        wrench_constraints=111,
+        hard_constraints=0,
+    )
     candidates = problem.nominal_control[:, None].expand(-1, 4, -1, -1).clone()
+    required_finite_width = max(25 * 12 * 110, 25 * 111 * 12)
+    assert work._finite.absolute.shape == (1, required_finite_width)
+    assert work._finite.elements.shape == (1, required_finite_width)
 
     def resident_cycle():
         work.assemble(problem, dynamics)
@@ -433,16 +474,20 @@ def test_resident_methods_keep_storage_and_allocator_stable_after_warmup():
         work.validate(work.state, problem.nominal_control)
         work.validate_candidates(work.candidate_state, candidates)
 
-    for _ in range(10):
-        resident_cycle()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for _ in range(10):
+            resident_cycle()
     torch.cuda.synchronize()
     pointers = _storage_pointers(vars(work))
     allocated = torch.cuda.memory_allocated()
     reserved = torch.cuda.memory_reserved()
     known = _storage_pointers((vars(work), vars(work._finite), vars(dynamics), vars(dynamics._finite), vars(problem), candidates))
-    with _NoNewStorage(known):
-        for _ in range(100):
-            resident_cycle()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with _NoNewStorage(known):
+            for _ in range(100):
+                resident_cycle()
     torch.cuda.synchronize()
     assert pointers == _storage_pointers(vars(work))
     assert torch.cuda.memory_allocated() == allocated
