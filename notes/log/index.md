@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-16：[GPU RTI共同模型缺口](2026-09-16-t500-gpu-rti-coupled-model-gap.md)：Task5只读调查NEEDS_CONTEXT，确认现有KKT/object/hand缺共同转移合同；无代码/测试/物理声明，待模型决策。
+
 - GPU推进状态：Task3独立审查Approved/no findings，Task5 eager RTI推进中；上列验证记录为Task3基础设施范围，非线上GPU Play。
 
 - 2026-09-16：[T500 GPU状态/动力学/warm-start](2026-09-16-t500-gpu-state-dynamics-warm-start.md)：`1d12e53` parent82 passed；100次更新指针稳定、显存增量0，独立审查中，非RTI/物理验收。

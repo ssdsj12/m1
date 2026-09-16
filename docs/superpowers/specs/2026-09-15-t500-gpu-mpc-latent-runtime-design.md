@@ -15,7 +15,9 @@ The design is approved section by section, including the RTI revision.
 As of 2026-09-16, private CUDA contracts/CLI and persistent state, full KKT
 condensation and warm-start infrastructure are implemented and independently
 reviewed (`e280b8d`, `1d12e53`; focused GPU0 tests pass). The eager RTI planner
-is in progress; production expert qualification is still blocked. See the
+is awaiting a common effort/grasp/object transition-model decision after
+read-only Task5 investigation; no planner code was added. Production expert
+qualification is still blocked. See the
 [verification record](../../../notes/log/2026-09-16-t500-gpu-state-dynamics-warm-start.md).
 It does not claim that Triton or CUDA Graph execution is
 already wired into T500, that any GPU backend is faster on this workload, or that

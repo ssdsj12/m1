@@ -4,6 +4,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
+- GPU Task5共同模型子节点NEEDS_CONTEXT：需确定内部抓持力辅助变量/机器人反作用、40ms网格及hard/soft目标关联；见 [模型缺口证据](log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)。无Task5代码，Tasks2–3完成审查/测试，GPU Play尚未开放。
+
 - GPU Task3审查Approved/no findings；Task5 eager耦合RTI/并行线搜索推进中，prior-off；生产E0/Task4仍未完成。GPU入口当前未开放。
 
 - GPU Task3候选 `1d12e53`：parent82 passed，100次更新固定地址和显存稳定，独立审查中；见 [动力学验证](log/2026-09-16-t500-gpu-state-dynamics-warm-start.md)。

@@ -2,6 +2,8 @@
 
 ## Current State
 
+最新：GPU Task5共同模型子节点NEEDS_CONTEXT，而非solver/GPU故障。需批准augmented grasp controls/robot reaction与40ms跨频率状态转移、hard/soft关联，才可定义真实耦合RTI的测试预期。调查只读，无Task5产品代码。见 [共同模型缺口](../log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)。
+
 GPU Task3独立审查Approved/no findings；Task5 eager结构化RTI/并行线搜索推进中，prior-off按§12实施。Task4生产指尖prior仍依赖E0资格。当前GPU入口仍拒绝未开放后端，不提供未经验证的GPU Play指令。
 
 2026-09-16 GPU Task3候选 `1d12e53`：111D状态镜像、71x71批量KKT、43effort重构和逐行warm-start完成实现，parent82 passed；100次更新存储地址稳定、allocated/reserved增量0。独立审查进行中；见 [专项验证](../log/2026-09-16-t500-gpu-state-dynamics-warm-start.md)。
@@ -101,6 +103,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 规格已写入 [设计文档](../../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)，13 任务 TDD [实施计划](../../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md)正在以 Inline Execution 执行。Tasks 1–3 已完成：左右 O6 资产规范化入库，组合 articulation 已生成并通过最终 Isaac 2000 步硬门。
 
 ## Open Children
+
+- GPU Task5共同预测模型合同：阻塞真实联合RTI assembler/CPU parity，区别于E0训练资格。内部辅助抓持变量/反作用/网格与约束关联待用户决策；证据见[模型缺口](../log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)。
 
 - T500.5 geometry acquisition：独立resolver `bcf43d8`、审计/加载接线 `a7346f2` 两项审查Approved，parent focused125 passed。两次mug字节一致且真实manifest/URDF/预处理链通过；mug7侧均为非主操作侧，启动eligible O02@0018@00001探针。仍需CLI/aggregate独立pin、批量生成、真实转换窗口和双来源新pin资格；run_e保持不变，无训练/生产prior。见 [获取证据](../log/2026-09-15-t500-oakink-geometry-acquisition.md)。
 
