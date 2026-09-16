@@ -500,6 +500,8 @@ class CoupledLqWorkspace:
                 out=self._hard_lhs[:, k, :, None],
             )
         output.logical_and_(self._finite.check(self._palm_residual))
+        output.logical_and_(self._finite.check(self._wrench_lhs))
+        output.logical_and_(self._finite.check(self._hard_lhs))
         torch.le(self._wrench_lhs, self.wrench_inequality_upper, out=self._wrench_elements)
         torch.all(self._wrench_elements, dim=(1, 2), out=self._mask)
         output.logical_and_(self._mask)

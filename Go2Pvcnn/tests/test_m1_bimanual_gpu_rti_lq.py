@@ -268,7 +268,9 @@ def test_metadata_and_weight_rejection_happen_before_workspace_writes():
         "hand_substep",
         "wrench_friction",
         "wrench_moment",
+        "wrench_negative_overflow",
         "hard",
+        "hard_negative_overflow",
         "nonfinite",
         "palm_residual",
     ],
@@ -314,9 +316,17 @@ def test_validation_rejects_only_bad_row_and_prior_off_zero_wrench_is_valid(bad)
         problem.wrench_inequality_matrix[0, 0, 0, 3] = 1.0
         problem.nominal_control[0, 0, 46] = 1.0
         problem.wrench_inequality_upper[0, 0, 0] = 0.2
+    elif bad == "wrench_negative_overflow":
+        problem.wrench_inequality_matrix[0, 0, 0, 0] = torch.finfo(torch.float32).max
+        problem.nominal_control[0, 0, 43] = -2.0
+        problem.wrench_inequality_upper[0, 0, 0] = 0.0
     elif bad == "hard":
         problem.hard_inequality_matrix[0, 0, 0, 0] = 1.0
         problem.hard_inequality_upper[0, 0, 0] = -1.0
+    elif bad == "hard_negative_overflow":
+        problem.hard_inequality_matrix[0, 0, 0, 0] = torch.finfo(torch.float32).max
+        problem.nominal_control[0, 0, 0] = -2.0
+        problem.hard_inequality_upper[0, 0, 0] = 0.0
     elif bad == "nonfinite":
         state[0, 4, 0] = float("nan")
     else:
