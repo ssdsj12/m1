@@ -2,6 +2,8 @@
 
 ## Current State
 
+GPU Task5共同模型缺口已有书面设计：公开43D动作不变，内部左右6D抓持wrench共同驱动箱体并反作用机器人，40ms节点组合2个arm/4个O6子步；安全硬约束与跟踪软代价分离。待用户书面复核，尚未实现；见[设计记录](../log/2026-09-16-t500-gpu-rti-common-model-design.md)。
+
 最新：GPU Task5共同模型子节点NEEDS_CONTEXT，而非solver/GPU故障。需批准augmented grasp controls/robot reaction与40ms跨频率状态转移、hard/soft关联，才可定义真实耦合RTI的测试预期。调查只读，无Task5产品代码。见 [共同模型缺口](../log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)。
 
 GPU Task3独立审查Approved/no findings；Task5 eager结构化RTI/并行线搜索推进中，prior-off按§12实施。Task4生产指尖prior仍依赖E0资格。当前GPU入口仍拒绝未开放后端，不提供未经验证的GPU Play指令。

@@ -15,6 +15,8 @@
 
 ## Agent Memory Entry
 
+- [GPU RTI共同模型设计](log/2026-09-16-t500-gpu-rti-common-model-design.md)：公开43D动作不变，内部左右6D抓持wrench以等大反向方式耦合机器人/箱体，40ms固定子步；书面规格待用户复核，尚未恢复Task5代码。
+
 - [GPU RTI共同预测模型缺口](log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)：Task5 NEEDS_CONTEXT，需确认内部抓持力变量、反作用与跨频率hard/soft耦合；未新增产品代码。Tasks2–3已通过，不能把分层目标复制视为联合预测。
 
 - GPU当前阶段：Tasks2–3已完成审查，Task5 eager RTI推进中；生产指尖prior/E0、scan/Triton/graphs/Play性能及物理门未完成。

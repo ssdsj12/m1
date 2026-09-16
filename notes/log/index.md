@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-16：[GPU RTI共同模型设计](2026-09-16-t500-gpu-rti-common-model-design.md)：43D公开动作+12D私有抓持wrench、等大反向耦合、40ms固定子步和hard/soft边界已写明；待复核，无Task5代码/运行声明。
+
 - 2026-09-16：[GPU RTI共同模型缺口](2026-09-16-t500-gpu-rti-coupled-model-gap.md)：Task5只读调查NEEDS_CONTEXT，确认现有KKT/object/hand缺共同转移合同；无代码/测试/物理声明，待模型决策。
 
 - GPU推进状态：Task3独立审查Approved/no findings，Task5 eager RTI推进中；上列验证记录为Task3基础设施范围，非线上GPU Play。
