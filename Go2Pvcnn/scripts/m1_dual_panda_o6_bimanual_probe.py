@@ -953,6 +953,9 @@ def _validate_prior_pair(parser: argparse.ArgumentParser, args: argparse.Namespa
 
 def _parser():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mpc-backend", choices=("reference-cpu", "bimanual-rti-cuda", "auto"), default="reference-cpu")
+    parser.add_argument("--qp-backend", choices=("reference-cpu", "osqp-cuda", "auto"), default="reference-cpu")
+    parser.add_argument("--control-device", default="cuda:0", help="requested control device; reference-cpu always uses CPU")
     parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--steps", type=int)
     parser.add_argument("--seed", type=int, default=7)
@@ -981,6 +984,13 @@ def main() -> int:
     parser = _parser()
     early_args, _unknown_launcher_args = parser.parse_known_args()
     _validate_prior_pair(parser, early_args)
+    from go2_pvcnn.control.m1_bimanual_coordination.gpu_rti.config import resolve_backend_selection
+
+    try:
+        backend_selection = resolve_backend_selection(early_args.mpc_backend, early_args.qp_backend, early_args.control_device)
+    except (ValueError, RuntimeError) as error:
+        parser.error(str(error))
+    parser.set_defaults(backend_selection=backend_selection)
     binding = None
     try:
         if early_args.fingertip_prior_artifact is not None:
@@ -1063,6 +1073,7 @@ def _run_with_fingertip_prior(parser, binding) -> int:
         for row in trials
     )
     metadata = {
+        **args.backend_selection,
         "asset_sha256": _sha256(Path(M1_DUAL_PANDA_O6_USD_PATH)),
         "source_sha256": _source_sha256(root),
         "git_ref": _git_ref(root),

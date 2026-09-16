@@ -24,6 +24,64 @@ COLLECT = ROOT / "scripts/m1_dual_panda_o6_collect_teacher.py"
 TRAIN_LATENT = ROOT / "scripts/m1_dual_panda_o6_train_latent.py"
 
 
+def test_backend_flags_parse_independently_without_launcher():
+    import importlib.util
+    for path in (PLAY, PROBE):
+        spec = importlib.util.spec_from_file_location("backend_entrypoint", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        defaults = module._parser().parse_args([])
+        assert defaults.mpc_backend == defaults.qp_backend == "reference-cpu"
+        assert defaults.control_device == "cuda:0"
+        for mpc in ("reference-cpu", "bimanual-rti-cuda", "auto"):
+            for qp in ("reference-cpu", "osqp-cuda", "auto"):
+                args = module._parser().parse_args(["--mpc-backend", mpc, "--qp-backend", qp, "--control-device", "cuda:1"])
+                assert (args.mpc_backend, args.qp_backend, args.control_device) == (mpc, qp, "cuda:1")
+
+
+def test_backend_startup_rejected_before_launcher_scene_or_wrapper():
+    for path in (PLAY, PROBE):
+        for flag, backend, expected in (("--mpc-backend", "bimanual-rti-cuda", "not implemented"), ("--qp-backend", "osqp-cuda", "not implemented"), ("--mpc-backend", "auto", "benchmarked"), ("--qp-backend", "auto", "benchmarked")):
+            code = f'''import importlib.util, sys
+spec = importlib.util.spec_from_file_location("backend_entrypoint", {str(path)!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module._run_with_fingertip_prior = lambda *args: (_ for _ in ()).throw(AssertionError("crossed launcher boundary"))
+sys.argv = [{str(path)!r}, {flag!r}, {backend!r}]
+module.main()
+'''
+            result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(ROOT)})
+            assert result.returncode == 2
+            assert expected in result.stderr
+            assert "crossed launcher boundary" not in result.stderr
+
+
+def test_backend_diagnostics_are_requested_and_actual():
+    for path in (PLAY, PROBE):
+        source = path.read_text()
+        assert "backend_selection" in source
+        assert "resolve_backend_selection" in source
+
+
+def test_cpu_startup_ignores_cuda_default_without_initializing_cuda():
+    for path in (PLAY, PROBE):
+        code = f'''import importlib.util, sys, torch
+spec = importlib.util.spec_from_file_location("backend_entrypoint", {str(path)!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+def inspect_boundary(parser, binding):
+    args = parser.parse_args()
+    assert args.backend_selection["control_device_actual"] == "cpu"
+    assert args.backend_selection["control_device_requested"] == "cuda:0"
+    assert not torch.cuda.is_initialized()
+    return 0
+module._run_with_fingertip_prior = inspect_boundary
+sys.argv = [{str(path)!r}]
+assert module.main() == 0
+'''
+        subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(ROOT)}, check=True)
+
+
 def _load_acceptance_functions():
     source = PROBE.read_text(encoding="utf-8")
     tree = ast.parse(source)
