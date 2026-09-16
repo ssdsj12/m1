@@ -35,8 +35,8 @@ semantics. No TBD/TODO remains. Frame, spatial order, reaction sign, common grid
 hard/soft boundary and public action boundary are explicit. The design remains
 focused on Task5; scan/Triton/graphs/runtime/physics stay later tasks.
 
-Next gate: user review of the written spec, followed by a revised Task5 TDD plan.
-No implementation or test claim in this log.
+The user confirmed the written spec. The focused Task5 TDD plan is now recorded
+separately; no implementation or test claim in this design log.
 
 - Last Verified Product Commit: `1d12e53`.
 - Current Work Ref: `codex/t500-dual-panda-o6-mpc`.

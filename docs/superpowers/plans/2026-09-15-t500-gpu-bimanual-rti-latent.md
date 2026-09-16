@@ -271,6 +271,12 @@ git commit -m "feat: add GPU O6 fingertip prior"
 
 ## Task 5: Build the eager PyTorch Gauss-Newton RTI planner and parallel line search
 
+> **Superseding focused plan:** The approved common effort/grasp/object contract and
+> executable Task5 decomposition are in
+> [`2026-09-16-t500-gpu-rti-common-model.md`](2026-09-16-t500-gpu-rti-common-model.md).
+> That focused plan governs Task5 interfaces, files, RED/GREEN fixtures and review
+> gates; the original outline below is retained only for history.
+
 **Files:**
 
 - Create: `Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/gpu_rti/lq_problem.py`

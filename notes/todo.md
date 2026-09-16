@@ -4,7 +4,9 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
-- GPU Task5共同模型已形成 [书面设计](../docs/superpowers/specs/2026-09-16-t500-gpu-rti-common-model-design.md)：43D公开动作+内部12D抓持wrench、反作用与固定子步、hard/soft边界已明确；待书面复核后改写计划，尚无Task5代码。
+- GPU Task5共同模型 [实施计划](../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 已完成自检：3个TDD/独立审查门，下一步Subagent-Driven Task1；GPU Play仍fail-closed。
+
+- GPU Task5共同模型 [书面设计](../docs/superpowers/specs/2026-09-16-t500-gpu-rti-common-model-design.md) 已获确认：43D公开动作+内部12D抓持wrench、反作用与固定子步、hard/soft边界已明确；focused计划已写，尚无Task5代码。
 
 - GPU Task5共同模型子节点NEEDS_CONTEXT：需确定内部抓持力辅助变量/机器人反作用、40ms网格及hard/soft目标关联；见 [模型缺口证据](log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)。无Task5代码，Tasks2–3完成审查/测试，GPU Play尚未开放。
 
