@@ -4,7 +4,7 @@
 
 **Goal:** Build an eager CUDA float32 predictor that optimizes a complete 43-effort horizon with private left/right 6-D grasp wrenches and atomically publishes only `[B,25,43]`.
 
-**Architecture:** Use a fixed 98-D reduced state (`43 q + 43 qd + 6 box pose + 6 box twist`) and private55-D node control (`43 effort +12 wrench`). Derive robot/object transitions from the full71-D constrained KKT and existing rigid-box model, solve one dense Gauss-Newton direction, evaluate four complete candidates in parallel, and use Task3 last-safe storage.
+**Architecture:** Use a fixed110-D reduced state (`6 base tangent pose + 6 base twist + 43 q + 43 qd + 6 box pose + 6 box twist`) and private55-D node control (`43 effort +12 wrench`). Derive robot/object transitions from the full71-D constrained KKT and existing rigid-box model, solve one dense Gauss-Newton direction, evaluate four complete candidates in parallel, and use Task3 last-safe storage.
 
 **Tech Stack:** Python3.11, PyTorch2.7/CUDA float32, pytest, existing CPU float64 bimanual fixtures.
 
@@ -36,7 +36,7 @@
 @dataclass(frozen=True)
 class CoupledRtiDims:
     horizon: int = 25
-    state_dim: int = 98
+    state_dim: int = 110
     effort_dim: int = 43
     wrench_dim: int = 12
     control_dim: int = 55
@@ -44,6 +44,9 @@ class CoupledRtiDims:
 @dataclass
 class CoupledRtiInput:
     measured_state: torch.Tensor            # [B,111], Task3 warm/report only
+    base_pose0: torch.Tensor                 # [B,6], position + local SO(3) tangent
+    base_twist0: torch.Tensor                # [B,6]
+    base_quaternion0: torch.Tensor           # [B,4], reporting reconstruction
     active_q0: torch.Tensor                 # [B,43]
     active_qd0: torch.Tensor                # [B,43]
     box_pose0: torch.Tensor                 # [B,6]
@@ -55,15 +58,15 @@ class CoupledRtiInput:
     nominal_control: torch.Tensor           # [B,25,55]
     control_lower: torch.Tensor             # [B,25,55]
     control_upper: torch.Tensor             # [B,25,55]
-    state_target: torch.Tensor              # [B,26,98]
-    state_weight: torch.Tensor              # [98]
+    state_target: torch.Tensor              # [B,26,110]
+    state_weight: torch.Tensor              # [110]
     control_weight: torch.Tensor            # [55]
-    terminal_weight: torch.Tensor           # [98]
+    terminal_weight: torch.Tensor           # [110]
     palm_residual_offset: torch.Tensor      # [B,25,12]
-    palm_state_jacobian: torch.Tensor       # [B,25,12,98]
+    palm_state_jacobian: torch.Tensor       # [B,25,12,110]
     palm_weight: torch.Tensor               # [12]
-    state_lower: torch.Tensor               # [B,26,98]
-    state_upper: torch.Tensor               # [B,26,98]
+    state_lower: torch.Tensor               # [B,26,110]
+    state_upper: torch.Tensor               # [B,26,110]
     wrench_inequality_matrix: torch.Tensor  # [B,25,C,12]
     wrench_inequality_upper: torch.Tensor   # [B,25,C]
     hard_inequality_matrix: torch.Tensor    # [B,25,K,55]
@@ -75,7 +78,7 @@ class CoupledLqWorkspace:
                  max_hard_constraints: int, device="cuda:0"): ...
     def assemble(self, problem: CoupledRtiInput, dynamics: GpuReducedDynamics) -> torch.Tensor: ...
     def rollout(self, control: torch.Tensor) -> torch.Tensor: ...
-    def rollout_candidates(self, control: torch.Tensor) -> torch.Tensor: ...  # [B,4,26,98]
+    def rollout_candidates(self, control: torch.Tensor) -> torch.Tensor: ...  # [B,4,26,110]
     def linearize(self) -> tuple[torch.Tensor, torch.Tensor]: ...
     def solve_direction(self) -> torch.Tensor: ...
     def validate(self, state: torch.Tensor, control: torch.Tensor) -> torch.Tensor: ...
@@ -90,9 +93,9 @@ class CoupledLqWorkspace:
 Use real CUDA and coupled SPD CPU fixtures. Calculate an independent float64 augmented71×56 KKT reference. Assert `qdd_wrench[B,59,12]` matches at `atol=rtol=3e-5`. In a zero-offset fixture with box twist equal to each palm twist, verify contact power cancels between `J@qd` against `-w` and the box against `+w`.
 
 ```python
-assert workspace.rollout(nominal).shape == (batch, 26, 98)
+assert workspace.rollout(nominal).shape == (batch, 26, 110)
 assert torch.equal(workspace.state[:, 0], measured_x0)
-assert workspace.arm_substep_state.shape == (batch, 25, 2, 86)
+assert workspace.arm_substep_state.shape == (batch, 25, 2, 98)
 assert workspace.hand_substep_state.shape == (batch, 25, 4, 24)
 ```
 
@@ -110,7 +113,7 @@ Expected: `ModuleNotFoundError: ...gpu_rti.lq_problem`.
 
 - [ ] **Step 3: Implement fixed-shape contracts, wrench reaction and transitions.**
 
-Validate shape/dtype/device/autograd before writes. Preallocate state/control staging, wrench RHS/solution, `A[B,25,98,98]`, `B[B,25,98,55]`, `c[B,25,98]`, rollout/substeps, Hessian/gradient/direction, masks and counters with explicit float32.
+Validate shape/dtype/device/autograd before writes. Preallocate state/control staging, wrench RHS/solution, `A[B,25,110,110]`, `B[B,25,110,55]`, `c[B,25,110]`, rollout/substeps, Hessian/gradient/direction, masks and counters with explicit float32.
 
 Build KKT wrench RHS top rows as exactly `[-J_left.T,-J_right.T]`, wheel rows zero, sanitize invalid rows, and solve through the already validated LU into this workspace's output. Explicitly stage side/spatial order; do not depend on a non-contiguous reshape.
 
@@ -155,7 +158,7 @@ git commit -m "feat: assemble coupled GPU RTI dynamics"
 @dataclass
 class LineSearchResult:
     control: torch.Tensor       # borrowed [B,25,55]
-    state: torch.Tensor         # borrowed [B,26,98]
+    state: torch.Tensor         # borrowed [B,26,110]
     accepted: torch.Tensor      # borrowed [B] bool
     alpha_index: torch.Tensor   # borrowed [B] int64; -1 rejected
     merit: torch.Tensor         # borrowed [B] float32; +inf rejected
@@ -252,7 +255,7 @@ Private reason constants: `0 accepted`, `1 no_safe_horizon`, `2 input_invalid`, 
 
 Use feasible, active-limit, all-infeasible, left-failure and nonfinite fixtures. Assert exactly one direction solve; result is `[B,25,43]`; no wrench appears in result. Seed a safe horizon, then prove a failed cycle returns it unchanged with `accepted=False,safe_available=True`. Reset/identity mismatch must clear availability until a new acceptance. Row0 failure cannot alter row1.
 
-For a small unconstrained case, independently assemble the98-state/55-control CPU float64 system. Compare state at `STATE_ATOL=5e-5`, first effort at `ACTION_ATOL=5e-4,RTOL=5e-4`, and require identical accept/reject decisions. Include active public effort bounds and equality-bound bypass.
+For a small unconstrained case, independently assemble the110-state/55-control CPU float64 system. Compare state at `STATE_ATOL=5e-5`, first effort at `ACTION_ATOL=5e-4,RTOL=5e-4`, and require identical accept/reject decisions. Include active public effort bounds and equality-bound bypass.
 
 - [ ] **Step 2: Run RED.**
 
@@ -283,7 +286,7 @@ warm.accept(candidate.control[..., :43], reporting_state,
             publishable, identity)
 ```
 
-Own a persistent `[B,26,111]` reporting horizon. Copy the98 predicted fields through a frozen index map and carry measured-only fields from node0; never count carried fields as predicted residuals.
+Own a persistent `[B,26,111]` reporting horizon. Copy active and box predictions through a frozen index map; reconstruct the base quaternion from `base_quaternion0` and the predicted local SO(3) tangent using the existing shortest-path helpers. Never linearly copy tangent coordinates into quaternion slots or count carried fields as predicted residuals.
 
 Stage before `warm.accept`. On failure return shifted last-safe only if it was valid before this solve; otherwise zero action and set `no_safe_horizon`. Fallback is never marked accepted. Wrench stays private.
 

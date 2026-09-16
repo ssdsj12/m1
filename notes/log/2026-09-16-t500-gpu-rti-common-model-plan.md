@@ -13,7 +13,7 @@ The original GPU plan now marks this focused plan as the governing Task5 detail.
 
 It splits Task5 into three independently testable/reviewable changes:
 
-1. 98-state/55-control robot-box KKT transition, substep checks and dense GN direction;
+1. 110-state/55-control robot-box KKT transition, substep checks and dense GN direction;
 2. four parallel complete-horizon candidates with deterministic atomic selection;
 3. Task3 warm-start integration and private `[B,25,43]` publication.
 
@@ -28,6 +28,11 @@ Checked design coverage, placeholder patterns and cross-task type names. Added
 the missing111-D measured state for Task3 reporting, explicit current
 `GpuReducedDynamics` input, palm residual blocks, state bounds and fixed hard
 inequality tensors. No product code or tests run in this planning step.
+
+Execution preflight caught and corrected an omitted base state: the internal state
+is110-D (base tangent pose/twist12 + active q/qd86 + box12), then maps back to the
+existing111-D quaternion-based reporting layout. This preserves the current fixed
+base and the approved later sliding-base extension without a contract change.
 
 Execution mode remains the user's earlier Subagent-Driven selection. Next:
 extract focused Task1 brief, implement with TDD, independently review, then
