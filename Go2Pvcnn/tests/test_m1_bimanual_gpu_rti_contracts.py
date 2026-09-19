@@ -70,6 +70,16 @@ def test_unimplemented_cuda_never_silently_falls_back(monkeypatch, mpc, qp, avai
         resolve_backend_selection(mpc, qp, "cuda:0")
 
 
+def test_bimanual_cuda_rejects_before_runtime_or_scene_creation(monkeypatch):
+    monkeypatch.setattr(
+        torch,
+        "device",
+        lambda *args, **kwargs: pytest.fail("runtime/device creation reached"),
+    )
+    with pytest.raises(ValueError, match="bimanual-rti-cuda is not implemented"):
+        resolve_backend_selection("bimanual-rti-cuda", "reference-cpu", "cuda:0")
+
+
 @pytest.mark.parametrize("mpc,qp", [("auto", "reference-cpu"), ("reference-cpu", "auto")])
 def test_auto_rejects_missing_benchmarked_manifest(mpc, qp):
     with pytest.raises(ValueError, match="benchmarked.*manifest"):
