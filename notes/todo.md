@@ -4,9 +4,9 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
-- GPU Task5共同模型 [实施计划](../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 的Task1已完成：共同动力学/LQ与完整时域GN方向通过独立审查，parent GPU0 `25 passed`、Task3回归`82 passed`；下一步Subagent-Driven Task2并行整轨迹line search，GPU Play仍fail-closed。见 [Task1证据](log/2026-09-16-t500-gpu-rti-common-model-task1.md)。
+- GPU Task5共同模型 [实施计划](../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 的Tasks1–2已完成：共同动力学/LQ与四候选完整时域line search均通过独立审查；parent GPU0 Task2 `3 passed`、Tasks1–2 `28 passed`且显存增量0。下一步Subagent-Driven Task3 planner/last-safe原子发布，GPU Play仍fail-closed。见 [Task1证据](log/2026-09-16-t500-gpu-rti-common-model-task1.md) 与 [Task2证据](log/2026-09-17-t500-gpu-rti-common-model-task2.md)。
 
-- GPU Task5共同模型 [书面设计](../docs/superpowers/specs/2026-09-16-t500-gpu-rti-common-model-design.md) 已获确认：43D公开动作+内部12D抓持wrench、反作用与固定子步、hard/soft边界已明确；Task1产品代码已完成，Task2–3待实施。
+- GPU Task5共同模型 [书面设计](../docs/superpowers/specs/2026-09-16-t500-gpu-rti-common-model-design.md) 已获确认：43D公开动作+内部12D抓持wrench、反作用与固定子步、hard/soft边界已明确；Tasks1–2产品代码已完成，Task3待实施。
 
 - GPU Task5共同模型子节点NEEDS_CONTEXT：需确定内部抓持力辅助变量/机器人反作用、40ms网格及hard/soft目标关联；见 [模型缺口证据](log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)。无Task5代码，Tasks2–3完成审查/测试，GPU Play尚未开放。
 

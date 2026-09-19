@@ -15,6 +15,8 @@
 
 ## Agent Memory Entry
 
+- [GPU RTI共同模型Task2](log/2026-09-17-t500-gpu-rti-common-model-task2.md)：四条完整H25候选的并行line search已实现并通过独立审查；parent GPU0 focused`3 passed`、Tasks1–2`28 passed`，两套存储/显存guard稳定。下一步Task3 last-safe原子发布，仍非Play/性能/Isaac验收。
+
 - [GPU RTI共同模型Task1](log/2026-09-16-t500-gpu-rti-common-model-task1.md)：私有55D控制下的机器人/箱体共同转移、固定子步、完整时域GN方向与hard验证已实现并通过独立审查；parent GPU0 `25 passed`，Task3回归`82 passed`。下一步Task2并行整轨迹line search；仍非Play/性能/Isaac验收。
 
 - [GPU RTI共同模型实施计划](log/2026-09-16-t500-gpu-rti-common-model-plan.md)：已拆成动力学/LQ、并行整轨迹line search、Task3原子发布三个TDD审查门；下一步按既选Subagent-Driven执行，尚无Task5产品代码。
@@ -23,7 +25,7 @@
 
 - [GPU RTI共同预测模型缺口](log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)：Task5 NEEDS_CONTEXT，需确认内部抓持力变量、反作用与跨频率hard/soft耦合；未新增产品代码。Tasks2–3已通过，不能把分层目标复制视为联合预测。
 
-- GPU当前阶段：基础Tasks2–3与共同模型Task1已完成审查，Task2并行line search推进中；生产指尖prior/E0、scan/Triton/graphs/Play性能及物理门未完成。
+- GPU当前阶段：基础Tasks2–3与共同模型Tasks1–2已完成审查，Task3 planner/last-safe原子发布推进中；生产指尖prior/E0、scan/Triton/graphs/Play性能及物理门未完成。
 
 - [T500 GPU状态/动力学/warm-start验证](log/2026-09-16-t500-gpu-state-dynamics-warm-start.md)：parent82 passed，存储/显存稳定，Task3独立审查中；GPU在线planner尚未实现。
 

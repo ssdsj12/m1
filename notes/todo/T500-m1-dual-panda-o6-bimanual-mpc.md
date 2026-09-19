@@ -2,7 +2,9 @@
 
 ## Current State
 
-用户已确认共同模型规格；Task5 [focused实施计划](../../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 已拆为共同动力学/LQ、并行line search、Task3原子发布三个审查门。Task1共同动力学/LQ已实现并通过独立审查，下一步沿既选Subagent-Driven执行Task2。
+用户已确认共同模型规格；Task5 [focused实施计划](../../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 已拆为共同动力学/LQ、并行line search、Task3原子发布三个审查门。Tasks1–2已实现并通过独立审查，下一步沿既选Subagent-Driven执行Task3。
+
+2026-09-17共同模型Task2提交`f4c1105`：固定`(1,.5,.25,.125)`四候选、完整H25 rollout/hard validation、与Task1一致的四项soft merit、最低索引平局胜出、普通行严格改善、等上下界nominal旁路和整行原子拒绝已落地。独立审查无finding；parent真实GPU0 focused `3 passed in 59.90s`，Tasks1–2 combined `28 passed in 127.11s`，line-search 38个与LQ 111个存储地址稳定且allocated/reserved增量0。last-safe发布仍留给Task3，GPU Play继续fail-closed；见 [Task2记录](../log/2026-09-17-t500-gpu-rti-common-model-task2.md)。
 
 2026-09-16共同模型Task1提交范围`7aa665f..ce6942c`：固定H25、私有55D控制、机器人/箱体等大反向wrench耦合、2x20ms arm与4x10ms O6检查、110D状态转移、完整时域1375x1375 GN方向和hard验证已落地。两轮审查修复了不等式负向溢出误接受与动态约束数导致scratch隐式扩容；最终独立审查无finding。parent真实GPU0 focused `25 passed in 68.55s`，Task3 regression `82 passed in 2.36s`，指针稳定且allocated/reserved增量0。该dense路径仅为正确性后端，不代表实时性能、Play或Isaac物理验收；见 [Task1记录](../log/2026-09-16-t500-gpu-rti-common-model-task1.md)。
 
