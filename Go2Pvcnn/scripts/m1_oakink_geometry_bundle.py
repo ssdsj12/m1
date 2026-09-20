@@ -17,6 +17,8 @@ import tarfile
 import tempfile
 import xml.etree.ElementTree as ET
 
+import h5py
+
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.preprocess import load_object_collision_mesh
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.geometry_overlay import verify_geometry_overlay
 
@@ -42,26 +44,41 @@ def collect_compatible_references(sequence_root: Path, raw_archive: Path | None 
             info = json.loads(info_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        # ``bih`` sequences contain two main-hand sides and are part of the
-        # dual-source corpus; passive single-hand recordings are not.
-        if info.get("interaction_mode") not in {"rh_main", "lh_main", "bh_main"}:
+        mode = info.get("interaction_mode")
+        if mode not in {"rh_main", "lh_main", "bh_main"}:
             continue
-        for key in ("obj_rh_path", "obj_lh_path"):
+        sides = ("rh",) if mode == "rh_main" else ("lh",) if mode == "lh_main" else ("rh", "lh")
+        rollout_path = info_path.parent / "rollouts.hdf5"
+        try:
+            with h5py.File(rollout_path, "r") as handle:
+                successful = handle["rollouts"]["successful"]
+                has_successful = len(successful) > 0
+        except (OSError, KeyError, TypeError):
+            has_successful = False
+        if not has_successful:
+            continue
+        for side in sides:
+            key = "obj_" + side + "_path"
             value = info.get(key)
             if isinstance(value, str) and value and value.startswith("ObjURDF/"):
                 refs.add(value)
     if raw_archive is not None:
         with tarfile.open(raw_archive, "r") as tar:
             members = set(tar.getnames())
-        refs = {ref for ref in refs if _raw_member(ref) in members}
+        refs = {ref for ref in refs if _raw_member(ref, members) in members}
     return tuple(sorted(refs))
 
 
-def _raw_member(reference: str) -> str:
+def _raw_member(reference: str, members: set[str] | None = None) -> str:
     if not reference.startswith("ObjURDF/") or not reference.endswith(".urdf"):
         raise ValueError(f"unsafe geometry reference: {reference!r}")
     rel = reference.removeprefix("ObjURDF/")[:-5]
-    return "object_raw/" + rel + ".ply"
+    candidates = ("object_raw/" + rel + ".ply", "object_raw/" + rel + ".obj")
+    if members is not None:
+        for candidate in candidates:
+            if candidate in members:
+                return candidate
+    return candidates[0]
 
 
 def _write_urdf(path: Path, mesh_name: str) -> None:
@@ -100,6 +117,8 @@ def build_geometry_bundle(*, raw_archive: Path, sequence_root: Path, output_root
     raw_archive, sequence_root, output_root = map(Path, (raw_archive, sequence_root, output_root))
     if _sha(raw_archive) != UPSTREAM["archive_sha256"]:
         raise ValueError("raw archive SHA-256 mismatch")
+    with tarfile.open(raw_archive, "r") as archive:
+        raw_members = set(archive.getnames())
     references = collect_compatible_references(sequence_root, raw_archive)
     if not references:
         raise ValueError("no source-compatible geometry references")
@@ -112,9 +131,9 @@ def build_geometry_bundle(*, raw_archive: Path, sequence_root: Path, output_root
     failures = []
     try:
         for reference in references:
-            member = _raw_member(reference)
+            member = _raw_member(reference, raw_members)
             safe = hashlib.sha256(reference.encode()).hexdigest()[:16]
-            mesh = stage / "urdf" / "meshes" / f"{safe}.ply"
+            mesh = stage / "urdf" / "meshes" / f"{safe}{Path(member).suffix}"
             urdf = stage / "urdf" / f"{safe}.urdf"
             mesh.parent.mkdir(parents=True, exist_ok=True)
             urdf.parent.mkdir(parents=True, exist_ok=True)

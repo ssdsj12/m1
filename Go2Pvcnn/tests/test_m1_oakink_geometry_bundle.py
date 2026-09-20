@@ -2,11 +2,13 @@ from __future__ import annotations
 import hashlib, json, tarfile
 from pathlib import Path
 import pytest
+import h5py
 from scripts.m1_oakink_geometry_bundle import collect_compatible_references, verify_geometry_bundle
 
 def test_collects_unique_sorted_references(tmp_path: Path):
     for name, ref in [("b", "ObjURDF/align_ds/B/x.urdf"), ("a", "ObjURDF/align_ds/A/x.urdf")]:
         p = tmp_path / name; p.mkdir(); (p / "seq_info.json").write_text(json.dumps({"type":"rh", "interaction_mode":"rh_main", "obj_rh_path":ref}), encoding="utf-8")
+        with h5py.File(p / "rollouts.hdf5", "w") as h5: h5.create_group("rollouts/successful/ok")
     assert collect_compatible_references(tmp_path) == ("ObjURDF/align_ds/A/x.urdf", "ObjURDF/align_ds/B/x.urdf")
 
 def test_verify_rejects_wrong_manifest_sha(tmp_path: Path):
