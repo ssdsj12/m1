@@ -152,6 +152,15 @@ def _force_strict_line_search_rejection(planner, dynamics, problem):
     problem.state_target.copy_(planner.lq.rollout(problem.nominal_control))
 
 
+def _make_row0_all_alpha_hard_infeasible(problem):
+    problem.control_lower.fill_(-10.0)
+    problem.control_upper.fill_(10.0)
+    problem.hard_inequality_matrix.zero_()
+    problem.hard_inequality_upper.fill_(100.0)
+    problem.hard_inequality_matrix[0, 0, 0, 0] = -1.0
+    problem.hard_inequality_upper[0, 0, 0] = -problem.nominal_control[0, 0, 0]
+
+
 def test_one_rti_call_public_shape_mapping_and_persistent_quaternion(monkeypatch):
     planner, dynamics, problem, identity, reset = _fixture(batch=2)
     solve_calls = 0
@@ -217,6 +226,45 @@ def test_row_local_repeated_last_safe_fallback_reset_and_identity_invalidation()
     assert invalidated.safe_available.tolist() == [False, False]
     assert invalidated.reason_code.tolist() == [REASON_NO_SAFE_HORIZON] * 2
     assert not invalidated.action.any()
+
+
+def test_all_alpha_hard_infeasible_row_fails_closed_or_uses_complete_shifted_fallback():
+    planner, dynamics, problem, identity, reset = _fixture(batch=2)
+    _make_row0_all_alpha_hard_infeasible(problem)
+
+    no_prior = planner.step(problem, dynamics, identity, reset)
+    assert problem.input_valid.tolist() == [True, True]
+    assert planner._nominal_valid.tolist() == [True, True]
+    assert planner.line_search.nominal_valid.tolist() == [True, True]
+    assert planner.line_search.candidate_valid.tolist() == [
+        [False, False, False, False],
+        [True, True, True, True],
+    ]
+    hard_lhs = -planner.line_search.candidate_control[0, :, 0, 0]
+    assert hard_lhs.gt(problem.hard_inequality_upper[0, 0, 0]).all()
+    assert no_prior.accepted.tolist() == [False, True]
+    assert no_prior.safe_available.tolist() == [False, True]
+    assert no_prior.reason_code.tolist() == [REASON_NO_SAFE_HORIZON, REASON_ACCEPTED]
+    assert not no_prior.action[0].any()
+    assert torch.equal(no_prior.action[1], planner.line_search.result_control[1, :, :43])
+
+    planner, dynamics, problem, identity, reset = _fixture(batch=2)
+    seeded = planner.step(problem, dynamics, identity, reset)
+    last_safe = seeded.action.clone()
+    _make_row0_all_alpha_hard_infeasible(problem)
+
+    with_prior = planner.step(problem, dynamics, identity, reset)
+    expected_shift = torch.cat((last_safe[0, 1:], last_safe[0, -1:]), dim=0)
+    assert planner._nominal_valid.tolist() == [True, True]
+    assert planner.line_search.candidate_valid.tolist() == [
+        [False, False, False, False],
+        [True, True, True, True],
+    ]
+    assert with_prior.accepted.tolist() == [False, True]
+    assert with_prior.safe_available.tolist() == [True, True]
+    assert with_prior.reason_code.tolist() == [REASON_LINE_SEARCH_REJECTED, REASON_ACCEPTED]
+    assert torch.equal(with_prior.action[0], expected_shift)
+    assert torch.equal(with_prior.action[1], planner.line_search.result_control[1, :, :43])
 
 
 def test_left_side_nonfinite_failure_cannot_alter_accepted_neighbor():
