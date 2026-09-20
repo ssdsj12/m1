@@ -1,6 +1,9 @@
-"""Private float32 CUDA contracts; no GPU solver is implemented yet.
+"""Private float32 CUDA RTI correctness backend and fixed contracts.
 
-These types do not replace the public CPU float64 control contracts.
+The eager coupled LQ, line-search, and planner modules are correctness-only;
+production GPU Play remains explicitly fail-closed until later runtime,
+benchmark, and Isaac validation gates. These types do not replace the public
+CPU float64 control contracts.
 """
 
 from .config import GpuRtiCfg
