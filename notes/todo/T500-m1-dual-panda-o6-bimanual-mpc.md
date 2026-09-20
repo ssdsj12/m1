@@ -2,7 +2,9 @@
 
 ## Current State
 
-用户已确认共同模型规格；Task5 [focused实施计划](../../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 已拆为共同动力学/LQ、并行line search、Task3原子发布三个审查门。Tasks1–2已实现并通过独立审查，下一步沿既选Subagent-Driven执行Task3。
+用户已确认共同模型规格；Task5 [focused实施计划](../../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 已拆为共同动力学/LQ、并行line search、Planner原子发布三个审查门。三道 Gate A–C 已实现并通过独立审查，下一阶段为后续 GPU runtime/benchmark/Isaac 门。
+
+2026-09-20共同模型 Gate C：提交`5cba6a7`实现 eager coupled planner，`aff491f`补齐全候选hard-infeasible覆盖。Planner按固定顺序只做一次RTI direction/line search，公开与warm storage仅43D；报告状态保留111D quaternion布局，内部110D用`q0⊗Exp(local tangent)`重建。逐row identity/reset失效、重复shifted last-safe、无prior zero/no-safe、nominal有效但四alpha全hard-infeasible、CPU float64 parity、fail-closed backend均有覆盖。独立复审最终 Approved；parent planner/contracts `42 passed in83.84s`，Gate A–C回归 `123 passed in209.84s`，205个planner/LQ/search/warm存储地址稳定且allocated/reserved增量0。该结果是prior-off eager correctness backend，不表示GPU Play、scan/Triton/graphs、实时benchmark或Isaac物理验收；见 [Gate C记录](../log/2026-09-20-t500-gpu-rti-common-model-gate-c.md)。
 
 2026-09-17共同模型Task2提交`f4c1105`：固定`(1,.5,.25,.125)`四候选、完整H25 rollout/hard validation、与Task1一致的四项soft merit、最低索引平局胜出、普通行严格改善、等上下界nominal旁路和整行原子拒绝已落地。独立审查无finding；parent真实GPU0 focused `3 passed in 59.90s`，Tasks1–2 combined `28 passed in 127.11s`，line-search 38个与LQ 111个存储地址稳定且allocated/reserved增量0。last-safe发布仍留给Task3，GPU Play继续fail-closed；见 [Task2记录](../log/2026-09-17-t500-gpu-rti-common-model-task2.md)。
 
