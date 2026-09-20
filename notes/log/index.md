@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-20：[T500 geometry bundle gate](2026-09-20-t500-geometry-bundle.md)：独立 builder/validator focused `3 passed`；真实 pinned archive 93 个 raw-covered 主手引用全部未通过 watertight/positive-volume 门，未发布 manifest，双来源转换/训练/GPU Play 继续阻塞。
+
 - 2026-09-20：[GPU RTI共同模型Gate C](2026-09-20-t500-gpu-rti-common-model-gate-c.md)：Planner、报告映射、四元数、逐row last-safe和fail-closed合同通过独立复审；nominal有效/四alpha全hard-infeasible覆盖已补齐。parent planner/contracts42、Gate A–C123，存储/显存稳定。非GPU Play/实时/Isaac验收。
 
 - 2026-09-17：[GPU RTI共同模型Task2](2026-09-17-t500-gpu-rti-common-model-task2.md)：固定四alpha、完整时域hard validation、严格merit改善、等上下界旁路和整行原子拒绝通过独立审查；parent GPU0 focused3、Tasks1–2 combined28，显存增量0。非last-safe/Play/性能/Isaac验收。

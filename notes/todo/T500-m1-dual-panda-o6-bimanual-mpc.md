@@ -122,6 +122,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 - T500.5：DexManipNet 掌坐标五指尖概率先验；Tasks 1–10 已完成至 opt-in wrapper/Probe/Play artifact and diagnostics wiring。Task 11 已在真实 fixed archives 上被对象 geometry 缺失和 Inspire q/URDF mimic mapping 矛盾阻塞；等待 authoritative pinned geometry bundle 与 FK mapping，不能跳过 OakInkV2 或降级 safety/provenance gate。
 
+- T500.5 geometry bundle（2026-09-20）：独立 builder/validator 已实现并通过 3 个 focused tests（`d92c1ee`），并严格拒绝非 90 引用集合；真实 pinned archive 发现 93 个 raw-covered main-hand refs，未发布 manifest，Task 2/训练/GPU Play 继续阻塞。见 [geometry bundle gate](../log/2026-09-20-t500-geometry-bundle.md)。
+
 - T500.4：右掌姿态传递语义与跟踪边界；阻塞 1600 步物理门和正式 30 条验收。
 
 - T500.1：书面规格已确认。
@@ -137,6 +139,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 ## Related Logs
 
 - [2026-09-15 run_e 身份 / 双来源资格拒绝](../log/2026-09-15-t500-run-e-expert-artifact.md)
+
+- [2026-09-20 geometry bundle gate](../log/2026-09-20-t500-geometry-bundle.md)
 
 - [2026-09-15 Probe headless baseline test](../log/2026-09-15-t500-probe-headless-baseline.md)
 
