@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import xml.etree.ElementTree as ET
@@ -90,7 +91,8 @@ def _extract_member(archive: Path, member: str, destination: Path) -> None:
 
 def build_geometry_bundle(*, raw_archive: Path, sequence_root: Path, output_root: Path,
                           recipe: dict[str, object], expected_upstream: dict[str, str],
-                          jobs: int = 1) -> Path:
+                          jobs: int = 1, generator_python: Path | None = None,
+                          generator_script: Path | None = None) -> Path:
     if jobs != 1:
         raise ValueError("production geometry generation requires jobs=1")
     if expected_upstream != UPSTREAM:
@@ -119,6 +121,22 @@ def build_geometry_bundle(*, raw_archive: Path, sequence_root: Path, output_root
             try:
                 _extract_member(raw_archive, member, mesh)
                 raw_digest = _sha(mesh)
+                # CoACD is run one object at a time with the pinned recipe.
+                # The raw member is retained only as provenance; the URDF
+                # points at the generated collision mesh.
+                generated = mesh.with_suffix(".obj")
+                if generator_python is not None and generator_script is not None:
+                    subprocess.run([
+                        str(generator_python), str(generator_script), "--quiet",
+                        "--input", str(mesh), "--output", str(generated),
+                        "--threshold", "0.07", "--max-convex-hull", "32",
+                        "--preprocess-mode", "auto", "--prep-resolution", "50",
+                        "--resolution", "2000", "--mcts-node", "20",
+                        "--mcts-iteration", "2000", "--mcts-max-depth", "5",
+                        "--seed", "1", "--apx-mode", "ch",
+                    ], check=True, capture_output=True, text=True)
+                    mesh.unlink()
+                    mesh = generated
                 _write_urdf(urdf, "meshes/" + mesh.name)
                 collision = load_object_collision_mesh(urdf)
                 if not collision.is_watertight or collision.volume <= 0:
@@ -183,11 +201,15 @@ def main() -> int:
     parser.add_argument("--sequence-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--expected-count", type=int, default=90)
+    parser.add_argument("--generator-python", type=Path)
+    parser.add_argument("--generator-script", type=Path)
     args = parser.parse_args()
     recipe = {"tool": "oakink-geometry-bundle", "version": "1", "arguments": {"jobs": 1}}
     manifest = build_geometry_bundle(raw_archive=args.raw_archive, sequence_root=args.sequence_root,
                                      output_root=args.output_root, recipe=recipe,
-                                     expected_upstream=UPSTREAM, jobs=1)
+                                     expected_upstream=UPSTREAM, jobs=1,
+                                     generator_python=args.generator_python,
+                                     generator_script=args.generator_script)
     verify_geometry_bundle(manifest.parent, _sha(manifest), args.expected_count)
     print(json.dumps({"manifest": str(manifest), "sha256": _sha(manifest)}, sort_keys=True))
     return 0
