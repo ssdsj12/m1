@@ -15,12 +15,14 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.contracts
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.dexmanipnet import (
     audit_sequence,
     load_best_successful_rollout,
+    load_best_successful_trajectory,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.download import (
     verify_pinned_external_inputs,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.preprocess import (
     convert_loaded_sequence,
+    convert_loaded_sequence_trajectory_only,
     object_geometry_sha256,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.sources import SOURCE_HANDS
@@ -61,6 +63,7 @@ def run(
     seed: int,
     shard_size: int,
     manifest_path: Path | None = None,
+    trajectory_only: bool = False,
 ) -> Path:
     """Run the offline-only conversion; rejected sides contribute audit rows only."""
 
@@ -96,24 +99,37 @@ def run(
                 if not sequence_path.is_dir():
                     continue
                 for side in _SOURCE_SIDES[source]:
-                    source_audit = audit_sequence(sequence_path, source=source, side=side)
-                    row = _audit_dict(source_audit)
-                    if not source_audit.accepted:
-                        audit_rows.append(row)
-                        continue
-                    loaded = load_best_successful_rollout(sequence_path, source=source, side=side)
+                    if trajectory_only:
+                        try:
+                            loaded = load_best_successful_trajectory(sequence_path, source=source, side=side)
+                            row = {"accepted": True, "frames": int(loaded.q.shape[0]), "hand": loaded.source_hand_key,
+                                   "input_sha256": loaded.source_sha256, "reason": "accepted", "sequence": sequence_path.name,
+                                   "side": side, "source": source}
+                        except (OSError, TypeError, ValueError) as error:
+                            audit_rows.append({"accepted": False, "frames": 0, "hand": None, "input_sha256": "",
+                                               "reason": f"trajectory_load_rejected:{error}", "sequence": sequence_path.name,
+                                               "side": side, "source": source})
+                            continue
+                    else:
+                        source_audit = audit_sequence(sequence_path, source=source, side=side)
+                        row = _audit_dict(source_audit)
+                        if not source_audit.accepted:
+                            audit_rows.append(row)
+                            continue
+                        loaded = load_best_successful_rollout(sequence_path, source=source, side=side)
                     try:
                         if loaded.source_hand_key not in tree_cache:
                             spec = SOURCE_HANDS[loaded.source_hand_key]
                             hand_urdf = source_root.joinpath(*Path(spec.urdf_relpath).parts)
                             tree_cache[loaded.source_hand_key] = UrdfKinematicTree.from_file(hand_urdf)
-                        converted = convert_loaded_sequence(loaded, tree_cache[loaded.source_hand_key])
+                        converted = (convert_loaded_sequence_trajectory_only(loaded, tree_cache[loaded.source_hand_key])
+                                     if trajectory_only else convert_loaded_sequence(loaded, tree_cache[loaded.source_hand_key]))
                         if not converted:
                             raise ValueError("fewer than 20 future 100 Hz nodes")
                         group = converted[0].source_group
                         if any(window.source_group != group for window in converted):
                             raise ValueError("converted sequence has inconsistent source groups")
-                        geometry_sha256 = object_geometry_sha256(loaded.object_geometry_path)
+                        geometry_sha256 = None if trajectory_only else object_geometry_sha256(loaded.object_geometry_path)
                     except (OSError, TypeError, ValueError) as error:
                         row.update(
                             {
@@ -131,7 +147,7 @@ def run(
                                 "accepted": True,
                                 "reason": "accepted",
                                 "windows": len(converted),
-                                "object_geometry_sha256": geometry_sha256,
+                                **({} if geometry_sha256 is None else {"object_geometry_sha256": geometry_sha256}),
                             }
                         )
                         group_hands[group] = loaded.source_hand_key
@@ -177,6 +193,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path, help="explicit pinned download manifest")
     parser.add_argument("--seed", type=int, default=42, help="deterministic group split seed")
     parser.add_argument("--shard-size", type=int, default=4096, help="maximum windows per NPZ shard")
+    parser.add_argument("--trajectory-only", action="store_true", help="learn fingertip motion without object geometry")
     return parser
 
 
@@ -190,6 +207,7 @@ def main() -> None:
         seed=args.seed,
         shard_size=args.shard_size,
         manifest_path=args.manifest,
+        trajectory_only=args.trajectory_only,
     )
 
 

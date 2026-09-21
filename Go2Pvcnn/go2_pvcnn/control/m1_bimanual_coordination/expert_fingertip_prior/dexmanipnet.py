@@ -61,7 +61,7 @@ class LoadedHandSequence:
     root_state: np.ndarray
     object_state: np.ndarray
     tip_force: np.ndarray | None
-    object_geometry_path: Path
+    object_geometry_path: Path | None
     source_sha256: str
 
     def __post_init__(self) -> None:
@@ -82,7 +82,7 @@ class LoadedHandSequence:
             or any(character not in "0123456789abcdef" for character in self.source_sha256)
         ):
             raise ValueError("source_sha256 must be a lowercase SHA-256")
-        if not isinstance(self.object_geometry_path, Path) or not self.object_geometry_path.is_file():
+        if self.object_geometry_path is not None and (not isinstance(self.object_geometry_path, Path) or not self.object_geometry_path.is_file()):
             raise ValueError("object geometry path must be an existing file")
 
         joint_dim = len(SOURCE_HANDS[self.source_hand_key].joint_order)
@@ -406,6 +406,7 @@ def _load_best(
     side: str,
     context: _AuditContext,
     geometry_resolver: VerifiedGeometryResolver | None,
+    require_geometry: bool = True,
 ) -> LoadedHandSequence:
     source, side = _validate_source_side(source, side)
     try:
@@ -433,8 +434,9 @@ def _load_best(
         _reject("unsupported_hand")
     context.hand = hand_key
     joint_dim = len(SOURCE_HANDS[hand_key].joint_order)
-    geometry_path = _resolve_object_geometry(
-        sequence_path, seq_info, side, source, geometry_resolver
+    geometry_path = (
+        _resolve_object_geometry(sequence_path, seq_info, side, source, geometry_resolver)
+        if require_geometry else None
     )
 
     rollout_path = sequence_path / "rollouts.hdf5"
@@ -473,9 +475,10 @@ def _load_best(
     assert best_data is not None and best_key is not None
     score, q, dq, root_state, object_state, tip_force = best_data
     try:
-        context.input_sha256 = _hash_files(
-            (sequence_path / "seq_info.json", rollout_path, geometry_path)
-        )
+        hash_paths = [sequence_path / "seq_info.json", rollout_path]
+        if geometry_path is not None:
+            hash_paths.append(geometry_path)
+        context.input_sha256 = _hash_files(tuple(hash_paths))
     except OSError:
         _reject("input_hash_failed")
     return LoadedHandSequence(
@@ -508,6 +511,16 @@ def load_best_successful_rollout(
     context = _AuditContext()
     try:
         return _load_best(path, source, side, context, geometry_resolver)
+    except _SequenceRejected as error:
+        raise ValueError(f"sequence rejected: {error}") from error
+
+
+def load_best_successful_trajectory(path: str | Path, source: str, side: str) -> LoadedHandSequence:
+    """Load a successful rollout for fingertip trajectory learning only."""
+    _validate_geometry_resolver(None)
+    context = _AuditContext()
+    try:
+        return _load_best(path, source, side, context, None, require_geometry=False)
     except _SequenceRejected as error:
         raise ValueError(f"sequence rejected: {error}") from error
 
@@ -556,4 +569,5 @@ __all__ = [
     "SequenceAudit",
     "audit_sequence",
     "load_best_successful_rollout",
+    "load_best_successful_trajectory",
 ]
