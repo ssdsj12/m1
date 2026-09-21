@@ -92,6 +92,8 @@ def run(
     tree_cache: dict[str, UrdfKinematicTree] = {}
     writer = StreamingShardWriter(output, seed=seed, shard_size=shard_size)
     window_count = 0
+    scanned_count = 0
+    accepted_count = 0
     try:
         for source in sorted(extracted):
             sequences_root = extracted[source] / "sequences"
@@ -99,6 +101,7 @@ def run(
                 if not sequence_path.is_dir():
                     continue
                 for side in _SOURCE_SIDES[source]:
+                    scanned_count += 1
                     if trajectory_only:
                         try:
                             loaded = load_best_successful_trajectory(sequence_path, source=source, side=side)
@@ -109,12 +112,14 @@ def run(
                             audit_rows.append({"accepted": False, "frames": 0, "hand": None, "input_sha256": "",
                                                "reason": f"trajectory_load_rejected:{error}", "sequence": sequence_path.name,
                                                "side": side, "source": source})
+                            print(f"progress scanned={scanned_count} accepted={accepted_count} windows={window_count} rejected={source}/{sequence_path.name}/{side}:trajectory_load", flush=True)
                             continue
                     else:
                         source_audit = audit_sequence(sequence_path, source=source, side=side)
                         row = _audit_dict(source_audit)
                         if not source_audit.accepted:
                             audit_rows.append(row)
+                            print(f"progress scanned={scanned_count} accepted={accepted_count} windows={window_count} rejected={source}/{sequence_path.name}/{side}:{source_audit.reason}", flush=True)
                             continue
                         loaded = load_best_successful_rollout(sequence_path, source=source, side=side)
                     try:
@@ -152,7 +157,9 @@ def run(
                         )
                         group_hands[group] = loaded.source_hand_key
                         window_count += len(converted)
+                        accepted_count += 1
                     audit_rows.append(row)
+                    print(f"progress scanned={scanned_count} accepted={accepted_count} windows={window_count} last={source}/{sequence_path.name}/{side}", flush=True)
 
         if not window_count:
             raise RuntimeError("no DexManipNet sequence produced a usable fingertip window")
