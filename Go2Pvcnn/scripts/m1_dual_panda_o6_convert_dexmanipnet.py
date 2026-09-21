@@ -102,6 +102,7 @@ def run(
                     continue
                 for side in _SOURCE_SIDES[source]:
                     scanned_count += 1
+                    print(f"progress-start scanned={scanned_count} source={source} sequence={sequence_path.name} side={side}", flush=True)
                     if trajectory_only:
                         try:
                             loaded = load_best_successful_trajectory(sequence_path, source=source, side=side)
