@@ -630,6 +630,54 @@ def convert_loaded_sequence(
         raise ValueError(f"sequence conversion rejected: {error}") from error
 
 
+def convert_loaded_sequence_trajectory_only(
+    sequence: LoadedHandSequence,
+    tree: UrdfKinematicTree,
+    *,
+    source_hz: float = 60,
+    target_hz: float = 100,
+    force_contact_threshold_n: float = 0.5,
+) -> tuple[ExpertWindow, ...]:
+    """Convert fingertip motion without requiring object collision geometry.
+
+    This development/trajectory-learning path deliberately learns only natural
+    five-tip motion.  Contact labels come from recorded fingertip force, so no
+    OBJ/CoACD asset is accepted as a hidden substitute.  Object-level MPC and
+    contact geometry remain separate production gates.
+    """
+    if sequence.tip_force is None:
+        raise ValueError("trajectory-only conversion requires recorded tip_force")
+    if not math.isfinite(float(force_contact_threshold_n)) or force_contact_threshold_n <= 0.0:
+        raise ValueError("force_contact_threshold_n must be finite and positive")
+    source_hand = SOURCE_HANDS[sequence.source_hand_key]
+    try:
+        source_points = tree.palm_relative_fingertips(sequence.q, source_hand)
+        positions, velocities, _ = resample_fingertips_with_velocity(
+            source_points, source_hz=source_hz, target_hz=target_hz
+        )
+        forces = np.asarray(sequence.tip_force, dtype=np.float64).reshape(-1, 5, 3)
+        force_norm = np.linalg.norm(forces, axis=-1)
+        force_time = np.arange(force_norm.shape[0], dtype=np.float64) / _rate("source_hz", source_hz)
+        target_time = np.arange(positions.shape[0], dtype=np.float64) / _rate("target_hz", target_hz)
+        contact = np.zeros((positions.shape[0], 5), dtype=np.bool_)
+        for fingertip in range(5):
+            contact[:, fingertip] = np.interp(
+                target_time, force_time, force_norm[:, fingertip]
+            ) >= force_contact_threshold_n
+        if sequence.side == "lh":
+            positions = canonicalize_left(positions)
+            velocities = canonicalize_left(velocities)
+        scalar_speed = np.sqrt(np.mean(np.square(velocities), axis=(1, 2)))
+        phase = infer_prior_phase(contact, scalar_speed)
+        return windows_from_sequence(
+            positions, velocities, contact, phase,
+            source_group=f"{sequence.source}/{sequence.sequence}/{sequence.side}/trajectory-only",
+            source_sha256=sequence.source_sha256,
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"trajectory-only sequence conversion rejected: {error}") from error
+
+
 def object_geometry_sha256(path: str | Path) -> str:
     """Hash the URDF and every safe mesh file it references for audit provenance."""
 
@@ -655,6 +703,7 @@ def object_geometry_sha256(path: str | Path) -> str:
 __all__ = [
     "canonicalize_left",
     "convert_loaded_sequence",
+    "convert_loaded_sequence_trajectory_only",
     "decanonicalize_left",
     "infer_contact_hysteresis",
     "infer_prior_phase",
