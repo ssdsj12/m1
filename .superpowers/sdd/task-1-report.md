@@ -1,110 +1,58 @@
-# Task 1 Report: Freeze Source, Sample, and Artifact Contracts
+# Task 1 Report: Pin RialTo object assets
 
 ## Status
 
-DONE
+DONE_WITH_CONCERNS
 
 ## Implementation
 
-- Added the standalone `expert_fingertip_prior` package with frozen DexManipNet and ManipTrans pins, five-finger order, dimensions, seven `PriorPhase` values, and left-reflection contract.
-- Added strict geometry-only `ExpertWindow`, four-component `MixtureDistribution`, and `StudentArtifactMetadata` dataclasses. Their construction validates tensor type/dtype/shape/finiteness, enum, SHA, model dimensions, frozen order, mirror matrix, seeds, and artifact fields.
-- Added explicit pinned ManipTrans source manifests for Inspire and Shadow right/left hands, including official URDF-relative paths, joint orders, palm links, and thumb/index/middle/ring/pinky tip links.
-- Added focused contract tests and the required T500 todo/log evidence.
+Commit `009a1e72187b51fbf8d7361f5233fe3185ad257b` (`feat: pin RialTo object assets`) adds:
 
-## Files
+- `Go2Pvcnn/assets/m1_objects/rialto/source_manifest.json`, pinned to RialToAssets revision `bda6e4106986d39f40fe542fd74678bb616f1c41`, with explicit raw GitHub URLs, source SHA-256 values, and `sources/<name>` resolved paths for `bottle_fixed.usd`, `coffeecup.usdz`, `bowlnrack2.usd`, `book_fixed.usd`, `box.glb`, and `poly.glb`.
+- `Go2Pvcnn/scripts/m1_rialto_object_assets.py`, providing `sha256_file`, manifest validation, offline-by-default `fetch_sources`, deterministic `<source-stem>.usd` conversion output, and USD inspection (Pixar USD when available, with a dependency/prim/bounds text fallback for USDA).
+- `Go2Pvcnn/assets/m1_objects/rialto/README.md`, documenting explicit network opt-in (`prepare --allow-network`) and the offline runtime contract.
+- `Go2Pvcnn/tests/test_m1_rialto_object_assets.py`, covering manifest schema, source SHA recording, network opt-in, unsupported extensions, deterministic names, and inspection output.
 
-- `Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/__init__.py`
-- `Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/contracts.py`
-- `Go2Pvcnn/go2_pvcnn/control/m1_bimanual_coordination/expert_fingertip_prior/sources.py`
-- `Go2Pvcnn/tests/test_m1_bimanual_expert_prior_contracts.py`
-- `notes/log/2026-09-11-t500-dexmanipnet-prior-contracts.md`, `notes/log/index.md`, `notes/todo.md`, and `notes/todo/T500-m1-dual-panda-o6-bimanual-mpc.md`
+## TDD evidence
 
-## TDD Evidence
-
-### RED
-
-```bash
-cd Go2Pvcnn
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py
-```
-
-Before production code, collection failed as intended with:
+RED was observed before implementation:
 
 ```text
-ModuleNotFoundError: No module named 'go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior'
-1 error in 0.80s
+PYTHONPATH=Go2Pvcnn /home/xk/miniconda3/envs/go2/bin/python -m pytest -q Go2Pvcnn/tests/test_m1_rialto_object_assets.py
+6 failed in 0.15s
 ```
 
-### GREEN and current-contract regression
-
-```bash
-cd Go2Pvcnn
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py tests/test_m1_dual_panda_o6_contracts.py
-```
-
-Relevant output:
+The failures were the expected missing manifest/module failures. After implementation, the focused test is green:
 
 ```text
-................                                                         [100%]
-16 passed in 0.78s
+PYTHONPATH=Go2Pvcnn /home/xk/miniconda3/envs/go2/bin/python -m pytest -q Go2Pvcnn/tests/test_m1_rialto_object_assets.py
+......                                                                   [100%]
+6 passed in 0.02s
 ```
 
-### Pinned source audit
+Additional verification:
 
-The pinned ManipTrans checkout at `a3d08cfe3c3a5868a7f057533bcaf759c5af4705` was parsed outside the product package. Every registered spec's URDF contained its declared palm, all five tip links, and every declared joint: `verified 4 pinned source-hand specs`.
+```text
+PYTHONPATH=Go2Pvcnn /home/xk/miniconda3/envs/go2/bin/python -m compileall -q Go2Pvcnn/scripts/m1_rialto_object_assets.py Go2Pvcnn/tests/test_m1_rialto_object_assets.py
+```
 
-## Commits
+The CLI help smoke exited 0. Running `prepare` without `--allow-network` raised the intended explicit-opt-in `RuntimeError` before any network request.
 
-- `8b5523cc3b9d181cf2e4bb94fe565bd8667210ab` — `feat: freeze DexManipNet fingertip prior contracts`
-- `3e58c82c027eb61b21ab9f90427a469e1299e6af` — `docs: record fingertip prior contracts`
+## Source SHA-256 evidence
 
-## Self-Review
+The following digests were independently downloaded from the pinned raw URLs and matched against the committed manifest:
 
-- Confirmed the staged feature commit contained only Task 1 package, test, and repository-required evidence; Graphify cache/memory changes were neither staged nor committed.
-- `git diff --cached --check` passed before both commits.
-- Verified the frozen output order is exactly `15 + 15 + 5 + 7 = 42`, and the target is exactly `(20, 5, 3)`.
-- Confirmed the source registry is static: it has no source checkout, URDF parser, download, or runtime external-data dependency.
+```text
+bottle_fixed.usd  91a7fe2ba5255739ffcbc54dba3d03f03bd9c1aacf5e48cf74827776885accff
+coffeecup.usdz    e8dbb6447e4b57bca837a09c78fa9ee7af816b86b0adfe962036758423c650f9
+bowlnrack2.usd    e45c6c75dc153d624fdf13a86af4a2333e4087039ea22ecc6f11cd2d97a2a25d
+book_fixed.usd    76c3a49dc82ed0b6efa4497c1d3da0d06962e935a27be2d5645b5bf37e40d959
+box.glb           39c9f12cc10e0f9158bb8b69453d980394596f9b92a47b48436d1e98661a2c41
+poly.glb          0b7b45a70bd6ea18e98b5ff2894207aee73278b6aad637106a32d3631a115c5a
+```
+
+The deterministic converter test fixture output (`#usda 1.0\n`) has SHA-256 `28f84f705dab5dc6d5baaee8ee94e59b93b71bcd708c048c71066e7a8956e2d1`.
 
 ## Concerns
 
-None for Task 1. No DexManipNet data was downloaded, no artifact was trained, and no Hand MPC or Isaac physical behavior was changed or claimed.
-
-## Review Fix: Strict Artifact Layout and Registry Immutability
-
-The Task 1 review findings are addressed by `eddcd91d54fe292455a00f4aa00ce562f765c799` (`fix: harden fingertip prior contracts`):
-
-- `StudentArtifactMetadata` now stores and validates the exact geometry-only input field order (`fingertip_position_palm`, `fingertip_velocity_palm`, `contact_mask`, `phase_one_hot`) and mixture output axes (`mixture_component`, `horizon`, `finger`, `xyz`).
-- Frozen schema dimensions and seeds require strict `int` values; `hidden` requires a non-empty tuple of positive strict ints; SHA, dtype, finite mirror matrix, phase/finger orders, and layouts are covered by focused negative tests.
-- `SourceHandSpec` requires tuple-valued `joint_order` and `fingertip_links`, with strict non-empty string names. The test fixes all four registry keys and every official field value.
-- `LEFT_REFLECTION` is immutable tuple data and `SOURCE_HANDS` is a `MappingProxyType`.
-
-Review RED:
-
-```bash
-cd Go2Pvcnn
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py
-```
-
-Expected failure observed: missing `MIXTURE_OUTPUT_AXIS_ORDER` during collection (`1 error in 0.81s`).
-
-Review GREEN/current regression:
-
-```bash
-cd Go2Pvcnn
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py tests/test_m1_dual_panda_o6_contracts.py
-```
-
-Result: `30 passed in 0.79s`.
-
-Self-review: staged only Task 1 contracts, source registry, focused test, and required evidence; `git diff --check` passed; no Graphify or parent-owned progress/brief files were staged. No new concern.
-
-## Second Review Fix: Strict Mixture Dtype
-
-Commit `0d5b82124ca1b0a36b257760d88ecd6e7050438c` (`fix: require float32 fingertip mixtures`) freezes all `MixtureDistribution` tensors to exact `torch.float32`. RED added float16/bfloat16/float64 cases and observed `3 failed, 17 passed in 0.80s`; GREEN/current regression is `33 passed in 0.82s` with:
-
-```bash
-cd Go2Pvcnn
-PYTHONPATH=$PWD /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_expert_prior_contracts.py tests/test_m1_dual_panda_o6_contracts.py
-```
-
-The same update adds `SourceHandSpec` negatives for blank and non-string tuple members and duplicate joint/tip names. Deep read-only tensor wrapping was deliberately not added: the approved Task 1 contract requires `@dataclass(frozen=True)` and construction-time validation, while “frozen student” denotes artifact/weight semantics. PyTorch has no standard durable read-only tensor contract, and cloning/property replacement would change the specified public tensor-field API without design authorization. Self-review confirmed only Task 1 code/tests and evidence were staged; no Graphify/progress/brief dirt was staged.
+No Pixar USD (`usdcat`) or GLB converter (`gltf2usd`) is installed in the current `go2` environment, so real USDZ/GLB conversion and generated-asset SHA recording could not be executed here. The implementation fails clearly when those tools are absent; the six source files are intentionally not committed and must be materialized only by the explicit preparation command. No runtime network access or Graphify output was added or changed by this commit.
