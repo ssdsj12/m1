@@ -190,6 +190,50 @@ def test_conversion_rejects_unresolved_usd_dependencies(tmp_path, monkeypatch):
         module.convert_usdz_or_glb(source, tmp_path / "out")
 
 
+def test_prepare_allows_converted_usd_dependency_in_sibling_source_dir(tmp_path, monkeypatch):
+    module = _module()
+    destination = tmp_path / "rialto"
+    source = destination / "sources" / "box.glb"
+    sibling = destination / "sources" / "dep.usd"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"glTF fixture")
+    sibling.write_text("#usda 1.0\n", encoding="utf-8")
+    manifest = {
+        "repo": "https://example.invalid/rialto.git",
+        "revision": "a" * 40,
+        "assets": {
+            "box.glb": {
+                "source_url": "https://example.invalid/box.glb",
+                "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                "resolved_path": "sources/box.glb",
+            }
+        },
+    }
+    monkeypatch.setattr(module, "load_manifest", lambda: manifest)
+    monkeypatch.setattr(
+        module,
+        "fetch_sources",
+        lambda _destination, allow_network=False: {"box.glb": source},
+    )
+    monkeypatch.setattr(
+        module,
+        "_convert_with_available_tool",
+        lambda _source, output: output.write_text(
+            '#usda 1.0\n'
+            'def Xform "Root" {\n'
+            '  asset dependency = @../sources/dep.usd@\n'
+            '}\n',
+            encoding="utf-8",
+        ),
+    )
+
+    result = module.prepare_assets(destination)
+
+    inspection = result["output_metadata"]["box.glb"]["inspection"]
+    assert inspection["dependencies_resolved"] is True
+    assert inspection["outside_root_dependencies"] == []
+
+
 def test_inspect_binary_usdc_fails_without_pxr_instead_of_decoding_text(tmp_path, monkeypatch):
     module = _module()
     path = tmp_path / "binary.usd"
@@ -213,6 +257,27 @@ def test_inspect_usd_detects_missing_file_dependency(tmp_path, monkeypatch):
     result = module.inspect_usd(path)
     assert result["dependencies_resolved"] is False
     assert result["missing_dependencies"] == ["missing.usd"]
+
+
+def test_inspect_usd_rejects_generic_uri_scheme(tmp_path, monkeypatch):
+    module = _module()
+    asset_root = tmp_path / "asset_root"
+    asset_root.mkdir()
+    path = asset_root / "sample.usda"
+    path.write_text(
+        '#usda 1.0\n'
+        'def Xform "Root" {\n'
+        '  asset dependency = @resolver:foo.usd@\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path, _root: None)
+
+    result = module.inspect_usd(path, asset_root=asset_root)
+
+    assert result["dependencies_resolved"] is False
+    assert result["missing_dependencies"] == []
+    assert result["outside_root_dependencies"] == ["resolver:foo.usd"]
 
 
 @pytest.mark.parametrize(

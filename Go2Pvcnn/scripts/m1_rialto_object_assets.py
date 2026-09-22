@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import ntpath
 import os
 import re
 import shutil
@@ -25,6 +26,7 @@ MANIFEST_PATH = Path(__file__).resolve().parents[1] / "assets/m1_objects/rialto/
 SUPPORTED_CONVERSION_EXTENSIONS = {".usdz", ".glb"}
 USD_SOURCE_EXTENSIONS = {".usd", ".usda", ".usdc"}
 USDC_MAGIC = b"PXR-USDC"
+URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 
 def sha256_file(path: Path) -> str:
@@ -250,6 +252,17 @@ def _append_unique(values: list[str], value: str) -> None:
         values.append(value)
 
 
+def _is_uri_reference(value: str) -> bool:
+    """Return whether *value* has a URI scheme rather than a local path."""
+
+    if value.startswith("anon:"):
+        return False
+    drive, _tail = ntpath.splitdrive(value)
+    if len(drive) == 2 and drive[1] == ":":
+        return False
+    return URI_SCHEME_RE.match(value) is not None
+
+
 def _dependency_containment_report(
     path: Path,
     references: list[str],
@@ -272,7 +285,7 @@ def _dependency_containment_report(
         # dependencies. Network and resolver URLs are never offline-local.
         if dependency.startswith("anon:"):
             continue
-        if dependency.startswith(("http:", "https:", "omniverse:", "file:")):
+        if _is_uri_reference(dependency):
             _append_unique(outside, dependency)
             continue
         dependency_path = Path(dependency)
@@ -322,12 +335,16 @@ def _validate_usd_dependencies(
     return inspection
 
 
-def convert_usdz_or_glb(source: Path, destination: Path) -> Path:
+def convert_usdz_or_glb(
+    source: Path, destination: Path, *, asset_root: Path | None = None
+) -> Path:
     """Convert one local USDZ/GLB to deterministic ``<stem>.usd`` output.
 
     Conversion and validation happen in a temporary sibling file. The
     previously published output is replaced atomically only after both steps
-    succeed; failures leave an existing valid output untouched.
+    succeed; failures leave an existing valid output untouched. When supplied,
+    ``asset_root`` is the complete pinned root for dependency containment,
+    including sibling directories such as ``sources/`` and ``converted/``.
     """
 
     source = Path(source)
@@ -351,7 +368,7 @@ def convert_usdz_or_glb(source: Path, destination: Path) -> Path:
         _convert_with_available_tool(source, temporary)
         if not temporary.is_file():
             raise RuntimeError(f"converter did not create deterministic USD output: {output}")
-        dependency_root = (
+        dependency_root = Path(asset_root) if asset_root is not None else (
             destination.parent
             if destination.suffix.lower() in {".usd", ".usda", ".usdc"}
             else destination
@@ -469,7 +486,11 @@ def prepare_assets(destination: Path, *, allow_network: bool = False) -> dict[st
     output_metadata: dict[str, dict[str, object]] = {}
     for name, source in sorted(paths.items()):
         if source.suffix.lower() in SUPPORTED_CONVERSION_EXTENSIONS:
-            usd_path = convert_usdz_or_glb(source, destination / "converted")
+            usd_path = convert_usdz_or_glb(
+                source,
+                destination / "converted",
+                asset_root=destination,
+            )
             converted[name] = str(usd_path)
             generated = usd_path.resolve() != source.resolve()
         elif source.suffix.lower() in USD_SOURCE_EXTENSIONS:
