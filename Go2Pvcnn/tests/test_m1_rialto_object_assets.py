@@ -194,7 +194,7 @@ def test_inspect_binary_usdc_fails_without_pxr_instead_of_decoding_text(tmp_path
     module = _module()
     path = tmp_path / "binary.usd"
     path.write_bytes(b"PXR-USDC\x00\xff\x00\x01")
-    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path: None)
+    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path, _root=None: None)
     with pytest.raises(RuntimeError, match="binary.*PXR-USDC.*pxr"):
         module.inspect_usd(path)
 
@@ -209,10 +209,87 @@ def test_inspect_usd_detects_missing_file_dependency(tmp_path, monkeypatch):
         '}\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path: None)
+    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path, _root=None: None)
     result = module.inspect_usd(path)
     assert result["dependencies_resolved"] is False
     assert result["missing_dependencies"] == ["missing.usd"]
+
+
+@pytest.mark.parametrize(
+    "dependency",
+    (
+        "absolute",
+        "../outside.usd",
+    ),
+)
+def test_inspect_usd_rejects_existing_dependencies_outside_asset_root(
+    tmp_path, monkeypatch, dependency
+):
+    module = _module()
+    asset_root = tmp_path / "asset_root"
+    asset_root.mkdir()
+    outside = tmp_path / "outside.usd"
+    outside.write_text('#usda 1.0\n', encoding="utf-8")
+    reference = str(outside) if dependency == "absolute" else dependency
+    path = asset_root / "sample.usda"
+    path.write_text(
+        '#usda 1.0\n'
+        'def Xform "Root" {\n'
+        f'  asset dependency = @{reference}@\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path, _root: None)
+
+    result = module.inspect_usd(path, asset_root=asset_root)
+
+    assert result["dependencies_resolved"] is False
+    assert result["outside_root_dependencies"] == [reference]
+
+
+def test_inspect_usd_rejects_symlink_dependency_escape(tmp_path, monkeypatch):
+    module = _module()
+    asset_root = tmp_path / "asset_root"
+    asset_root.mkdir()
+    outside = tmp_path / "outside.usd"
+    outside.write_text('#usda 1.0\n', encoding="utf-8")
+    (asset_root / "linked.usd").symlink_to(outside)
+    path = asset_root / "sample.usda"
+    path.write_text(
+        '#usda 1.0\n'
+        'def Xform "Root" {\n'
+        '  asset dependency = @linked.usd@\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path, _root: None)
+
+    result = module.inspect_usd(path, asset_root=asset_root)
+
+    assert result["dependencies_resolved"] is False
+    assert result["outside_root_dependencies"] == ["linked.usd"]
+
+
+def test_inspect_usd_allows_absolute_dependency_inside_asset_root(tmp_path, monkeypatch):
+    module = _module()
+    asset_root = tmp_path / "asset_root"
+    asset_root.mkdir()
+    dependency = asset_root / "inside.usd"
+    dependency.write_text('#usda 1.0\n', encoding="utf-8")
+    path = asset_root / "sample.usda"
+    path.write_text(
+        '#usda 1.0\n'
+        'def Xform "Root" {\n'
+        f'  asset dependency = @{dependency}@\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path, _root: None)
+
+    result = module.inspect_usd(path, asset_root=asset_root)
+
+    assert result["dependencies_resolved"] is True
+    assert result["outside_root_dependencies"] == []
 
 
 def test_prepare_records_generated_usd_sha256_in_metadata(tmp_path, monkeypatch):

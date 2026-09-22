@@ -258,10 +258,12 @@ def _offline_catalog_report(
             try:
                 from scripts.m1_rialto_object_assets import inspect_usd
 
-                dependency_report = inspect_usd(resolved_path)
+                dependency_report = inspect_usd(resolved_path, asset_root=asset_root)
                 dependencies_resolved = bool(dependency_report.get("dependencies_resolved"))
                 if not dependencies_resolved:
                     errors.append(f"{object_class}: USD dependencies are unresolved")
+                if dependency_report.get("outside_root_dependencies"):
+                    errors.append(f"{object_class}: USD dependencies are outside asset root")
             except Exception as error:
                 errors.append(f"{object_class}: USD inspection failed: {error}")
         classes_report[object_class] = {
@@ -275,6 +277,7 @@ def _offline_catalog_report(
             "sha256_matches": sha_matches,
             "dependencies_resolved": dependencies_resolved,
             "missing_dependencies": dependency_report.get("missing_dependencies", []),
+            "outside_root_dependencies": dependency_report.get("outside_root_dependencies", []),
             "collision_profile": collision_profile,
             "collision_metadata": collision_metadata,
             "collision_metadata_valid": collision_metadata_valid,
@@ -335,19 +338,38 @@ def _gpu0_smoke_report(
         try:
             env.reset(seed=7)
             scene = env.unwrapped.scene
-            object_initialized = {
-                instance.object_id: bool(getattr(scene, instance.object_id).is_initialized)
-                for instance in candidate_instances
-                if instance.enabled
-            }
-            contact_names = tuple(
-                name for name in ("o6_contacts", "right_o6_contacts", "box_contacts")
-                if hasattr(scene, name) and bool(getattr(scene, name).is_initialized)
-            )
+            object_initialized: dict[str, bool] = {}
+            missing_object_ids: list[str] = []
+            for instance in candidate_instances:
+                if not instance.enabled:
+                    continue
+                try:
+                    object_initialized[instance.object_id] = bool(
+                        scene[instance.object_id].is_initialized
+                    )
+                except KeyError:
+                    object_initialized[instance.object_id] = False
+                    missing_object_ids.append(instance.object_id)
+            contact_names: list[str] = []
+            missing_contact_names: list[str] = []
+            for name in ("o6_contacts", "right_o6_contacts", "box_contacts"):
+                try:
+                    sensor = scene[name]
+                except KeyError:
+                    missing_contact_names.append(name)
+                    continue
+                if bool(sensor.is_initialized):
+                    contact_names.append(name)
             action_dim = int(getattr(env.action_space, "shape", (0,))[0])
             for _ in range(max(1, int(steps))):
                 env.step(torch.zeros((1, action_dim), device=device))
-            contact_ok = bool(object_initialized) and all(object_initialized.values()) and bool(contact_names)
+            contact_ok = (
+                bool(object_initialized)
+                and all(object_initialized.values())
+                and not missing_object_ids
+                and not missing_contact_names
+                and bool(contact_names)
+            )
             return {
                 "status": "passed" if contact_ok else "failed",
                 "device": device,
@@ -355,7 +377,9 @@ def _gpu0_smoke_report(
                 "target_object_id": None if target is None else target.object_id,
                 "obstacle_object_ids": [instance.object_id for instance in obstacles],
                 "object_initialized": object_initialized,
-                "contact_sensor_names": list(contact_names),
+                "missing_object_ids": missing_object_ids,
+                "contact_sensor_names": contact_names,
+                "missing_contact_sensor_names": missing_contact_names,
                 "contact_initialization_passed": contact_ok,
             }
         finally:

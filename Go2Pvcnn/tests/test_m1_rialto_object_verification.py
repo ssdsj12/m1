@@ -142,6 +142,45 @@ def test_complete_local_catalog_passes_offline_and_records_dependency_hashes(tmp
     assert result["gpu_smoke"]["status"] == "not_requested"
 
 
+def test_out_of_root_usd_dependency_fails_offline_verification(tmp_path: Path, monkeypatch):
+    module = _module()
+    catalog, asset_root = _fixture(tmp_path)
+    outside = tmp_path / "outside.usd"
+    outside.write_text('#usda 1.0\n', encoding="utf-8")
+    bottle = asset_root / "sources" / "bottle_fixed.usd"
+    bottle.write_text(
+        '#usda 1.0\n'
+        'def Xform "Root" {\n'
+        f'  asset dependency = @{outside}@\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    bottle_sha = hashlib.sha256(bottle.read_bytes()).hexdigest()
+    manifest_path = asset_root / "source_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["assets"]["bottle_fixed.usd"]["source_sha256"] = bottle_sha
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    catalog_payload = json.loads(catalog.read_text(encoding="utf-8"))
+    catalog_payload["classes"]["bottle"]["source_sha256"] = bottle_sha
+    catalog_payload["classes"]["bottle"]["resolved_sha256"] = bottle_sha
+    catalog.write_text(json.dumps(catalog_payload, indent=2), encoding="utf-8")
+
+    monkeypatch.setattr(module, "_write_evidence", lambda _path, _result: None)
+    result = module.verify_catalog(
+        catalog,
+        asset_root,
+        evidence_dir=None,
+        run_gpu=False,
+    )
+
+    assert result["verification_status"] == "failed"
+    assert result["offline"]["status"] == "failed"
+    bottle_report = result["offline"]["classes"]["bottle"]
+    assert bottle_report["dependencies_resolved"] is False
+    assert bottle_report["outside_root_dependencies"] == [str(outside)]
+    assert any("outside asset root" in error for error in result["offline"]["errors"])
+
+
 def test_invalid_collision_metadata_and_duplicate_candidate_ids_fail(tmp_path: Path):
     module = _module()
     catalog, asset_root = _fixture(tmp_path, malformed_collision=True)
@@ -199,3 +238,15 @@ def test_preparation_required_gpu_smoke_never_reports_contact_pass(tmp_path: Pat
     assert result["verification_status"] == "preparation_required"
     assert result["gpu_smoke"]["status"] == "preparation_required"
     assert result["gpu_smoke"]["contact_initialization_passed"] is False
+
+
+def test_gpu_smoke_uses_interactive_scene_mapping_access():
+    source = (
+        ROOT / "scripts" / "verify_m1_rialto_object_catalog.py"
+    ).read_text(encoding="utf-8")
+
+    assert "scene[instance.object_id]" in source
+    assert "scene[name]" in source
+    assert "except KeyError:" in source
+    assert "getattr(scene" not in source
+    assert "hasattr(scene" not in source

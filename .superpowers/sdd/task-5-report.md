@@ -82,3 +82,60 @@ dependency warnings allowed by the legacy verifier.
 - The generated evidence records the blocked state rather than a pass. After
   preparation, rerun the verifier without `--offline-only`; it will inspect
   every local hash/dependency and then launch the headless GPU0 smoke.
+
+## Review Fix Round
+
+The independent review findings are addressed in the working tree:
+
+- `inspect_usd` now accepts an explicit pinned `asset_root` and classifies every
+  local USD reference by canonical containment. Existing absolute references
+  outside the root, `..` traversal references, network/resolver references, and
+  symlink targets that escape the root fail the dependency gate. Absolute
+  references that resolve inside the root remain valid.
+- The preparation path passes the destination root into USD inspection before
+  publishing converted outputs. The offline catalog verifier passes its pinned
+  asset root into the same inspection contract and records
+  `outside_root_dependencies` in per-class evidence.
+- GPU smoke object and contact lookups use `InteractiveScene` mapping access
+  (`scene[object_id]` / `scene[name]`) with explicit `KeyError` handling. Missing
+  entries now produce a failed smoke result with diagnostic names instead of
+  attribute-based lookup.
+
+Review-fix regression:
+
+```text
+PYTHONPATH=Go2Pvcnn /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+  Go2Pvcnn/tests/test_m1_rialto_object_assets.py \
+  Go2Pvcnn/tests/test_m1_rialto_object_verification.py
+25 passed in 1.08s
+
+PYTHONPATH=Go2Pvcnn /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+  Go2Pvcnn/tests/test_m1_rialto_object_assets.py \
+  Go2Pvcnn/tests/test_m1_rialto_object_verification.py \
+  Go2Pvcnn/tests/test_m1_object_catalog.py \
+  Go2Pvcnn/tests/test_m1_object_scene.py \
+  Go2Pvcnn/tests/test_m1_object_target_contract.py \
+  Go2Pvcnn/tests/test_m1_dual_panda_o6_asset_static.py
+68 passed in 1.17s
+```
+
+The new tests cover absolute and traversal escapes, symlink escapes, safe
+absolute in-root references, and verifier propagation of an out-of-root
+dependency. The checkout still lacks the pinned RialTo files and generated
+USDs, so the honest status remains `preparation_required`; no GPU0 catalog
+smoke pass is claimed.
+
+The unchanged legacy verifier was rerun on GPU0 with the existing dual-Panda/O6
+asset and 2,000 physics steps:
+
+```text
+hard_gates_passed=true
+physics_steps=2000
+measured_physical_dof_count=53
+nonfinite_count=0
+unexpected_contact_count=0
+unexpected_reset_count=0
+```
+
+The run retained the verifier's existing `OmniPBR.mdl` built-in resolver
+warning classification and did not change the legacy verifier contract.
