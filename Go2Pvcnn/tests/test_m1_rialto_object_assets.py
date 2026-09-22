@@ -149,6 +149,28 @@ def test_malformed_glb_fails_clearly_without_publishing_output(tmp_path):
     assert not (output_dir / "malformed.usd").exists()
 
 
+def test_malformed_reconversion_preserves_existing_output_without_temp_leftovers(tmp_path, monkeypatch):
+    module = _module()
+    source = tmp_path / "object.glb"
+    source.write_bytes(b"glTF\x02\x00\x00\x00")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    output = output_dir / "object.usd"
+    original = b"#usda 1.0\n# previously validated output\n"
+    output.write_bytes(original)
+
+    def write_partial_then_fail(_source, destination):
+        destination.write_bytes(b"#usda 1.0\n# malformed replacement\n")
+        raise RuntimeError("malformed conversion")
+
+    monkeypatch.setattr(module, "_convert_with_available_tool", write_partial_then_fail)
+    with pytest.raises(RuntimeError, match="malformed conversion"):
+        module.convert_usdz_or_glb(source, output_dir)
+
+    assert output.read_bytes() == original
+    assert list(output_dir.iterdir()) == [output]
+
+
 def test_conversion_rejects_unresolved_usd_dependencies(tmp_path, monkeypatch):
     module = _module()
     source = tmp_path / "Cup.USDZ"

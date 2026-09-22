@@ -114,3 +114,15 @@ byte-identical output across two conversions, checks the generated USDA SHA
 `d560385cce0956598b656f2139e8ea4cd15ed98b184133dbb97163cbccc33d55`, inspects
 combined bounds `[[-1.0, -2.0, -3.0], [3.5, 2.0, 3.0]]`, and rejects a malformed
 GLB without publishing `malformed.usd`.
+
+## P2 Atomic Conversion Follow-Up
+
+Follow-up commit: `fix: make RialTo conversion publication atomic`.
+
+`convert_usdz_or_glb` now writes converter output to a unique temporary sibling
+with the final USD suffix, validates that temporary output and its dependencies,
+then atomically replaces the destination with `Path.replace`. Converter or
+validation failures clean up the temporary file and preserve any previously
+validated destination unchanged. The regression test exercises a malformed
+reconversion over an existing output and verifies both byte preservation and
+absence of temporary siblings.

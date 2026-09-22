@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -262,7 +263,12 @@ def _validate_usd_dependencies(path: Path) -> dict[str, object]:
 
 
 def convert_usdz_or_glb(source: Path, destination: Path) -> Path:
-    """Convert one local USDZ/GLB to deterministic ``<stem>.usd`` output."""
+    """Convert one local USDZ/GLB to deterministic ``<stem>.usd`` output.
+
+    Conversion and validation happen in a temporary sibling file. The
+    previously published output is replaced atomically only after both steps
+    succeed; failures leave an existing valid output untouched.
+    """
 
     source = Path(source)
     extension = source.suffix.lower()
@@ -273,10 +279,23 @@ def convert_usdz_or_glb(source: Path, destination: Path) -> Path:
     destination = Path(destination)
     output = destination if destination.suffix.lower() in {".usd", ".usda", ".usdc"} else destination / f"{source.stem}.usd"
     output.parent.mkdir(parents=True, exist_ok=True)
-    _convert_with_available_tool(source, output)
-    if not output.is_file():
-        raise RuntimeError(f"converter did not create deterministic USD output: {output}")
-    _validate_usd_dependencies(output)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.",
+        suffix=output.suffix,
+        dir=output.parent,
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    temporary.unlink()
+    try:
+        _convert_with_available_tool(source, temporary)
+        if not temporary.is_file():
+            raise RuntimeError(f"converter did not create deterministic USD output: {output}")
+        _validate_usd_dependencies(temporary)
+        temporary.replace(output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
     return output
 
 
