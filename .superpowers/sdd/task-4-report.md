@@ -4,7 +4,8 @@
 
 Implemented and locally verified.
 
-Feature commit: `feat: expose O6 target object selection`.
+Feature commit: `feat: expose O6 target object selection` plus the follow-up
+P1 fix commit recorded below.
 Baseline: `3d40cfc` (`fix: harden object catalog scene integration`).
 
 ## Scope implemented
@@ -27,6 +28,15 @@ Baseline: `3d40cfc` (`fix: harden object catalog scene integration`).
   geometry or perform network access.
 - Preserved the existing prior validation/startup order: malformed prior
   configuration still fails before touching `env.unwrapped` or the Isaac scene.
+- Fixed the Play entrypoint P1: `--object-id` now selects the default local
+  catalog automatically, materializes deterministic `object_class_000`
+  instances, validates the selected ID and resolved USD assets before
+  `AppLauncher`/`gym.make`, and passes `object_catalog` plus
+  `object_instances` into `M1DualPandaO6BimanualEnvCfg`.
+- Added optional `--object-catalog` and `--object-assets-root` overrides for
+  explicitly prepared local catalogs. Omitting `--object-id` and
+  `--object-catalog` still constructs the legacy Box config without loading
+  the catalog.
 
 ## TDD evidence
 
@@ -86,6 +96,8 @@ Additional focused passes:
 - Object MPC/runtime/O6 contracts: `42 passed in 1.90s`.
 - Existing O6 verification after startup-order fix: `9 passed in 0.89s`.
 - Target/runtime/object-MPC recheck: `35 passed in 1.73s`.
+- Play/catalog target follow-up: `12 passed in 0.78s`.
+- Object/catalog/scene/O6 entrypoint follow-up: `77 passed in 15.91s`.
 
 Static checks:
 
@@ -107,13 +119,16 @@ Scoped `git diff --check` for the Task 4 files is clean. Repository-wide
 `git diff --check` remains affected by an unrelated pre-existing blank line at
 `.superpowers/sdd/task-6-brief.md:61`.
 
-## Concerns and unverified boundaries
+## Follow-up commit and concerns
+
+Follow-up commit: `1934c9c` (`fix: wire Play object-id to catalog-backed config`)
 
 - No Isaac Sim/GPU0 startup or physical manipulation run was performed.
-- The default play script still constructs the default environment config, so a
-  non-legacy `--object-id` requires a caller-provided catalog-backed environment
-  configuration with matching `object_instances`; omitted `--object-id` remains
-  the Box default.
+- The default catalog's materialized USD files are not present in this
+  worktree, so a default `--object-id bottle_000` invocation correctly fails
+  before simulation with `AssetPreparationRequiredError` and the explicit
+  offline preparation command. A prepared local catalog fixture was verified
+  end-to-end through `build_play_config`.
 - Existing hand contact sensor filters remain Box-specific in the environment
   configuration. Target pose/obstacle goal wiring is covered, but target-specific
   contact sensor initialization and contact-rich behavior belong to a later smoke

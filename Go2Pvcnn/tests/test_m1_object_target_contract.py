@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,9 @@ from go2_pvcnn.control.m1_bimanual_coordination.task_goal import (
     resolve_target_object_ids,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import ObjectInstance
+from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
+    AssetPreparationRequiredError,
+)
 
 
 DTYPE = torch.float64
@@ -88,6 +93,182 @@ def test_play_parser_keeps_box_default_and_accepts_explicit_object_id():
 
     assert module._parser().parse_args([]).object_id is None
     assert module._parser().parse_args(["--object-id", "cup_000"]).object_id == "cup_000"
+    assert module._parser().parse_args([]).object_catalog is None
+
+
+def _load_play_module():
+    import importlib.util
+
+    path = ROOT / "scripts/m1_dual_panda_o6_bimanual_play.py"
+    spec = importlib.util.spec_from_file_location("m1_o6_play_config", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_play_config_omission_keeps_legacy_box_and_does_not_load_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = _load_play_module()
+    calls: list[object] = []
+    monkeypatch.setattr(module, "_prepare_object_scene", lambda **kwargs: calls.append(kwargs))
+
+    class FakeCfg:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.object_catalog = kwargs.get("object_catalog")
+            self.object_instances = kwargs.get("object_instances", ())
+            self.scene = type("Scene", (), {"num_envs": 99})()
+            self.seed = None
+
+    monkeypatch.setattr(module, "_load_env_cfg_type", lambda: FakeCfg)
+    cfg = module.build_play_config(seed=7, object_id=None)
+
+    assert cfg.object_catalog is None
+    assert cfg.object_instances == ()
+    assert cfg.scene.num_envs == 1
+    assert cfg.seed == 7
+    assert calls == []
+
+
+def test_play_config_accepts_prepared_legacy_empty_scene(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = _load_play_module()
+
+    class FakeCfg:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.object_catalog = kwargs.get("object_catalog")
+            self.object_instances = kwargs.get("object_instances", ())
+            self.scene = type("Scene", (), {"num_envs": 99})()
+            self.seed = None
+
+    monkeypatch.setattr(module, "_load_env_cfg_type", lambda: FakeCfg)
+    cfg = module.build_play_config(seed=5, object_id=None, catalog=None, object_instances=())
+
+    assert cfg.kwargs == {}
+    assert cfg.object_catalog is None
+    assert cfg.object_instances == ()
+    assert cfg.scene.num_envs == 1
+    assert cfg.seed == 5
+
+
+def test_play_config_builds_catalog_scene_for_valid_object_id(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = _load_play_module()
+    catalog = object()
+    instances = (
+        ObjectInstance("bottle_000", "bottle", (0.65, 0.0, 1.20)),
+        ObjectInstance("cube_000", "cube", (0.65, 0.30, 1.20)),
+    )
+    monkeypatch.setattr(
+        module,
+        "_prepare_object_scene",
+        lambda **kwargs: (catalog, instances),
+    )
+
+    class FakeCfg:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.object_catalog = kwargs["object_catalog"]
+            self.object_instances = kwargs["object_instances"]
+            self.scene = type("Scene", (), {"num_envs": 99})()
+            self.seed = None
+
+    monkeypatch.setattr(module, "_load_env_cfg_type", lambda: FakeCfg)
+    cfg = module.build_play_config(seed=11, object_id="bottle_000")
+
+    assert cfg.kwargs == {
+        "object_catalog": catalog,
+        "object_instances": instances,
+    }
+    assert cfg.object_catalog is catalog
+    assert tuple(instance.object_id for instance in cfg.object_instances) == (
+        "bottle_000",
+        "cube_000",
+    )
+    assert cfg.scene.num_envs == 1
+    assert cfg.seed == 11
+
+
+def test_unknown_play_object_id_is_rejected_before_catalog_or_cfg(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = _load_play_module()
+    calls: list[str] = []
+    monkeypatch.setattr(
+        module,
+        "_prepare_object_scene",
+        lambda **kwargs: calls.append("catalog") or (_ for _ in ()).throw(
+            AssertionError("catalog loader was reached")
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_load_env_cfg_type",
+        lambda: (_ for _ in ()).throw(AssertionError("cfg constructor was reached")),
+    )
+
+    with pytest.raises(ValueError, match="unknown target object_id"):
+        module.build_play_config(seed=42, object_id="missing_000")
+
+    assert calls == []
+
+
+def _write_play_catalog(tmp_path: Path) -> tuple[Path, Path]:
+    asset_root = tmp_path / "assets"
+    asset_root.mkdir()
+    classes: dict[str, dict[str, object]] = {}
+    for object_class in ("bottle", "cube"):
+        asset_path = asset_root / f"{object_class}.usd"
+        asset_path.write_bytes(f"{object_class}-usd".encode())
+        digest = hashlib.sha256(asset_path.read_bytes()).hexdigest()
+        classes[object_class] = {
+            "usd_path": f"{object_class}.usd",
+            "source_sha256": digest,
+            "resolved_sha256": digest,
+            "mass_kg": 0.5,
+            "scale": 1.0,
+            "collision_profile": "convex_decomposition",
+            "grasp_profile": "two_hand_stable",
+        }
+    config = tmp_path / "catalog.json"
+    config.write_text(
+        json.dumps({"schema_version": 1, "classes": classes}, indent=2),
+        encoding="utf-8",
+    )
+    return config, asset_root
+
+
+def test_prepare_object_scene_accepts_valid_catalog_object_id(tmp_path: Path):
+    module = _load_play_module()
+    config, asset_root = _write_play_catalog(tmp_path)
+
+    catalog, instances = module._prepare_object_scene(
+        object_id="bottle_000",
+        object_catalog=config,
+        object_assets_root=asset_root,
+    )
+
+    assert tuple(catalog.classes) == ("bottle", "cube")
+    assert tuple(instance.object_id for instance in instances) == (
+        "bottle_000",
+        "cube_000",
+    )
+
+
+def test_default_catalog_object_id_fails_with_preparation_required_error():
+    module = _load_play_module()
+
+    with pytest.raises(AssetPreparationRequiredError, match="preparation required.*bottle"):
+        module._prepare_object_scene(
+            object_id="bottle_000",
+            object_catalog=None,
+            object_assets_root=module.DEFAULT_OBJECT_ASSET_ROOT,
+        )
 
 
 def test_unknown_target_id_is_rejected_before_scene_startup():
