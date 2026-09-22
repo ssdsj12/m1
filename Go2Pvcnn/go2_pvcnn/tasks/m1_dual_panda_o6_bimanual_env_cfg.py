@@ -19,7 +19,10 @@ from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
     ObjectCatalog,
     ObjectInstance,
 )
-from go2_pvcnn.tasks.m1_object_scene import build_object_scene_cfg
+from go2_pvcnn.tasks.m1_object_scene import (
+    build_object_scene_cfg,
+    validate_scene_object_ids,
+)
 from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg, M1SmokeSceneCfg
 
 
@@ -217,11 +220,13 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         if self.object_catalog is not None:
-            for object_id, object_cfg in build_object_scene_cfg(
+            object_configs = build_object_scene_cfg(
                 self.object_catalog,
                 self.object_instances,
                 "{ENV_REGEX_NS}",
-            ).items():
+            )
+            validate_scene_object_ids(self.scene, object_configs)
+            for object_id, object_cfg in object_configs.items():
                 setattr(self.scene, object_id, object_cfg)
         self.sim.dt = PHYSICS_DT
         self.decimation = 1

@@ -127,6 +127,24 @@ def test_legacy_catalog_does_not_create_object_entries(tmp_path: Path, monkeypat
     assert scene.build_object_scene_cfg(legacy, (), "{ENV_REGEX_NS}") == {}
 
 
+@pytest.mark.parametrize(
+    "object_id",
+    ("box", "robot", "left_arm", "right_arm", "o6_contacts"),
+)
+def test_scene_object_ids_reject_existing_scene_fields(object_id: str) -> None:
+    from go2_pvcnn.tasks.m1_object_scene import validate_scene_object_ids
+
+    class _Scene:
+        box = object()
+        robot = object()
+        left_arm = object()
+        right_arm = object()
+        o6_contacts = object()
+
+    with pytest.raises(ValueError, match=object_id):
+        validate_scene_object_ids(_Scene(), (object_id,))
+
+
 def test_bimanual_env_cfg_keeps_legacy_box_when_catalog_is_unspecified() -> None:
     source = (
         Path(__file__).resolve().parents[1]
@@ -136,5 +154,8 @@ def test_bimanual_env_cfg_keeps_legacy_box_when_catalog_is_unspecified() -> None
     assert "object_catalog: ObjectCatalog | None = None" in source
     assert "object_instances: tuple[ObjectInstance, ...] = ()" in source
     assert "if self.object_catalog is not None:" in source
+    assert source.index(
+        "validate_scene_object_ids(self.scene, object_configs)"
+    ) < source.index("setattr(self.scene, object_id, object_cfg)")
     assert 'prim_path="{ENV_REGEX_NS}/Box"' in source
     assert 'box = RigidObjectCfg(' in source

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -183,3 +184,16 @@ def test_missing_catalog_uses_legacy_box_fallback(tmp_path: Path) -> None:
     assert catalog.uses_legacy_box is True
     assert catalog.classes == ()
     assert catalog.validate_instances(()) == ()
+
+
+def test_object_catalog_can_be_deepcopied(tmp_path: Path) -> None:
+    config, asset_root = _write_catalog(tmp_path)
+    catalog = load_catalog(config, asset_root)
+
+    copied = copy.deepcopy(catalog)
+
+    assert copied is not catalog
+    assert copied.classes == catalog.classes
+    assert copied.geometry_notes == catalog.geometry_notes
+    assert copied.resolve("bottle") == catalog.resolve("bottle")
+    assert copied.uses_legacy_box is False

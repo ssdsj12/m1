@@ -165,6 +165,17 @@ class ObjectCatalog:
         if not isinstance(self.uses_legacy_box, bool):
             raise TypeError("uses_legacy_box must be bool")
 
+    def __deepcopy__(self, memo: dict[int, object]) -> ObjectCatalog:
+        """Rebuild immutable mappings instead of trying to pickle a proxy."""
+
+        copied = type(self)(
+            dict(self._records),
+            dict(self._geometry_notes),
+            self.uses_legacy_box,
+        )
+        memo[id(self)] = copied
+        return copied
+
     @property
     def classes(self) -> tuple[str, ...]:
         """Return class names in catalog-file order."""

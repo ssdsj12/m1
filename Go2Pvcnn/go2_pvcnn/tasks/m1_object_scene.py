@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING
 
 from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
@@ -12,6 +12,38 @@ from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
 
 if TYPE_CHECKING:
     from isaaclab.assets import RigidObjectCfg
+
+
+_RESERVED_SCENE_OBJECT_IDS = frozenset(
+    {"box", "robot", "left_arm", "right_arm", "sensors"}
+)
+
+
+def validate_scene_object_ids(scene: object, object_ids: Iterable[str]) -> None:
+    """Reject object IDs that would overwrite scene configuration fields."""
+
+    if scene is None:
+        raise TypeError("scene must not be None")
+    if isinstance(object_ids, (str, bytes)):
+        raise TypeError("object_ids must be a sequence of strings")
+    try:
+        object_ids = tuple(object_ids)
+    except TypeError as error:
+        raise TypeError("object_ids must be a sequence of strings") from error
+    invalid = tuple(
+        object_id
+        for object_id in object_ids
+        if not isinstance(object_id, str) or not object_id
+    )
+    if invalid:
+        raise ValueError(f"object IDs must be non-empty strings: {invalid!r}")
+
+    reserved = set(_RESERVED_SCENE_OBJECT_IDS)
+    reserved.update(name for name in dir(scene) if not name.startswith("_"))
+    collisions = tuple(sorted(set(object_ids).intersection(reserved)))
+    if collisions:
+        names = ", ".join(repr(name) for name in collisions)
+        raise ValueError(f"object_id collides with existing scene field(s): {names}")
 
 
 def _ordered_enabled_instances(
@@ -114,4 +146,8 @@ def build_object_scene_cfg(
     return configs
 
 
-__all__ = ["build_object_scene_cfg", "select_target_and_obstacles"]
+__all__ = [
+    "build_object_scene_cfg",
+    "select_target_and_obstacles",
+    "validate_scene_object_ids",
+]
