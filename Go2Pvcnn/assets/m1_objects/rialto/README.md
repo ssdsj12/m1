@@ -14,9 +14,10 @@ PYTHONPATH=Go2Pvcnn python Go2Pvcnn/scripts/m1_rialto_object_assets.py \
   prepare --destination Go2Pvcnn/assets/m1_objects/rialto --allow-network
 ```
 
-USDZ inputs require an installed Pixar USD `usdcat` converter. GLB conversion is
-intentionally refused until a converter with a verified command contract is
-added; the preparation command does not claim conversion when none is
-available. Conversion output names are deterministic (`<source stem>.usd`).
-Successful preparation writes `prepared_manifest.json` with each source hash,
-generated USD hash, and dependency inspection result.
+USDZ inputs require an installed Pixar USD `usdcat` converter. GLB inputs are
+loaded with the local `trimesh` dependency and written as a deterministic,
+self-contained ASCII USDA mesh with baked scene transforms. Invalid or
+meshless GLBs fail before an output is published. Conversion output names are
+deterministic (`<source stem>.usd`). Successful preparation writes
+`prepared_manifest.json` with each source hash, generated USD hash, and
+dependency inspection result.

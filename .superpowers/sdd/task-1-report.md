@@ -89,3 +89,28 @@ git diff --check -- Go2Pvcnn/assets/m1_objects/rialto/README.md Go2Pvcnn/scripts
 ```
 
 `command -v usdcat` and `command -v gltf2usd` produced no paths in this environment, so no real converter-backed generated asset was promoted. The generated-SHA path is covered with a deterministic local converter fixture.
+
+## P1 GLB Conversion Follow-Up
+
+Follow-up commit: `fix: convert RialTo GLB assets with trimesh`.
+
+The remaining GLB conversion gap is resolved without adding an external
+converter dependency:
+
+- Valid `.glb` files are loaded with the installed `trimesh` library using
+  `process=False`, all scene transforms are baked, mesh instances are sorted
+  deterministically, and the geometry is concatenated into one mesh.
+- The combined mesh is emitted as self-contained ASCII USDA containing
+  `points`, `faceVertexCounts`, `faceVertexIndices`, `extent`, and
+  `subdivisionScheme = "none"`.
+- Missing `trimesh`, invalid GLB headers, malformed GLB payloads, meshless GLBs,
+  non-finite geometry, and incomplete mesh data fail with explicit
+  `RuntimeError` messages before conversion output is accepted.
+- USDZ conversion still requires `usdcat`, and converted output continues
+  through the existing unresolved-dependency validator.
+
+The focused regression now generates a small two-mesh GLB fixture, verifies
+byte-identical output across two conversions, checks the generated USDA SHA
+`d560385cce0956598b656f2139e8ea4cd15ed98b184133dbb97163cbccc33d55`, inspects
+combined bounds `[[-1.0, -2.0, -3.0], [3.5, 2.0, 3.0]]`, and rejects a malformed
+GLB without publishing `malformed.usd`.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -121,10 +122,113 @@ def _convert_with_available_tool(source: Path, destination: Path) -> None:
                 raise RuntimeError(f"USDZ converter failed for {source}{suffix}") from exc
             return
         raise RuntimeError("cannot convert USDZ: usdcat is not installed (install Pixar USD)")
-    raise RuntimeError(
-        "cannot convert GLB: no supported GLB converter contract is configured; "
-        "refusing to claim conversion until a verified converter is added"
+    if source.suffix.lower() == ".glb":
+        _convert_glb_with_trimesh(source, destination)
+        return
+    raise ValueError(f"unsupported conversion extension: {source.suffix or '<none>'}")
+
+
+def _format_usda_float(value: object) -> str:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"GLB mesh contains non-finite coordinate: {number!r}")
+    text = format(number, ".17g")
+    if text == "-0":
+        return "0.0"
+    if "." not in text and "e" not in text.lower():
+        return f"{text}.0"
+    return text
+
+
+def _format_usda_vector(values: object) -> str:
+    return "(" + ", ".join(_format_usda_float(value) for value in values) + ")"
+
+
+def _write_combined_mesh_usda(mesh: object, destination: Path) -> None:
+    vertices = getattr(mesh, "vertices", None)
+    faces = getattr(mesh, "faces", None)
+    bounds = getattr(mesh, "bounds", None)
+    if vertices is None or faces is None or bounds is None:
+        raise RuntimeError("cannot convert GLB: trimesh returned an incomplete mesh")
+    if len(vertices) == 0 or len(faces) == 0:
+        raise RuntimeError("cannot convert GLB: mesh has no vertices or faces")
+    if getattr(vertices, "ndim", None) != 2 or vertices.shape[1] != 3:
+        raise RuntimeError(f"cannot convert GLB: expected Nx3 vertices, got {vertices.shape!r}")
+    if getattr(faces, "ndim", None) != 2 or faces.shape[1] < 3:
+        raise RuntimeError(f"cannot convert GLB: expected polygon faces, got {faces.shape!r}")
+    if getattr(bounds, "shape", None) != (2, 3):
+        raise RuntimeError(f"cannot convert GLB: expected 3D bounds, got {bounds.shape!r}")
+    if not all(math.isfinite(float(value)) for value in vertices.reshape(-1)):
+        raise RuntimeError("cannot convert GLB: mesh contains non-finite vertex coordinates")
+    if not all(math.isfinite(float(value)) for value in bounds.reshape(-1)):
+        raise RuntimeError("cannot convert GLB: mesh bounds are non-finite")
+
+    point_values = ",\n            ".join(_format_usda_vector(row) for row in vertices)
+    face_counts = ", ".join(str(int(len(face))) for face in faces)
+    face_indices = ", ".join(str(int(index)) for face in faces for index in face)
+    extent = f"[{_format_usda_vector(bounds[0])}, {_format_usda_vector(bounds[1])}]"
+    text = (
+        "#usda 1.0\n"
+        "(\n"
+        "    metersPerUnit = 1\n"
+        "    upAxis = \"Z\"\n"
+        ")\n"
+        "\n"
+        "def Xform \"Root\" {\n"
+        "    def Mesh \"CombinedMesh\" {\n"
+        f"        float3[] extent = {extent}\n"
+        "        uniform token subdivisionScheme = \"none\"\n"
+        f"        point3f[] points = [{point_values}]\n"
+        f"        int[] faceVertexCounts = [{face_counts}]\n"
+        f"        int[] faceVertexIndices = [{face_indices}]\n"
+        "    }\n"
+        "}\n"
     )
+    destination.write_text(text, encoding="utf-8", newline="\n")
+
+
+def _convert_glb_with_trimesh(source: Path, destination: Path) -> None:
+    """Load a GLB with trimesh and publish one deterministic ASCII USDA mesh."""
+
+    try:
+        import trimesh
+    except ImportError as exc:
+        raise RuntimeError(
+            "cannot convert GLB: trimesh is not installed; install trimesh in the asset-preparation environment"
+        ) from exc
+
+    with source.open("rb") as stream:
+        if stream.read(4) != b"glTF":
+            raise RuntimeError(f"cannot convert GLB {source}: invalid glTF binary header")
+    try:
+        loaded = trimesh.load(source, file_type="glb", force="scene", process=False)
+        if isinstance(loaded, trimesh.Scene):
+            parts = loaded.dump()
+        elif isinstance(loaded, trimesh.Trimesh):
+            parts = [loaded]
+        else:
+            parts = []
+    except Exception as exc:
+        detail = str(exc).strip() or exc.__class__.__name__
+        raise RuntimeError(f"cannot convert GLB {source}: failed to load with trimesh: {detail}") from exc
+
+    meshes = [part for part in parts if isinstance(part, trimesh.Trimesh)]
+    if not meshes:
+        raise RuntimeError(f"cannot convert GLB {source}: failed to load a mesh geometry")
+    meshes.sort(
+        key=lambda part: (
+            str(part.metadata.get("name", "")),
+            str(part.metadata.get("node", "")),
+        )
+    )
+    try:
+        combined = trimesh.util.concatenate(meshes)
+        _write_combined_mesh_usda(combined, destination)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        detail = str(exc).strip() or exc.__class__.__name__
+        raise RuntimeError(f"cannot convert GLB {source}: failed to combine mesh geometry: {detail}") from exc
 
 
 def _dependency_paths_from_text(path: Path) -> list[str]:

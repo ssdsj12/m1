@@ -20,6 +20,26 @@ def _module():
     return m1_rialto_object_assets
 
 
+def _write_glb_fixture(path: Path) -> None:
+    import trimesh
+
+    scene = trimesh.Scene()
+    scene.add_geometry(
+        trimesh.creation.box(extents=(2.0, 4.0, 6.0)),
+        geom_name="base",
+        node_name="base",
+    )
+    scene.add_geometry(
+        trimesh.creation.box(extents=(1.0, 1.0, 1.0)),
+        transform=trimesh.transformations.translation_matrix((3.0, 0.0, 0.0)),
+        geom_name="offset",
+        node_name="offset",
+    )
+    payload = scene.export(file_type="glb")
+    assert isinstance(payload, (bytes, bytearray))
+    path.write_bytes(bytes(payload))
+
+
 def test_manifest_has_pinned_schema_and_explicit_sources():
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     assert manifest["repo"] == "https://github.com/real-to-sim-to-real/RialToAssets.git"
@@ -99,12 +119,34 @@ def test_conversion_output_name_is_deterministic(tmp_path, monkeypatch):
     assert second.parent.name == "two"
 
 
-def test_glb_conversion_requires_a_supported_converter(tmp_path):
+def test_glb_conversion_writes_deterministic_combined_usda(tmp_path):
     module = _module()
     source = tmp_path / "box.glb"
-    source.write_bytes(b"glTF")
-    with pytest.raises(RuntimeError, match="no supported.*GLB.*converter"):
-        module.convert_usdz_or_glb(source, tmp_path / "out")
+    _write_glb_fixture(source)
+    first = module.convert_usdz_or_glb(source, tmp_path / "one")
+    second = module.convert_usdz_or_glb(source, tmp_path / "two")
+    assert first.name == second.name == "box.usd"
+    assert first.read_bytes() == second.read_bytes()
+    assert module.sha256_file(first) == "d560385cce0956598b656f2139e8ea4cd15ed98b184133dbb97163cbccc33d55"
+    text = first.read_text(encoding="utf-8")
+    assert 'def Mesh "CombinedMesh"' in text
+    assert "point3f[] points" in text
+    assert "int[] faceVertexIndices" in text
+    assert "int[] faceVertexCounts" in text
+    inspection = module.inspect_usd(first)
+    assert inspection["prim_count"] == 2
+    assert inspection["bounds"] == [[-1.0, -2.0, -3.0], [3.5, 2.0, 3.0]]
+    assert inspection["dependencies_resolved"] is True
+
+
+def test_malformed_glb_fails_clearly_without_publishing_output(tmp_path):
+    module = _module()
+    source = tmp_path / "malformed.glb"
+    source.write_bytes(b"glTF\x02\x00\x00\x00")
+    output_dir = tmp_path / "out"
+    with pytest.raises(RuntimeError, match="cannot convert GLB.*failed to load"):
+        module.convert_usdz_or_glb(source, output_dir)
+    assert not (output_dir / "malformed.usd").exists()
 
 
 def test_conversion_rejects_unresolved_usd_dependencies(tmp_path, monkeypatch):
