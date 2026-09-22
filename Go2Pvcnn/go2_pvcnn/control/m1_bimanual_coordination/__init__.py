@@ -82,6 +82,12 @@ from .state_machine import (
     BimanualMissionState,
 )
 from .runtime import BimanualRuntime
+from .object_catalog import (
+    ObjectCatalog,
+    ObjectClassRecord,
+    ObjectInstance,
+    load_catalog,
+)
 
 __all__ = [
     "PalmOrientationMpcCfg",
@@ -145,4 +151,8 @@ __all__ = [
     "BimanualMissionDiagnostics",
     "BimanualMissionState",
     "BimanualRuntime",
+    "ObjectCatalog",
+    "ObjectClassRecord",
+    "ObjectInstance",
+    "load_catalog",
 ]
