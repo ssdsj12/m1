@@ -53,6 +53,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asset-root", type=Path, required=True)
     parser.add_argument("--steps", type=int, default=EXPECTED_PHYSICS_STEPS)
+    parser.add_argument(
+        "--report-path",
+        type=Path,
+        default=None,
+        help="optionally write the exact JSON result to this path atomically",
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser
 
@@ -598,6 +604,26 @@ def _atomic_update_manifest(path: Path, runtime: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _atomic_write_report(path: Path, result: dict[str, Any]) -> None:
+    """Write an optional verifier report without changing legacy stdout behavior."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(result, stream, ensure_ascii=False, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _verify(asset_root: Path, steps: int, device: str) -> dict[str, Any]:
     asset_root = asset_root.resolve(strict=True)
     asset = asset_root / "m1_dual_panda_o6.usd"
@@ -650,6 +676,8 @@ def main() -> int:
             "error": f"{type(exc).__name__}: {exc}",
         }
         exit_code = 1
+    if cli_args.report_path is not None:
+        _atomic_write_report(cli_args.report_path, result)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     sys.stdout.flush()
     os._exit(exit_code)
