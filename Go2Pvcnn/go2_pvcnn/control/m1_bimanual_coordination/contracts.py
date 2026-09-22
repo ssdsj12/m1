@@ -113,6 +113,18 @@ class BoxState:
 
 
 @dataclass(frozen=True)
+class ObjectState:
+    """Pose-only state for non-target objects at the task-goal boundary."""
+
+    pose_b: torch.Tensor
+    twist_b: torch.Tensor
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "pose_b", _float64("pose_b", self.pose_b, (6,)))
+        object.__setattr__(self, "twist_b", _float64("twist_b", self.twist_b, (6,)))
+
+
+@dataclass(frozen=True)
 class BimanualSnapshot:
     timestamp_ns: int
     base_state: torch.Tensor
@@ -124,6 +136,7 @@ class BimanualSnapshot:
     left_hand: SideHandState
     right_hand: SideHandState
     box: BoxState
+    obstacle_objects: tuple[ObjectState, ...] = ()
 
     def __post_init__(self) -> None:
         _timestamp(self.timestamp_ns)
@@ -143,6 +156,16 @@ class BimanualSnapshot:
         ):
             if not isinstance(getattr(self, name), expected_type):
                 raise TypeError(f"{name} must be {expected_type.__name__}")
+        if not isinstance(self.obstacle_objects, tuple) or any(
+            not isinstance(value, ObjectState) for value in self.obstacle_objects
+        ):
+            raise TypeError("obstacle_objects must be a tuple of ObjectState values")
+
+    @property
+    def target_object(self) -> BoxState:
+        """Return the selected object through the legacy ``box`` alias."""
+
+        return self.box
 
 
 @dataclass(frozen=True)

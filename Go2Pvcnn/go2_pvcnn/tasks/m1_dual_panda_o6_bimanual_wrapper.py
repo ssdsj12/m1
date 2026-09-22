@@ -40,6 +40,7 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     LatentRuntime,
     SafetyInput,
     SafetyProjection,
+    ObjectState,
     SideArmState,
     SideHandState,
     build_actuation_matrix,
@@ -47,6 +48,7 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     fold_o6_fingertip_jacobians,
     latch_contact_joint_targets,
     stack_stationary_wheel_jacobians,
+    resolve_target_object_ids,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
 from go2_pvcnn.control.m1_bimanual_coordination.contact_summary import (
@@ -154,11 +156,29 @@ def _o6_contact_body_candidates(side: str) -> tuple[tuple[str, ...], ...]:
 class M1DualPandaO6SnapshotAdapter:
     """Resolve the articulation layout once, then build atomic CPU snapshots."""
 
-    def __init__(self, env, *, env_index: int = 0) -> None:
+    def __init__(
+        self,
+        env,
+        *,
+        env_index: int = 0,
+        target_object_id: str | None = None,
+        obstacle_object_ids: Sequence[str] = (),
+    ) -> None:
         self.env = env.unwrapped if hasattr(env, "unwrapped") else env
         self.env_index = int(env_index)
         self.robot = self.env.scene["robot"]
-        self.box = self.env.scene["box"]
+        self.target_object_id = target_object_id
+        self.obstacle_object_ids = tuple(obstacle_object_ids)
+        target_scene_id = "box" if target_object_id is None else target_object_id
+        try:
+            self.box = self.env.scene[target_scene_id]
+        except (KeyError, TypeError) as error:
+            raise ValueError(
+                f"target object scene entry is unavailable: {target_scene_id!r}"
+            ) from error
+        self.obstacle_objects = tuple(
+            self._scene_object(object_id) for object_id in self.obstacle_object_ids
+        )
         names = tuple(self.robot.joint_names)
         self.active_joint_ids = resolve_active_joint_ids(names)
         name_to_id = {name: index for index, name in enumerate(names)}
@@ -231,6 +251,14 @@ class M1DualPandaO6SnapshotAdapter:
         self._previous_wheel_contact_jacobian: torch.Tensor | None = None
         self.arm_dynamics_diagnostics: dict[str, dict[str, object]] = {}
         self.contact_summaries: dict[str, ContactSummary] = {}
+
+    def _scene_object(self, object_id: str):
+        try:
+            return self.env.scene[object_id]
+        except (KeyError, TypeError) as error:
+            raise ValueError(
+                f"obstacle object scene entry is unavailable: {object_id!r}"
+            ) from error
 
     def dynamics(self) -> FullDynamicsState:
         """Read full PhysX dynamics and four fixed-wheel contact constraints."""
@@ -523,6 +551,28 @@ class M1DualPandaO6SnapshotAdapter:
         inertia = (0.5 / 12.0) * torch.diag(
             torch.tensor((y * y + z * z, x * x + z * z, x * x + y * y), dtype=torch.float64)
         )
+        obstacle_states = []
+        for obstacle in self.obstacle_objects:
+            obstacle_position = _cpu64(obstacle.data.root_pos_w[env])
+            obstacle_states.append(
+                ObjectState(
+                    pose_b=pose_in_base(
+                        base_position,
+                        base_quaternion,
+                        obstacle_position,
+                        _cpu64(obstacle.data.root_quat_w[env]),
+                    ),
+                    twist_b=twist_in_base(
+                        base_position,
+                        base_quaternion,
+                        _cpu64(data.root_lin_vel_w[env]),
+                        _cpu64(data.root_ang_vel_w[env]),
+                        obstacle_position,
+                        _cpu64(obstacle.data.root_lin_vel_w[env]),
+                        _cpu64(obstacle.data.root_ang_vel_w[env]),
+                    ),
+                )
+            )
         return BimanualSnapshot(
             timestamp_ns=timestamp_ns,
             base_state=base_state,
@@ -558,6 +608,7 @@ class M1DualPandaO6SnapshotAdapter:
                 inertia_b=inertia,
                 supported=bool(box_position[2] <= 1.205),
             ),
+            obstacle_objects=tuple(obstacle_states),
         )
 
 
@@ -585,6 +636,17 @@ class BimanualLaneController:
     )
 
 
+def _configured_object_instances(env) -> tuple[object, ...]:
+    raw = env.unwrapped if hasattr(env, "unwrapped") else env
+    cfg = getattr(raw, "cfg", None)
+    if cfg is None:
+        cfg = getattr(env, "cfg", None)
+    instances = getattr(cfg, "object_instances", ()) if cfg is not None else ()
+    if instances is None:
+        return ()
+    return tuple(instances)
+
+
 class M1DualPandaO6BimanualWrapper:
     """Compute one MPC command and apply it atomically on every physics step."""
 
@@ -595,12 +657,16 @@ class M1DualPandaO6BimanualWrapper:
         *,
         mode: str = "teacher",
         latent_artifact: str | Path | None = None,
+        object_id: str | None = None,
+        target_object_id: str | None = None,
         fingertip_prior_artifact: str | Path | None = None,
         fingertip_prior_metadata_sha256: str | None = None,
         fingertip_prior_binding: object | None = None,
     ) -> None:
         if mode not in {"teacher", "latent"}:
             raise ValueError("mode must be 'teacher' or 'latent'")
+        if object_id is not None and target_object_id is not None:
+            raise ValueError("object_id and target_object_id are mutually exclusive")
         if (
             fingertip_prior_artifact is not None
             and fingertip_prior_metadata_sha256 is None
@@ -646,13 +712,25 @@ class M1DualPandaO6BimanualWrapper:
             self._prior_finalizer = weakref.finalize(
                 self, _close_fingertip_priors, self._fingertip_priors
             )
+        requested_object_id = (
+            target_object_id if target_object_id is not None else object_id
+        )
+        self.target_object_id, self.obstacle_object_ids = resolve_target_object_ids(
+            _configured_object_instances(env),
+            requested_object_id,
+        )
         self.lanes: list[BimanualLaneController] = []
         try:
             raw = self.env.unwrapped
             self.lanes = [
                 BimanualLaneController(
                     env_index=index,
-                    adapter=M1DualPandaO6SnapshotAdapter(env, env_index=index),
+                    adapter=M1DualPandaO6SnapshotAdapter(
+                        env,
+                        env_index=index,
+                        target_object_id=self.target_object_id,
+                        obstacle_object_ids=self.obstacle_object_ids,
+                    ),
                     runtime=self._runtime_for_lane(
                         runtime if index == 0 else None
                     ),
@@ -866,7 +944,6 @@ class M1DualPandaO6BimanualWrapper:
     def _write_default_physics_state(self) -> None:
         raw = self.env.unwrapped
         robot = raw.scene["robot"]
-        box = raw.scene["box"]
         robot_root = robot.data.default_root_state.clone()
         robot_root[:, 7:13] = 0.0
         robot.write_root_state_to_sim(robot_root)
@@ -874,9 +951,19 @@ class M1DualPandaO6BimanualWrapper:
             robot.data.default_joint_pos.clone(),
             torch.zeros_like(robot.data.default_joint_vel),
         )
-        box_root = box.data.default_root_state.clone()
-        box_root[:, 7:13] = 0.0
-        box.write_root_state_to_sim(box_root)
+        objects = []
+        for lane in self.lanes[:1]:
+            objects.extend((lane.adapter.box, *lane.adapter.obstacle_objects))
+        if not objects:
+            objects.append(raw.scene["box"])
+        seen: set[int] = set()
+        for object_handle in objects:
+            if id(object_handle) in seen:
+                continue
+            seen.add(id(object_handle))
+            object_root = object_handle.data.default_root_state.clone()
+            object_root[:, 7:13] = 0.0
+            object_handle.write_root_state_to_sim(object_root)
 
     def reset(self, *, seed: int) -> BimanualSnapshot:
         try:
@@ -912,7 +999,10 @@ class M1DualPandaO6BimanualWrapper:
 
         for lane in self.lanes:
             lane.adapter = M1DualPandaO6SnapshotAdapter(
-                self.env, env_index=lane.env_index
+                self.env,
+                env_index=lane.env_index,
+                target_object_id=self.target_object_id,
+                obstacle_object_ids=self.obstacle_object_ids,
             )
             lane.runtime.reset()
             if lane.latent_runtime is not None:
@@ -949,7 +1039,10 @@ class M1DualPandaO6BimanualWrapper:
             if not done:
                 continue
             lane.adapter = M1DualPandaO6SnapshotAdapter(
-                self.env, env_index=lane.env_index
+                self.env,
+                env_index=lane.env_index,
+                target_object_id=self.target_object_id,
+                obstacle_object_ids=self.obstacle_object_ids,
             )
             lane.runtime.reset()
             if lane.latent_runtime is not None:

@@ -44,6 +44,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--control-device", default="cuda:0", help="requested control device; reference-cpu always uses CPU")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-steps", type=int, default=4000)
+    parser.add_argument("--object-id", default=None)
     parser.add_argument("--diagnostics", action="store_true")
     parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
     parser.add_argument("--fingertip-prior-artifact", type=Path, default=None)
@@ -109,6 +110,7 @@ def _run_with_fingertip_prior(parser, binding) -> int:
     with M1DualPandaO6BimanualWrapper(
         env,
         mode=args.mode,
+        object_id=args.object_id,
         fingertip_prior_artifact=args.fingertip_prior_artifact,
         fingertip_prior_metadata_sha256=args.fingertip_prior_metadata_sha256,
         fingertip_prior_binding=binding,

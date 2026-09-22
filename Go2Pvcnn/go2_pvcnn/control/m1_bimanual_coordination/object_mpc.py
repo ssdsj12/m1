@@ -185,28 +185,83 @@ class ObjectMpcSolution:
 @dataclass(frozen=True)
 class ObjectMpcInput:
     snapshot: BimanualSnapshot
-    target_box_pose_b: torch.Tensor
-    phase: BimanualPhase
+    target_box_pose_b: torch.Tensor | None = None
+    phase: BimanualPhase = BimanualPhase.APPROACH
     previous_solution: ObjectMpcSolution | None = None
+    target_object_pose_b: torch.Tensor | None = None
+    obstacle_object_poses_b: tuple[torch.Tensor, ...] | torch.Tensor = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.snapshot, BimanualSnapshot):
             raise TypeError("snapshot must be BimanualSnapshot")
-        object.__setattr__(
-            self,
-            "target_box_pose_b",
-            _exact_cpu64(
-                "target_box_pose_b",
-                self.target_box_pose_b,
-                (OBJECT_MPC_HORIZON_STEPS, 6),
-            ),
-        )
         if not isinstance(self.phase, BimanualPhase):
             raise TypeError("phase must be BimanualPhase")
         if self.previous_solution is not None and not isinstance(
             self.previous_solution, ObjectMpcSolution
         ):
             raise TypeError("previous_solution must be ObjectMpcSolution or None")
+        target_box_pose = self.target_box_pose_b
+        target_object_pose = self.target_object_pose_b
+        if target_box_pose is None and target_object_pose is None:
+            raise ValueError(
+                "one of target_box_pose_b or target_object_pose_b is required"
+            )
+        if target_box_pose is None:
+            target_box_pose = target_object_pose
+        elif target_object_pose is not None:
+            target_object_pose = _exact_cpu64(
+                "target_object_pose_b",
+                target_object_pose,
+                (OBJECT_MPC_HORIZON_STEPS, 6),
+            )
+            if not torch.equal(
+                _exact_cpu64(
+                    "target_box_pose_b",
+                    target_box_pose,
+                    (OBJECT_MPC_HORIZON_STEPS, 6),
+                ),
+                target_object_pose,
+            ):
+                raise ValueError(
+                    "target_box_pose_b and target_object_pose_b must match"
+                )
+        target_box_pose = _exact_cpu64(
+            "target_box_pose_b",
+            target_box_pose,
+            (OBJECT_MPC_HORIZON_STEPS, 6),
+        )
+        object.__setattr__(self, "target_box_pose_b", target_box_pose)
+        object.__setattr__(self, "target_object_pose_b", target_box_pose.clone())
+
+        obstacle_poses = self.obstacle_object_poses_b
+        if isinstance(obstacle_poses, torch.Tensor):
+            if obstacle_poses.ndim != 3 or obstacle_poses.shape[1:] != (
+                OBJECT_MPC_HORIZON_STEPS,
+                6,
+            ):
+                raise ValueError(
+                    "obstacle_object_poses_b tensor must have shape "
+                    "(N, horizon, 6)"
+                )
+            obstacle_poses = tuple(obstacle_poses[index] for index in range(obstacle_poses.shape[0]))
+        elif isinstance(obstacle_poses, (tuple, list)):
+            obstacle_poses = tuple(obstacle_poses)
+        else:
+            raise TypeError(
+                "obstacle_object_poses_b must be a tensor or sequence of tensors"
+            )
+        object.__setattr__(
+            self,
+            "obstacle_object_poses_b",
+            tuple(
+                _exact_cpu64(
+                    f"obstacle_object_poses_b[{index}]",
+                    value,
+                    (OBJECT_MPC_HORIZON_STEPS, 6),
+                )
+                for index, value in enumerate(obstacle_poses)
+            ),
+        )
 
 
 def _skew(vector: torch.Tensor) -> torch.Tensor:

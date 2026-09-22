@@ -21,6 +21,7 @@ from .hand_mpc import HandMpcInput, HandMpcSolution, O6HandMpc
 from .motion_primitives import BimanualMotionPrimitive, ManipulationTarget
 from .object_mpc import (
     BimanualObjectMpc,
+    OBJECT_MPC_HORIZON_STEPS,
     ObjectMpcInput,
     ObjectMpcSolution,
 )
@@ -214,6 +215,11 @@ class BimanualRuntime:
         return ObjectMpcInput(
             snapshot=snapshot,
             target_box_pose_b=self._latest_motion_target.box_pose_b,
+            target_object_pose_b=self._latest_motion_target.box_pose_b,
+            obstacle_object_poses_b=tuple(
+                obstacle.pose_b.repeat(OBJECT_MPC_HORIZON_STEPS, 1)
+                for obstacle in snapshot.obstacle_objects
+            ),
             phase=self.mission.phase,
             previous_solution=self._last_object,
         )

@@ -14,6 +14,7 @@ from .contracts import (
     BimanualSnapshot,
     BoxState,
     FullDynamicsState,
+    ObjectState,
     SideArmState,
     SideHandState,
     validate_monotonic_snapshot,
@@ -90,6 +91,7 @@ from .object_catalog import (
     PreparationRequiredError,
     load_catalog,
 )
+from .task_goal import resolve_target_object_ids
 
 __all__ = [
     "PalmOrientationMpcCfg",
@@ -101,6 +103,7 @@ __all__ = [
     "BimanualPhase",
     "BimanualSnapshot",
     "BoxState",
+    "ObjectState",
     "FullDynamicsState",
     "SideArmState",
     "SideHandState",
@@ -159,4 +162,5 @@ __all__ = [
     "ObjectClassRecord",
     "ObjectInstance",
     "load_catalog",
+    "resolve_target_object_ids",
 ]
