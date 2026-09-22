@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path, PureWindowsPath
 import re
+import shlex
 from types import MappingProxyType
 from typing import Mapping, Sequence
 
@@ -15,6 +16,7 @@ from typing import Mapping, Sequence
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _SUPPORTED_USD_SUFFIXES = frozenset({".usd", ".usda", ".usdc"})
 _OBJECT_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+_PREPARATION_SCRIPT = "Go2Pvcnn/scripts/m1_rialto_object_assets.py"
 
 
 def _require_non_empty_text(name: str, value: object) -> str:
@@ -32,11 +34,62 @@ def _require_positive_real(name: str, value: object) -> float:
     return number
 
 
+def _require_sha256(
+    name: str, value: object, *, allow_none: bool = False
+) -> str | None:
+    if value is None and allow_none:
+        return None
+    if not isinstance(value, str) or _SHA256_RE.fullmatch(value) is None:
+        raise ValueError(f"{name} must be 64 lowercase hexadecimal characters")
+    return value
+
+
+def _relative_asset_path(asset_path: Path, asset_root: Path) -> str:
+    try:
+        return asset_path.resolve().relative_to(asset_root.resolve()).as_posix()
+    except ValueError:
+        return str(asset_path)
+
+
+def _preparation_command(asset_root: Path) -> str:
+    return (
+        "PYTHONPATH=Go2Pvcnn python "
+        f"{_PREPARATION_SCRIPT} prepare --destination "
+        f"{shlex.quote(str(asset_root))} --allow-network"
+    )
+
+
+class AssetPreparationRequiredError(FileNotFoundError):
+    """Raised when the explicit asset-preparation step is still required."""
+
+    def __init__(
+        self,
+        object_class: str,
+        asset_path: Path,
+        asset_root: Path,
+        *,
+        reason: str = "resolved USD asset is missing",
+    ) -> None:
+        relative_path = _relative_asset_path(asset_path, asset_root)
+        command = _preparation_command(asset_root)
+        super().__init__(
+            f"object catalog preparation required for {object_class!r}: {reason} "
+            f"{relative_path!r} at {asset_path}; run `{command}`"
+        )
+        self.object_class = object_class
+        self.asset_path = asset_path
+        self.asset_root = asset_root
+
+
+PreparationRequiredError = AssetPreparationRequiredError
+
+
 @dataclass(frozen=True)
 class ObjectClassRecord:
     object_class: str
     usd_path: Path
-    sha256: str
+    source_sha256: str
+    resolved_sha256: str | None
     mass_kg: float
     scale: float
     collision_profile: str
@@ -46,11 +99,8 @@ class ObjectClassRecord:
         _require_non_empty_text("object_class", self.object_class)
         if not isinstance(self.usd_path, Path):
             raise TypeError("usd_path must be a pathlib.Path")
-        if (
-            not isinstance(self.sha256, str)
-            or _SHA256_RE.fullmatch(self.sha256) is None
-        ):
-            raise ValueError("sha256 must be 64 lowercase hexadecimal characters")
+        _require_sha256("source_sha256", self.source_sha256)
+        _require_sha256("resolved_sha256", self.resolved_sha256, allow_none=True)
         object.__setattr__(
             self, "mass_kg", _require_positive_real("mass_kg", self.mass_kg)
         )
@@ -59,6 +109,12 @@ class ObjectClassRecord:
         )
         _require_non_empty_text("collision_profile", self.collision_profile)
         _require_non_empty_text("grasp_profile", self.grasp_profile)
+
+    @property
+    def sha256(self) -> str | None:
+        """Backward-compatible alias for the resolved USD digest."""
+
+        return self.resolved_sha256
 
 
 @dataclass(frozen=True)
@@ -173,9 +229,14 @@ def _resolve_asset_path(
 ) -> Path:
     parts = _catalog_relative_path(relative_path, object_class)
     root = asset_root.resolve()
-    if not root.is_dir():
-        raise FileNotFoundError(f"asset root does not exist or is not a directory: {root}")
     path = root.joinpath(*parts)
+    if not root.is_dir():
+        raise AssetPreparationRequiredError(
+            object_class,
+            path,
+            root,
+            reason="asset root is missing",
+        )
     resolved = path.resolve()
     try:
         resolved.relative_to(root)
@@ -190,8 +251,10 @@ def _resolve_asset_path(
             f"{object_class} usd_path must be a USD file, got {resolved.name!r}"
         )
     if not resolved.is_file():
-        raise FileNotFoundError(
-            f"{object_class} usd asset does not exist: {resolved}"
+        raise AssetPreparationRequiredError(
+            object_class,
+            resolved,
+            root,
         )
     return resolved
 
@@ -203,7 +266,8 @@ def _load_class_record(
         raise ValueError(f"catalog entry must be an object: {object_class}")
     required = {
         "usd_path",
-        "sha256",
+        "source_sha256",
+        "resolved_sha256",
         "mass_kg",
         "scale",
         "collision_profile",
@@ -215,15 +279,25 @@ def _load_class_record(
             f"catalog entry missing keys for {object_class}: {', '.join(missing)}"
         )
     path = _resolve_asset_path(asset_root, payload["usd_path"], object_class)
-    sha256 = payload["sha256"]
-    if not isinstance(sha256, str) or _SHA256_RE.fullmatch(sha256) is None:
-        raise ValueError(
-            f"{object_class} sha256 must be 64 lowercase hexadecimal characters"
+    source_sha256 = _require_sha256(
+        f"{object_class} source_sha256", payload["source_sha256"]
+    )
+    resolved_sha256 = _require_sha256(
+        f"{object_class} resolved_sha256",
+        payload["resolved_sha256"],
+        allow_none=True,
+    )
+    if resolved_sha256 is None:
+        raise AssetPreparationRequiredError(
+            object_class,
+            path,
+            Path(asset_root),
+            reason="resolved USD SHA-256 is not recorded",
         )
     actual_sha256 = _sha256_file(path)
-    if actual_sha256 != sha256:
+    if actual_sha256 != resolved_sha256:
         raise ValueError(
-            f"SHA-256 mismatch for {object_class}: expected {sha256}, "
+            f"resolved SHA-256 mismatch for {object_class}: expected {resolved_sha256}, "
             f"got {actual_sha256}"
         )
     note = payload.get("geometry_note")
@@ -234,7 +308,8 @@ def _load_class_record(
     record = ObjectClassRecord(
         object_class=object_class,
         usd_path=path,
-        sha256=sha256,
+        source_sha256=source_sha256,
+        resolved_sha256=resolved_sha256,
         mass_kg=payload["mass_kg"],
         scale=payload["scale"],
         collision_profile=payload["collision_profile"],
@@ -284,6 +359,8 @@ def load_catalog(path: Path | None, asset_root: Path) -> ObjectCatalog:
 
 
 __all__ = [
+    "AssetPreparationRequiredError",
+    "PreparationRequiredError",
     "ObjectCatalog",
     "ObjectClassRecord",
     "ObjectInstance",

@@ -3,7 +3,8 @@
   "classes": {
     "bottle": {
       "usd_path": "sources/bottle_fixed.usd",
-      "sha256": "91a7fe2ba5255739ffcbc54dba3d03f03bd9c1aacf5e48cf74827776885accff",
+      "source_sha256": "91a7fe2ba5255739ffcbc54dba3d03f03bd9c1aacf5e48cf74827776885accff",
+      "resolved_sha256": "91a7fe2ba5255739ffcbc54dba3d03f03bd9c1aacf5e48cf74827776885accff",
       "mass_kg": 0.5,
       "scale": 1.0,
       "collision_profile": "convex_decomposition",
@@ -11,7 +12,8 @@
     },
     "cup": {
       "usd_path": "converted/coffeecup.usd",
-      "sha256": "e8dbb6447e4b57bca837a09c78fa9ee7af816b86b0adfe962036758423c650f9",
+      "source_sha256": "e8dbb6447e4b57bca837a09c78fa9ee7af816b86b0adfe962036758423c650f9",
+      "resolved_sha256": null,
       "mass_kg": 0.35,
       "scale": 1.0,
       "collision_profile": "convex_decomposition",
@@ -19,7 +21,8 @@
     },
     "bowl": {
       "usd_path": "sources/bowlnrack2.usd",
-      "sha256": "e45c6c75dc153d624fdf13a86af4a2333e4087039ea22ecc6f11cd2d97a2a25d",
+      "source_sha256": "e45c6c75dc153d624fdf13a86af4a2333e4087039ea22ecc6f11cd2d97a2a25d",
+      "resolved_sha256": "e45c6c75dc153d624fdf13a86af4a2333e4087039ea22ecc6f11cd2d97a2a25d",
       "mass_kg": 0.45,
       "scale": 1.0,
       "collision_profile": "convex_decomposition",
@@ -27,7 +30,8 @@
     },
     "book": {
       "usd_path": "sources/book_fixed.usd",
-      "sha256": "76c3a49dc82ed0b6efa4497c1d3da0d06962e935a27be2d5645b5bf37e40d959",
+      "source_sha256": "76c3a49dc82ed0b6efa4497c1d3da0d06962e935a27be2d5645b5bf37e40d959",
+      "resolved_sha256": "76c3a49dc82ed0b6efa4497c1d3da0d06962e935a27be2d5645b5bf37e40d959",
       "mass_kg": 0.3,
       "scale": 1.0,
       "collision_profile": "box",
@@ -35,7 +39,8 @@
     },
     "cube": {
       "usd_path": "converted/box.usd",
-      "sha256": "39c9f12cc10e0f9158bb8b69453d980394596f9b92a47b48436d1e98661a2c41",
+      "source_sha256": "39c9f12cc10e0f9158bb8b69453d980394596f9b92a47b48436d1e98661a2c41",
+      "resolved_sha256": null,
       "mass_kg": 0.5,
       "scale": 1.0,
       "collision_profile": "box",
@@ -43,7 +48,8 @@
     },
     "cylinder": {
       "usd_path": "converted/poly.usd",
-      "sha256": "0b7b45a70bd6ea18e98b5ff2894207aee73278b6aad637106a32d3631a115c5a",
+      "source_sha256": "0b7b45a70bd6ea18e98b5ff2894207aee73278b6aad637106a32d3631a115c5a",
+      "resolved_sha256": null,
       "mass_kg": 0.5,
       "scale": 1.0,
       "collision_profile": "convex_decomposition",

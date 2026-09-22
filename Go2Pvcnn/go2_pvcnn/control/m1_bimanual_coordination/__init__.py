@@ -83,9 +83,11 @@ from .state_machine import (
 )
 from .runtime import BimanualRuntime
 from .object_catalog import (
+    AssetPreparationRequiredError,
     ObjectCatalog,
     ObjectClassRecord,
     ObjectInstance,
+    PreparationRequiredError,
     load_catalog,
 )
 
@@ -151,6 +153,8 @@ __all__ = [
     "BimanualMissionDiagnostics",
     "BimanualMissionState",
     "BimanualRuntime",
+    "AssetPreparationRequiredError",
+    "PreparationRequiredError",
     "ObjectCatalog",
     "ObjectClassRecord",
     "ObjectInstance",
