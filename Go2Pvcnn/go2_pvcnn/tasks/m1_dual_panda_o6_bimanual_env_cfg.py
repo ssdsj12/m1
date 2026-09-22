@@ -15,6 +15,11 @@ from go2_pvcnn.assets.m1_dual_panda_o6 import (
     M1_DUAL_PANDA_O6_ACTIVE_JOINT_NAMES,
     M1_DUAL_PANDA_O6_CFG,
 )
+from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
+    ObjectCatalog,
+    ObjectInstance,
+)
+from go2_pvcnn.tasks.m1_object_scene import build_object_scene_cfg
 from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg, M1SmokeSceneCfg
 
 
@@ -203,9 +208,21 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
     terminations: M1DualPandaO6BimanualTerminationsCfg = (
         M1DualPandaO6BimanualTerminationsCfg()
     )
+    # ``None`` deliberately retains the historical single ``scene.box`` at
+    # ``{ENV_REGEX_NS}/Box``.  A catalog is opt-in and adds object-ID-named
+    # scene entries without changing that legacy asset.
+    object_catalog: ObjectCatalog | None = None
+    object_instances: tuple[ObjectInstance, ...] = ()
 
     def __post_init__(self):
         super().__post_init__()
+        if self.object_catalog is not None:
+            for object_id, object_cfg in build_object_scene_cfg(
+                self.object_catalog,
+                self.object_instances,
+                "{ENV_REGEX_NS}",
+            ).items():
+                setattr(self.scene, object_id, object_cfg)
         self.sim.dt = PHYSICS_DT
         self.decimation = 1
         self.sim.render_interval = 4
