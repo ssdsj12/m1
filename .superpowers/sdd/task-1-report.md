@@ -56,3 +56,36 @@ The deterministic converter test fixture output (`#usda 1.0\n`) has SHA-256 `28f
 ## Concerns
 
 No Pixar USD (`usdcat`) or GLB converter (`gltf2usd`) is installed in the current `go2` environment, so real USDZ/GLB conversion and generated-asset SHA recording could not be executed here. The implementation fails clearly when those tools are absent; the six source files are intentionally not committed and must be materialized only by the explicit preparation command. No runtime network access or Graphify output was added or changed by this commit.
+
+## Review Fixes
+
+Follow-up commit: `fix: harden RialTo asset preparation`.
+
+The review findings are addressed in the follow-up fix:
+
+- `inspect_usd` detects the `PXR-USDC` binary signature before any text decoding when Pixar USD/`pxr` is unavailable, and raises an explicit error that binary data will not be decoded as text.
+- Converted USD output is inspected before it is accepted. Missing local `@dependency@` files fail preparation with the dependency names in the error. Direct USD inputs are validated by the same path.
+- GLB conversion no longer assumes an unverified `gltf2usd` positional CLI contract. It fails clearly with `no supported GLB converter contract is configured` until a verified converter is added.
+- Successful preparation writes `prepared_manifest.json` and CLI output metadata containing source SHA-256, USD SHA-256, generated USD SHA-256 for converted inputs, and inspection results.
+- Regression coverage now includes a binary USDC fixture, an actual missing-file USD dependency, matching/stale local source hashes, unresolved converter output, explicit GLB refusal, and generated USD metadata.
+
+Fresh verification:
+
+```text
+PYTHONPATH=Go2Pvcnn /home/xk/miniconda3/envs/go2/bin/python -m pytest -q Go2Pvcnn/tests/test_m1_rialto_object_assets.py
+............                                                             [100%]
+12 passed in 0.03s
+
+/home/xk/miniconda3/envs/go2/bin/python -m compileall -q Go2Pvcnn/scripts/m1_rialto_object_assets.py Go2Pvcnn/tests/test_m1_rialto_object_assets.py
+# exit 0, no output
+
+PYTHONPATH=Go2Pvcnn /home/xk/miniconda3/envs/go2/bin/python Go2Pvcnn/scripts/m1_rialto_object_assets.py --help
+usage: m1_rialto_object_assets.py [-h] {prepare,inspect} ...
+...
+# exit 0
+
+git diff --check -- Go2Pvcnn/assets/m1_objects/rialto/README.md Go2Pvcnn/scripts/m1_rialto_object_assets.py Go2Pvcnn/tests/test_m1_rialto_object_assets.py
+# exit 0, no output
+```
+
+`command -v usdcat` and `command -v gltf2usd` produced no paths in this environment, so no real converter-backed generated asset was promoted. The generated-SHA path is covered with a deterministic local converter fixture.

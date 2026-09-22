@@ -21,6 +21,8 @@ from typing import Any
 
 MANIFEST_PATH = Path(__file__).resolve().parents[1] / "assets/m1_objects/rialto/source_manifest.json"
 SUPPORTED_CONVERSION_EXTENSIONS = {".usdz", ".glb"}
+USD_SOURCE_EXTENSIONS = {".usd", ".usda", ".usdc"}
+USDC_MAGIC = b"PXR-USDC"
 
 
 def sha256_file(path: Path) -> str:
@@ -106,14 +108,53 @@ def _convert_with_available_tool(source: Path, destination: Path) -> None:
     if source.suffix.lower() == ".usdz":
         converter = shutil.which("usdcat")
         if converter:
-            subprocess.run([converter, str(source), "-o", str(destination)], check=True, capture_output=True, text=True)
+            try:
+                subprocess.run(
+                    [converter, str(source), "-o", str(destination)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or exc.stdout or "").strip()
+                suffix = f": {detail}" if detail else ""
+                raise RuntimeError(f"USDZ converter failed for {source}{suffix}") from exc
             return
         raise RuntimeError("cannot convert USDZ: usdcat is not installed (install Pixar USD)")
-    converter = shutil.which("gltf2usd")
-    if converter:
-        subprocess.run([converter, str(source), str(destination)], check=True, capture_output=True, text=True)
-        return
-    raise RuntimeError("cannot convert GLB: gltf2usd is not installed")
+    raise RuntimeError(
+        "cannot convert GLB: no supported GLB converter contract is configured; "
+        "refusing to claim conversion until a verified converter is added"
+    )
+
+
+def _dependency_paths_from_text(path: Path) -> list[str]:
+    """Return missing local asset references from a textual USD layer."""
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    missing: list[str] = []
+    for dependency in re.findall(r"@([^@]+)@", text):
+        if dependency.startswith(("anon:", "http:", "https:")):
+            continue
+        dependency_path = Path(dependency)
+        if not dependency_path.is_absolute():
+            dependency_path = path.parent / dependency_path
+        if not dependency_path.exists():
+            missing.append(dependency)
+    return missing
+
+
+def _is_binary_usdc(path: Path) -> bool:
+    with path.open("rb") as stream:
+        return stream.read(len(USDC_MAGIC)) == USDC_MAGIC
+
+
+def _validate_usd_dependencies(path: Path) -> dict[str, object]:
+    inspection = inspect_usd(path)
+    if not inspection["dependencies_resolved"]:
+        missing = inspection.get("missing_dependencies") or []
+        details = ", ".join(str(item) for item in missing) or "unknown dependency"
+        raise RuntimeError(f"USD output has unresolved dependencies: {details}")
+    return inspection
 
 
 def convert_usdz_or_glb(source: Path, destination: Path) -> Path:
@@ -131,6 +172,7 @@ def convert_usdz_or_glb(source: Path, destination: Path) -> Path:
     _convert_with_available_tool(source, output)
     if not output.is_file():
         raise RuntimeError(f"converter did not create deterministic USD output: {output}")
+    _validate_usd_dependencies(output)
     return output
 
 
@@ -153,6 +195,10 @@ def _inspect_with_pxr(path: Path) -> dict[str, object] | None:
     except Exception:
         bounds = None
     unresolved = [str(asset) for asset in stage.GetUsedLayers() if not Path(str(asset.resolvedPath)).exists()]
+    if not _is_binary_usdc(path):
+        for dependency in _dependency_paths_from_text(path):
+            if dependency not in unresolved:
+                unresolved.append(dependency)
     return {
         "prim_count": len(prims),
         "bounds": bounds,
@@ -170,6 +216,11 @@ def inspect_usd(path: Path) -> dict[str, object]:
     pxr_result = _inspect_with_pxr(path)
     if pxr_result is not None:
         return pxr_result
+    if _is_binary_usdc(path):
+        raise RuntimeError(
+            f"cannot inspect binary PXR-USDC file without Pixar USD (pxr): {path}; "
+            "refusing to decode binary data as text"
+        )
     text = path.read_text(encoding="utf-8", errors="replace")
     prim_count = len(re.findall(r"^\s*(?:def|over)\s+\w+", text, flags=re.MULTILINE))
     extent_match = re.search(
@@ -178,20 +229,75 @@ def inspect_usd(path: Path) -> dict[str, object]:
     bounds = None
     if extent_match:
         bounds = [[float(value.strip()) for value in extent_match.group(1).split(",")], [float(value.strip()) for value in extent_match.group(2).split(",")]]
-    missing: list[str] = []
-    for dependency in re.findall(r"@([^@]+)@", text):
-        if dependency.startswith("anon:") or dependency.startswith("http:") or dependency.startswith("https:"):
-            continue
-        dependency_path = Path(dependency)
-        if not dependency_path.is_absolute():
-            dependency_path = path.parent / dependency_path
-        if not dependency_path.exists():
-            missing.append(dependency)
+    missing = _dependency_paths_from_text(path)
     return {
         "prim_count": prim_count,
         "bounds": bounds,
         "dependencies_resolved": not missing,
         "missing_dependencies": missing,
+    }
+
+
+def _relative_path(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return str(path.resolve())
+
+
+def _write_prepared_manifest(
+    destination: Path,
+    source_manifest: dict[str, Any],
+    output_metadata: dict[str, dict[str, object]],
+) -> Path:
+    path = destination / "prepared_manifest.json"
+    payload = {
+        "schema_version": 1,
+        "repo": source_manifest["repo"],
+        "revision": source_manifest["revision"],
+        "assets": output_metadata,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def prepare_assets(destination: Path, *, allow_network: bool = False) -> dict[str, object]:
+    """Fetch, validate, convert, and record the prepared local object assets."""
+
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    source_manifest = load_manifest()
+    paths = fetch_sources(destination, allow_network=allow_network)
+    converted: dict[str, str] = {}
+    output_metadata: dict[str, dict[str, object]] = {}
+    for name, source in sorted(paths.items()):
+        if source.suffix.lower() in SUPPORTED_CONVERSION_EXTENSIONS:
+            usd_path = convert_usdz_or_glb(source, destination / "converted")
+            converted[name] = str(usd_path)
+            generated = usd_path.resolve() != source.resolve()
+        elif source.suffix.lower() in USD_SOURCE_EXTENSIONS:
+            usd_path = source
+            _validate_usd_dependencies(usd_path)
+            generated = False
+        else:
+            raise ValueError(f"unsupported prepared asset extension: {source.suffix or '<none>'}")
+        inspection = _validate_usd_dependencies(usd_path)
+        record: dict[str, object] = {
+            "source_path": _relative_path(source, destination),
+            "source_sha256": sha256_file(source),
+            "usd_path": _relative_path(usd_path, destination),
+            "usd_sha256": sha256_file(usd_path),
+            "inspection": inspection,
+        }
+        if generated:
+            record["generated_usd_sha256"] = record["usd_sha256"]
+        output_metadata[name] = record
+    prepared_manifest = _write_prepared_manifest(destination, source_manifest, output_metadata)
+    return {
+        "sources": paths,
+        "converted": converted,
+        "output_metadata": output_metadata,
+        "prepared_manifest": str(prepared_manifest),
     }
 
 
@@ -207,12 +313,9 @@ def _main() -> int:
     if args.command == "inspect":
         print(json.dumps(inspect_usd(args.path), sort_keys=True))
         return 0
-    paths = fetch_sources(args.destination, allow_network=args.allow_network)
-    converted = {}
-    for name, source in paths.items():
-        if source.suffix.lower() in SUPPORTED_CONVERSION_EXTENSIONS:
-            converted[name] = str(convert_usdz_or_glb(source, args.destination / "converted"))
-    print(json.dumps({"sources": {name: str(path) for name, path in paths.items()}, "converted": converted}, sort_keys=True))
+    result = prepare_assets(args.destination, allow_network=args.allow_network)
+    result["sources"] = {name: str(path) for name, path in result["sources"].items()}  # type: ignore[union-attr]
+    print(json.dumps(result, sort_keys=True))
     return 0
 
 

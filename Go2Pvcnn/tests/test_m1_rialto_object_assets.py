@@ -52,6 +52,29 @@ def test_fetch_sources_requires_explicit_network_opt_in(tmp_path):
         module.fetch_sources(tmp_path)
 
 
+def test_fetch_sources_accepts_matching_local_hash_and_rejects_stale(tmp_path, monkeypatch):
+    module = _module()
+    source = tmp_path / "sources" / "sample.usd"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"matching")
+    manifest = {
+        "repo": "https://example.invalid/rialto.git",
+        "revision": "a" * 40,
+        "assets": {
+            "sample.usd": {
+                "source_url": "https://example.invalid/sample.usd",
+                "source_sha256": hashlib.sha256(b"matching").hexdigest(),
+                "resolved_path": "sources/sample.usd",
+            }
+        },
+    }
+    monkeypatch.setattr(module, "load_manifest", lambda: manifest)
+    assert module.fetch_sources(tmp_path) == {"sample.usd": source}
+    source.write_bytes(b"stale")
+    with pytest.raises(RuntimeError, match="network.*explicit.*sample.usd"):
+        module.fetch_sources(tmp_path)
+
+
 def test_unsupported_conversion_extension_has_clear_error(tmp_path):
     module = _module()
     source = tmp_path / "object.obj"
@@ -74,6 +97,85 @@ def test_conversion_output_name_is_deterministic(tmp_path, monkeypatch):
     assert first.name == second.name == "Cup.usd"
     assert first.parent.name == "one"
     assert second.parent.name == "two"
+
+
+def test_glb_conversion_requires_a_supported_converter(tmp_path):
+    module = _module()
+    source = tmp_path / "box.glb"
+    source.write_bytes(b"glTF")
+    with pytest.raises(RuntimeError, match="no supported.*GLB.*converter"):
+        module.convert_usdz_or_glb(source, tmp_path / "out")
+
+
+def test_conversion_rejects_unresolved_usd_dependencies(tmp_path, monkeypatch):
+    module = _module()
+    source = tmp_path / "Cup.USDZ"
+    source.write_bytes(b"fixture")
+
+    def write_unresolved(_source, destination):
+        destination.write_text(
+            '#usda 1.0\n'
+            'def Xform "Root" {\n'
+            '  asset dependency = @missing.usd@\n'
+            '}\n',
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(module, "_convert_with_available_tool", write_unresolved)
+    with pytest.raises(RuntimeError, match="unresolved.*dependenc"):
+        module.convert_usdz_or_glb(source, tmp_path / "out")
+
+
+def test_inspect_binary_usdc_fails_without_pxr_instead_of_decoding_text(tmp_path, monkeypatch):
+    module = _module()
+    path = tmp_path / "binary.usd"
+    path.write_bytes(b"PXR-USDC\x00\xff\x00\x01")
+    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path: None)
+    with pytest.raises(RuntimeError, match="binary.*PXR-USDC.*pxr"):
+        module.inspect_usd(path)
+
+
+def test_inspect_usd_detects_missing_file_dependency(tmp_path, monkeypatch):
+    module = _module()
+    path = tmp_path / "sample.usda"
+    path.write_text(
+        '#usda 1.0\n'
+        'def Xform "Root" {\n'
+        '  asset dependency = @missing.usd@\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "_inspect_with_pxr", lambda _path: None)
+    result = module.inspect_usd(path)
+    assert result["dependencies_resolved"] is False
+    assert result["missing_dependencies"] == ["missing.usd"]
+
+
+def test_prepare_records_generated_usd_sha256_in_metadata(tmp_path, monkeypatch):
+    module = _module()
+    destination = tmp_path / "rialto"
+    source = destination / "sources" / "box.glb"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"glTF")
+
+    monkeypatch.setattr(
+        module,
+        "fetch_sources",
+        lambda _destination, allow_network=False: {"box.glb": source},
+    )
+    monkeypatch.setattr(
+        module,
+        "_convert_with_available_tool",
+        lambda _source, output: output.write_text("#usda 1.0\n", encoding="utf-8"),
+    )
+    result = module.prepare_assets(destination)
+    prepared_manifest = destination / "prepared_manifest.json"
+    payload = json.loads(prepared_manifest.read_text(encoding="utf-8"))
+    record = payload["assets"]["box.glb"]
+    generated = destination / record["usd_path"]
+    expected = hashlib.sha256(generated.read_bytes()).hexdigest()
+    assert record["generated_usd_sha256"] == expected
+    assert result["output_metadata"]["box.glb"]["generated_usd_sha256"] == expected
 
 
 def test_inspect_usd_reports_prims_bounds_and_missing_dependencies(tmp_path):

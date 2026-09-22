@@ -14,6 +14,9 @@ PYTHONPATH=Go2Pvcnn python Go2Pvcnn/scripts/m1_rialto_object_assets.py \
   prepare --destination Go2Pvcnn/assets/m1_objects/rialto --allow-network
 ```
 
-USDZ and GLB inputs require an installed USD/glTF converter. Conversion output
-names are deterministic (`<source stem>.usd`) and every downloaded/generated
-file should be hashed before it is promoted into a catalog.
+USDZ inputs require an installed Pixar USD `usdcat` converter. GLB conversion is
+intentionally refused until a converter with a verified command contract is
+added; the preparation command does not claim conversion when none is
+available. Conversion output names are deterministic (`<source stem>.usd`).
+Successful preparation writes `prepared_manifest.json` with each source hash,
+generated USD hash, and dependency inspection result.
