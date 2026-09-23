@@ -329,12 +329,19 @@ def _load_class_record(
     return record, note
 
 
-def load_catalog(path: Path | None, asset_root: Path) -> ObjectCatalog:
+def load_catalog(
+    path: Path | None,
+    asset_root: Path,
+    *,
+    required_classes: Sequence[str] | None = None,
+) -> ObjectCatalog:
     """Load and validate a local catalog, or select legacy ``/Box`` mode.
 
     ``None`` is an explicit request to preserve the existing single-box scene.
     A concrete path is always validated strictly; missing or malformed files
-    never silently fall back to legacy behavior.
+    never silently fall back to legacy behavior.  When ``required_classes`` is
+    provided, only those class records are resolved; this keeps scene
+    preflight scoped to the instances that will actually be loaded.
     """
 
     if path is None:
@@ -354,9 +361,37 @@ def load_catalog(path: Path | None, asset_root: Path) -> ObjectCatalog:
     if not isinstance(classes, dict) or not classes:
         raise ValueError("object catalog classes must be a non-empty object")
 
+    if required_classes is None:
+        selected_classes = tuple(classes)
+    else:
+        if isinstance(required_classes, (str, bytes)):
+            raise TypeError("required_classes must be a sequence of class names")
+        selected_classes = tuple(required_classes)
+        if not selected_classes:
+            raise ValueError("required_classes must not be empty")
+        if any(
+            not isinstance(object_class, str) or not object_class
+            for object_class in selected_classes
+        ):
+            raise ValueError("required_classes must contain non-empty strings")
+        if len(set(selected_classes)) != len(selected_classes):
+            raise ValueError("required_classes must not contain duplicates")
+        unknown = tuple(
+            object_class
+            for object_class in selected_classes
+            if object_class not in classes
+        )
+        if unknown:
+            names = ", ".join(repr(object_class) for object_class in unknown)
+            raise ValueError(f"required object class is not in catalog: {names}")
+        selected_classes = tuple(
+            object_class for object_class in classes if object_class in selected_classes
+        )
+
     records: dict[str, ObjectClassRecord] = {}
     geometry_notes: dict[str, str] = {}
-    for object_class, class_payload in classes.items():
+    for object_class in selected_classes:
+        class_payload = classes[object_class]
         _require_non_empty_text("object_class", object_class)
         if object_class in records:
             raise ValueError(f"duplicate object class: {object_class}")

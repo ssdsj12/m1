@@ -37,6 +37,11 @@ Baseline: `3d40cfc` (`fix: harden object catalog scene integration`).
   explicitly prepared local catalogs. Omitting `--object-id` and
   `--object-catalog` still constructs the legacy Box config without loading
   the catalog.
+- Scoped catalog preflight to the instances loaded by the selected Play scene:
+  an explicit target loads and validates only its `object_class_000` instance,
+  while an omitted target or explicit `box` keeps the full configured
+  instance set. This prevents an unselected class with a missing USD asset
+  from blocking single-target Play.
 
 ## TDD evidence
 
@@ -99,6 +104,47 @@ Additional focused passes:
 - Play/catalog target follow-up: `12 passed in 0.78s`.
 - Object/catalog/scene/O6 entrypoint follow-up: `77 passed in 15.91s`.
 
+Selected-asset regression TDD evidence:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=$PWD/Go2Pvcnn \
+  /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+  Go2Pvcnn/tests/test_m1_object_target_contract.py \
+  -k 'prepare_object_scene or default_catalog'
+```
+
+Initial RED: `3 failed, 1 passed, 10 deselected in 0.81s`.
+The book fixture reached the missing cup asset, and the existing two-class
+fixture still returned both instances.
+
+Focused GREEN:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=$PWD/Go2Pvcnn \
+  /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+  Go2Pvcnn/tests/test_m1_object_target_contract.py
+```
+
+Result: `14 passed in 0.84s`, exit `0`.
+
+The selected target and O6 regression set was rerun with:
+
+```bash
+cd Go2Pvcnn
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=$PWD \
+  /home/xk/miniconda3/envs/go2/bin/python -m pytest -q \
+  tests/test_m1_object_target_contract.py \
+  tests/test_m1_object_scene.py \
+  tests/test_m1_bimanual_object_mpc.py \
+  tests/test_m1_bimanual_runtime.py \
+  tests/test_m1_dual_panda_o6_contracts.py \
+  tests/test_m1_dual_panda_o6_entrypoints_static.py \
+  tests/test_m1_dual_panda_o6_env_static.py \
+  tests/test_m1_dual_panda_o6_verification.py
+```
+
+Result: `98 passed in 17.05s`, exit `0`.
+
 Static checks:
 
 ```bash
@@ -121,14 +167,23 @@ Scoped `git diff --check` for the Task 4 files is clean. Repository-wide
 
 ## Follow-up commit and concerns
 
-Follow-up commit: `1934c9c` (`fix: wire Play object-id to catalog-backed config`)
+Follow-up commit: `2c8d52a` (`fix: wire Play object-id to catalog-backed
+config`) plus the selected-asset preflight fix recorded in the final commit
+history.
 
 - No Isaac Sim/GPU0 startup or physical manipulation run was performed.
-- The default catalog's materialized USD files are not present in this
-  worktree, so a default `--object-id bottle_000` invocation correctly fails
-  before simulation with `AssetPreparationRequiredError` and the explicit
-  offline preparation command. A prepared local catalog fixture was verified
-  end-to-end through `build_play_config`.
+- The default catalog has local bottle/book source USD files in this worktree,
+  but the cup converted USD is absent. A default `--object-id book_000`
+  preflight now succeeds, while `--object-id cup_000` fails before simulation
+  with `AssetPreparationRequiredError` and the explicit offline preparation
+  command. A prepared partial catalog fixture verifies the same selected-class
+  behavior without network access.
+- The pre-existing catalog test
+  `test_committed_catalog_missing_assets_require_explicit_preparation` still
+  expects bottle to be the first missing class. Because this worktree contains
+  untracked local bottle source assets, the full unfiltered catalog test
+  currently reports `1 failed, 35 passed in 15.87s` with cup as the first
+  missing class; no catalog test or asset file was changed by this fix.
 - Existing hand contact sensor filters remain Box-specific in the environment
   configuration. Target pose/obstacle goal wiring is covered, but target-specific
   contact sensor initialization and contact-rich behavior belong to a later smoke

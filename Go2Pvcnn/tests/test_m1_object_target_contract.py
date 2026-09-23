@@ -253,19 +253,80 @@ def test_prepare_object_scene_accepts_valid_catalog_object_id(tmp_path: Path):
         object_assets_root=asset_root,
     )
 
-    assert tuple(catalog.classes) == ("bottle", "cube")
-    assert tuple(instance.object_id for instance in instances) == (
-        "bottle_000",
-        "cube_000",
+    assert tuple(catalog.classes) == ("bottle",)
+    assert tuple(instance.object_id for instance in instances) == ("bottle_000",)
+
+
+def _write_partial_play_catalog(tmp_path: Path) -> tuple[Path, Path]:
+    asset_root = tmp_path / "partial-assets"
+    asset_root.mkdir()
+    book_path = asset_root / "book.usd"
+    book_path.write_bytes(b"book-usd")
+    book_digest = hashlib.sha256(book_path.read_bytes()).hexdigest()
+    classes = {
+        "book": {
+            "usd_path": "book.usd",
+            "source_sha256": book_digest,
+            "resolved_sha256": book_digest,
+            "mass_kg": 0.5,
+            "scale": 1.0,
+            "collision_profile": "convex_decomposition",
+            "grasp_profile": "two_hand_stable",
+        },
+        "cup": {
+            "usd_path": "cup.usd",
+            "source_sha256": "0" * 64,
+            "resolved_sha256": "0" * 64,
+            "mass_kg": 0.5,
+            "scale": 1.0,
+            "collision_profile": "convex_decomposition",
+            "grasp_profile": "two_hand_stable",
+        },
+    }
+    config = tmp_path / "partial-catalog.json"
+    config.write_text(
+        json.dumps({"schema_version": 1, "classes": classes}, indent=2),
+        encoding="utf-8",
     )
+    return config, asset_root
+
+
+def test_prepare_object_scene_only_validates_selected_book_asset(
+    tmp_path: Path,
+):
+    module = _load_play_module()
+    config, asset_root = _write_partial_play_catalog(tmp_path)
+
+    catalog, instances = module._prepare_object_scene(
+        object_id="book_000",
+        object_catalog=config,
+        object_assets_root=asset_root,
+    )
+
+    assert tuple(catalog.classes) == ("book",)
+    assert tuple(instance.object_id for instance in instances) == ("book_000",)
+
+
+def test_prepare_object_scene_still_requires_selected_cup_asset(
+    tmp_path: Path,
+):
+    module = _load_play_module()
+    config, asset_root = _write_partial_play_catalog(tmp_path)
+
+    with pytest.raises(AssetPreparationRequiredError, match="preparation required.*cup"):
+        module._prepare_object_scene(
+            object_id="cup_000",
+            object_catalog=config,
+            object_assets_root=asset_root,
+        )
 
 
 def test_default_catalog_object_id_fails_with_preparation_required_error():
     module = _load_play_module()
 
-    with pytest.raises(AssetPreparationRequiredError, match="preparation required.*bottle"):
+    with pytest.raises(AssetPreparationRequiredError, match="preparation required.*cup"):
         module._prepare_object_scene(
-            object_id="bottle_000",
+            object_id="cup_000",
             object_catalog=None,
             object_assets_root=module.DEFAULT_OBJECT_ASSET_ROOT,
         )

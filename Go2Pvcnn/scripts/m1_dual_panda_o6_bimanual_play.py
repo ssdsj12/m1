@@ -171,9 +171,22 @@ def _prepare_object_scene(
     if not _uses_catalog_scene(object_id, object_catalog):
         return None, ()
     catalog_path = Path(object_catalog) if object_catalog is not None else DEFAULT_OBJECT_CATALOG
-    instances = default_object_instances(_catalog_class_names(catalog_path))
-    _validate_target_object_id(object_id, instances)
-    catalog = load_catalog(catalog_path, Path(object_assets_root))
+    all_instances = default_object_instances(_catalog_class_names(catalog_path))
+    _validate_target_object_id(object_id, all_instances)
+    if object_id is None or object_id == "box":
+        instances = all_instances
+    else:
+        instances = tuple(
+            instance for instance in all_instances if instance.object_id == object_id
+        )
+    required_classes = tuple(
+        instance.object_class for instance in instances if instance.enabled
+    )
+    catalog = load_catalog(
+        catalog_path,
+        Path(object_assets_root),
+        required_classes=required_classes,
+    )
     return catalog, instances
 
 
