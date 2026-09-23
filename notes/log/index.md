@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-23：[T500 bimanual perception grasp-goal boundary](2026-09-23-t500-bimanual-grasp-goal.md)：新增纯 CPU OBB/点云确定性目标适配器，覆盖 book/bottle/cup/cube/cylinder、无效几何、镜像对称和未见尺寸；focused `14 passed`，未接入 Play/MPC 或相机/VLM。
+
 - 2026-09-20：[T500 geometry bundle gate](2026-09-20-t500-geometry-bundle.md)：独立 builder/validator focused `3 passed`；真实 pinned archive 93 个 raw-covered 主手引用全部未通过 watertight/positive-volume 门，未发布 manifest，双来源转换/训练/GPU Play 继续阻塞。
 
 - 2026-09-20：[GPU RTI共同模型Gate C](2026-09-20-t500-gpu-rti-common-model-gate-c.md)：Planner、报告映射、四元数、逐row last-safe和fail-closed合同通过独立复审；nominal有效/四alpha全hard-infeasible覆盖已补齐。parent planner/contracts42、Gate A–C123，存储/显存稳定。非GPU Play/实时/Isaac验收。

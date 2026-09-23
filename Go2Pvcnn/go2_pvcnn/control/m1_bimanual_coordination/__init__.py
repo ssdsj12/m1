@@ -92,6 +92,18 @@ from .object_catalog import (
     load_catalog,
 )
 from .task_goal import resolve_target_object_ids
+from .grasp_goal import (
+    BimanualGraspGoal,
+    ClampCriteria,
+    ContactSet,
+    ContactTarget,
+    LiftCriteria,
+    OrientedBoundingBox,
+    SideGraspTarget,
+    build_bimanual_grasp_goal,
+    generate_bimanual_grasp_goal,
+    generate_grasp_goal,
+)
 
 __all__ = [
     "PalmOrientationMpcCfg",
@@ -163,4 +175,14 @@ __all__ = [
     "ObjectInstance",
     "load_catalog",
     "resolve_target_object_ids",
+    "BimanualGraspGoal",
+    "ClampCriteria",
+    "ContactSet",
+    "ContactTarget",
+    "LiftCriteria",
+    "OrientedBoundingBox",
+    "SideGraspTarget",
+    "build_bimanual_grasp_goal",
+    "generate_bimanual_grasp_goal",
+    "generate_grasp_goal",
 ]
