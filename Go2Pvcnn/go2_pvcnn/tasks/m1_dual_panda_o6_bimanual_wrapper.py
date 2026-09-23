@@ -672,7 +672,7 @@ class M1DualPandaO6BimanualWrapper:
         fingertip_prior_metadata_sha256: str | None = None,
         fingertip_prior_binding: object | None = None,
         grasp_geometry_provider=None,
-        allow_default_grasp_dimensions: bool = False,
+        allow_default_grasp_dimensions: bool = True,
     ) -> None:
         if mode not in {"teacher", "latent"}:
             raise ValueError("mode must be 'teacher' or 'latent'")

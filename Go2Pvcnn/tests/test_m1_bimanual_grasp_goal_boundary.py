@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import math
 from dataclasses import replace
 from pathlib import Path
@@ -178,6 +179,54 @@ def test_catalog_default_dimensions_require_explicit_opt_in() -> None:
     assert fallback_provider(snapshot).obb_dimensions == pytest.approx(
         (0.30, 0.21, 0.035)
     )
+
+
+@pytest.mark.parametrize(
+    ("object_class", "dimensions"),
+    (
+        ("book", (0.30, 0.21, 0.035)),
+        ("bottle", (0.075, 0.075, 0.24)),
+    ),
+)
+def test_play_wrapper_default_geometry_supports_catalog_step_without_provider(
+    object_class: str, dimensions: tuple[float, float, float]
+) -> None:
+    """The shipped Play wrapper opts into validated class defaults."""
+
+    wrapper_path = Path(__file__).resolve().parents[1] / (
+        "go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_wrapper.py"
+    )
+    tree = ast.parse(wrapper_path.read_text(encoding="utf-8"))
+    wrapper_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "M1DualPandaO6BimanualWrapper"
+    )
+    init = next(
+        node
+        for node in wrapper_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    default = next(
+        default
+        for argument, default in zip(init.args.kwonlyargs, init.args.kw_defaults)
+        if argument.arg == "allow_default_grasp_dimensions"
+    )
+    allow_default_dimensions = ast.literal_eval(default)
+
+    snapshot = _snapshot()
+    provider = build_catalog_grasp_goal_provider(
+        _catalog(),
+        (ObjectInstance("target", object_class, (0.0, 0.0, 0.0)),),
+        "target",
+        allow_default_dimensions=allow_default_dimensions,
+    )
+    runtime = BimanualRuntime(grasp_goal_provider=provider)
+
+    sample = runtime._object_input(snapshot)
+    assert sample.grasp_goal is not None
+    assert sample.grasp_goal.obb_dimensions == pytest.approx(dimensions)
 
 
 def test_legacy_box_runtime_has_no_grasp_goal_and_keeps_existing_palm_target() -> None:
