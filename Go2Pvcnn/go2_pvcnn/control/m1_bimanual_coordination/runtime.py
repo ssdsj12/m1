@@ -29,6 +29,7 @@ from .object_mpc import (
 from .state_machine import (
     BimanualMission,
     BimanualMissionDiagnostics,
+    BimanualMissionState,
 )
 from .whole_body_qp import BimanualWbcSolution, BimanualWholeBodyQp
 
@@ -42,6 +43,35 @@ HandInputProvider = Callable[[BimanualSnapshot, str, torch.Tensor], HandMpcInput
 CollisionProvider = Callable[
     [BimanualSnapshot], tuple[torch.Tensor, torch.Tensor]
 ]
+
+
+def _current_contact_force_metrics(
+    hand,
+    contact_targets,
+) -> tuple[float, float, float]:
+    """Measure normal force/alignment and vertical load from current sensors."""
+
+    forces = hand.fingertip_forces_b
+    normals = torch.tensor(
+        [target.normal for target in contact_targets],
+        dtype=torch.float64,
+    )
+    normal_norms = torch.linalg.vector_norm(normals, dim=1).clamp_min(1.0e-12)
+    normals = normals / normal_norms[:, None]
+    projected = (forces * normals).sum(dim=1)
+    normal_force = torch.clamp_min(projected, 0.0)
+    force_norm = torch.linalg.vector_norm(forces, dim=1)
+    alignment = projected / force_norm.clamp_min(1.0e-12)
+    active = hand.contact_mask
+    if bool(active.any()):
+        measured_normal_force = float(normal_force[active].sum().item())
+        measured_alignment = float(alignment[active].min().item())
+        vertical_load = float(torch.clamp_min(forces[active, 2], 0.0).sum().item())
+    else:
+        measured_normal_force = 0.0
+        measured_alignment = 0.0
+        vertical_load = 0.0
+    return measured_normal_force, measured_alignment, vertical_load
 
 
 def _default_arm_input(snapshot: BimanualSnapshot, side: str) -> ArmMpcInput:
@@ -178,6 +208,7 @@ class BimanualRuntime:
         self._last_command: BimanualCommand | None = None
         self._initial_box_pose: torch.Tensor | None = None
         self._latest_motion_target: ManipulationTarget | None = None
+        self._latest_mission_state: BimanualMissionState | None = None
         self._latest_solutions = {
             "object": None,
             "arm": None,
@@ -199,6 +230,10 @@ class BimanualRuntime:
     @property
     def latest_motion_target(self) -> ManipulationTarget | None:
         return self._latest_motion_target
+
+    @property
+    def latest_mission_state(self) -> BimanualMissionState | None:
+        return self._latest_mission_state
 
     @property
     def latest_grasp_goal(self) -> BimanualGraspGoal | None:
@@ -233,6 +268,7 @@ class BimanualRuntime:
         self._last_command = None
         self._initial_box_pose = None
         self._latest_motion_target = None
+        self._latest_mission_state = None
         self._latest_solutions = {
             "object": None,
             "arm": None,
@@ -340,20 +376,45 @@ class BimanualRuntime:
                     slip,
                     float(torch.linalg.vector_norm(current_offset - previous_offset).item()),
                 )
+        elapsed_s = (
+            0.0
+            if self._last_snapshot is None
+            else max(
+                0.0,
+                float(snapshot.timestamp_ns - self._last_snapshot.timestamp_ns) * 1.0e-9,
+            )
+        )
+        slip_speed = 0.0 if elapsed_s <= 0.0 else slip / elapsed_s
         reason = wbc_solution.diagnostics.fallback_reason
-        left_forces = (
-            torch.zeros((5, 3), dtype=torch.float64)
-            if self._last_left_hand is None
-            else self._last_left_hand.predicted_forces_b
-        )
-        right_forces = (
-            torch.zeros((5, 3), dtype=torch.float64)
-            if self._last_right_hand is None
-            else self._last_right_hand.predicted_forces_b
-        )
-        left_normal_force = float(left_forces[:, 2].sum().item())
-        right_normal_force = float(right_forces[:, 2].sum().item())
-        vertical_force = left_normal_force + right_normal_force
+        grasp_goal = self.mission.grasp_goal or self._grasp_goal
+        if grasp_goal is None:
+            left_forces = (
+                torch.zeros((5, 3), dtype=torch.float64)
+                if self._last_left_hand is None
+                else self._last_left_hand.predicted_forces_b
+            )
+            right_forces = (
+                torch.zeros((5, 3), dtype=torch.float64)
+                if self._last_right_hand is None
+                else self._last_right_hand.predicted_forces_b
+            )
+            left_normal_force = float(left_forces[:, 2].sum().item())
+            right_normal_force = float(right_forces[:, 2].sum().item())
+            left_normal_alignment = 0.0
+            right_normal_alignment = 0.0
+            vertical_force = left_normal_force + right_normal_force
+        else:
+            left_normal_force, left_normal_alignment, left_vertical = (
+                _current_contact_force_metrics(
+                    snapshot.left_hand, grasp_goal.left_contact_targets
+                )
+            )
+            right_normal_force, right_normal_alignment, right_vertical = (
+                _current_contact_force_metrics(
+                    snapshot.right_hand, grasp_goal.right_contact_targets
+                )
+            )
+            vertical_force = left_vertical + right_vertical
         # BoxState stores a rotation vector in base coordinates.  Roll/pitch
         # are the relevant lift stability components; yaw does not tilt the
         # object and is intentionally excluded from this gate.
@@ -392,6 +453,9 @@ class BimanualRuntime:
             right_contact_count=int(snapshot.right_hand.contact_mask.sum().item()),
             left_normal_force_n=left_normal_force,
             right_normal_force_n=right_normal_force,
+            left_normal_alignment=left_normal_alignment,
+            right_normal_alignment=right_normal_alignment,
+            relative_palm_slip_speed_m_s=slip_speed,
             vertical_force_n=vertical_force,
             object_tilt_rad=object_tilt,
         )
@@ -468,7 +532,7 @@ class BimanualRuntime:
                 fallback_reasons=(reason,),
             )
         diagnostics = self._mission_diagnostics(snapshot, object_solution, wbc_solution)
-        self.mission.update(snapshot, diagnostics)
+        self._latest_mission_state = self.mission.update(snapshot, diagnostics)
         self._last_snapshot = snapshot
         self._step += 1
         return command

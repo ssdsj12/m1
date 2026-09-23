@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
 import torch
 
 from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualPhase
@@ -11,6 +12,9 @@ from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.runtime i
     PriorQueryResult,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.hand_mpc import O6HandMpc
+from go2_pvcnn.control.m1_bimanual_coordination.grasp_goal import (
+    generate_bimanual_grasp_goal,
+)
 from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
 from go2_pvcnn.control.m1_bimanual_coordination.whole_body_qp import (
     BimanualWbcDiagnostics,
@@ -224,6 +228,59 @@ def test_runtime_hand_inputs_keep_real_left_and_right_o6_measurements_isolated()
         assert torch.equal(sample.contact_mask, state.contact_mask)
         assert torch.equal(sample.palm_pose_b, arm.palm_pose_b)
     assert not torch.equal(left_sample.fingertip_positions_b, right_sample.fingertip_positions_b)
+
+
+def test_catalog_diagnostics_project_current_fingertip_forces_on_goal_normals():
+    goal = generate_bimanual_grasp_goal(
+        (0.0, 0.0, 0.5),
+        dimensions=(0.30, 0.21, 0.035),
+        grasp_profile="thin_two_hand",
+        object_class="book",
+    )
+    runtime = BimanualRuntime(grasp_goal=goal)
+    snapshot = _snapshot()
+    left_normals = torch.tensor(
+        [target.normal for target in goal.left_contact_targets[:2]],
+        dtype=torch.float64,
+    )
+    right_normals = torch.tensor(
+        [target.normal for target in goal.right_contact_targets[:2]],
+        dtype=torch.float64,
+    )
+    left_forces = torch.zeros((5, 3), dtype=torch.float64)
+    right_forces = torch.zeros((5, 3), dtype=torch.float64)
+    left_forces[:2] = 2.0 * left_normals
+    right_forces[:2] = 2.0 * right_normals
+    left_forces[:2, 2] += 3.0
+    right_forces[:2, 2] += 3.0
+    contact_mask = torch.tensor([True, True, False, False, False])
+    snapshot = replace(
+        snapshot,
+        left_hand=replace(
+            snapshot.left_hand,
+            fingertip_forces_b=left_forces,
+            contact_mask=contact_mask,
+        ),
+        right_hand=replace(
+            snapshot.right_hand,
+            fingertip_forces_b=right_forces,
+            contact_mask=contact_mask,
+        ),
+    )
+    diagnostics = runtime._mission_diagnostics(
+        snapshot,
+        _object_solution(),
+        _WbcController().solve(None),
+    )
+    assert diagnostics.left_normal_force_n == pytest.approx(4.0)
+    assert diagnostics.right_normal_force_n == pytest.approx(4.0)
+    assert diagnostics.vertical_force_n == pytest.approx(12.0)
+    assert diagnostics.left_normal_alignment == pytest.approx(
+        2.0 / (13.0**0.5)
+    )
+    assert diagnostics.right_normal_alignment == pytest.approx(
+        2.0 / (13.0**0.5)
+    )
 
 
 def test_runtime_queries_independent_hand_priors_with_their_own_side_measurements():

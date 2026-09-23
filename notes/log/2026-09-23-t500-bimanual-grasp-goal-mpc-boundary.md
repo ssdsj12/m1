@@ -77,3 +77,45 @@ changed.
   `motion_primitives.py`, `object_mpc.py`, `runtime.py`,
   `m1_dual_panda_o6_bimanual_wrapper.py`, and
   `tests/test_m1_bimanual_grasp_goal_boundary.py`.
+
+## Review hardening: closed-loop grasp/lift pipeline
+
+The follow-up review of commit `5e913ce` found five contract gaps in the
+catalog closed-loop boundary. They are now covered in the pipeline, runtime,
+and mission state machine:
+
+- `DONE` is the only successful terminal phase. `TERMINATED` remains a
+  fallback result, including after safe release.
+- Catalog clamp metrics use the current snapshot fingertip force vectors,
+  projected onto each configured contact normal. Vertical force is measured
+  separately for lift load; the legacy Box path retains its predicted-force
+  behavior.
+- Catalog goals enforce `max_normal_force_n`, `min_normal_alignment`,
+  `max_slip_speed_m_s`, and `lift.hold_time_s`. Legacy Box thresholds remain
+  unchanged.
+- Runtime retains the latest mission state so fallback reasons reach
+  `BimanualGraspLiftStep.fallback_reason`.
+- A pipeline injected with a runtime carrying a different grasp goal rejects
+  the conflict before calling the runtime setter; matching or absent goals
+  remain compatible.
+
+Regression coverage includes terminal success/fallback semantics, fallback
+reason propagation, conflicting-goal rejection without mutation, current
+force projection versus vertical load, force/alignment caps, goal slip speed,
+and per-goal hold duration.
+
+Fresh verification from the feature worktree:
+
+```text
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=Go2Pvcnn:Go2Pvcnn/tests \
+  python -m pytest --import-mode=importlib -q tests/test_m1_bimanual_*.py
+749 passed in 308.84s
+```
+
+Focused grasp/runtime/state-machine verification also passes (`32 passed`).
+Compileall and the final focused command are run on the candidate commit; no
+Isaac physical or GPU acceptance claim is made by this CPU contract fix.
+
+Post-commit verification at the final candidate reran the complete bimanual
+regression with the same command: `749 passed in 303.57s`. Compileall and
+`git diff --check HEAD^ HEAD` also exited `0`.

@@ -74,6 +74,9 @@ class BimanualMissionDiagnostics:
     right_contact_count: int = 0
     left_normal_force_n: float = 0.0
     right_normal_force_n: float = 0.0
+    left_normal_alignment: float = 0.0
+    right_normal_alignment: float = 0.0
+    relative_palm_slip_speed_m_s: float = 0.0
     vertical_force_n: float = 0.0
     object_tilt_rad: float = 0.0
 
@@ -95,6 +98,7 @@ class BimanualMissionDiagnostics:
         for name in (
             "force_closure_margin",
             "relative_palm_slip_m",
+            "relative_palm_slip_speed_m_s",
             "box_twist_norm",
             "collision_margin_m",
             "support_margin_m",
@@ -104,7 +108,11 @@ class BimanualMissionDiagnostics:
                 raise TypeError(f"{name} must be a real number")
             if not math.isfinite(float(value)):
                 raise ValueError(f"{name} must be finite")
-        if self.relative_palm_slip_m < 0.0 or self.box_twist_norm < 0.0:
+        if (
+            self.relative_palm_slip_m < 0.0
+            or self.relative_palm_slip_speed_m_s < 0.0
+            or self.box_twist_norm < 0.0
+        ):
             raise ValueError("slip and box twist norms must be non-negative")
         if self.subsystem_failure is not None and (
             not isinstance(self.subsystem_failure, str)
@@ -118,6 +126,8 @@ class BimanualMissionDiagnostics:
         for name in (
             "left_normal_force_n",
             "right_normal_force_n",
+            "left_normal_alignment",
+            "right_normal_alignment",
             "vertical_force_n",
             "object_tilt_rad",
         ):
@@ -216,7 +226,12 @@ class BimanualMission:
             and diagnostics.right_contact_count >= criteria.min_contact_count_per_hand
             and diagnostics.left_normal_force_n >= criteria.min_normal_force_n
             and diagnostics.right_normal_force_n >= criteria.min_normal_force_n
-            and diagnostics.relative_palm_slip_m <= self.cfg.max_relative_palm_slip_m
+            and diagnostics.left_normal_force_n <= criteria.max_normal_force_n
+            and diagnostics.right_normal_force_n <= criteria.max_normal_force_n
+            and diagnostics.left_normal_alignment >= criteria.min_normal_alignment
+            and diagnostics.right_normal_alignment >= criteria.min_normal_alignment
+            and diagnostics.relative_palm_slip_speed_m_s
+            <= criteria.max_slip_speed_m_s
         )
 
     def _lift_ready(
@@ -242,12 +257,15 @@ class BimanualMission:
     def _critical_reason(
         self, diagnostics: BimanualMissionDiagnostics
     ) -> str | None:
-        if (
-            diagnostics.relative_palm_slip_m > self.cfg.max_relative_palm_slip_m
-            and not (
-                self.phase in {BimanualPhase.APPROACH, BimanualPhase.PRELOAD}
-                and diagnostics.box_supported
-            )
+        slip_exceeded = (
+            diagnostics.relative_palm_slip_speed_m_s
+            > self._grasp_goal.clamp_criteria.max_slip_speed_m_s
+            if self._grasp_goal is not None
+            else diagnostics.relative_palm_slip_m > self.cfg.max_relative_palm_slip_m
+        )
+        if slip_exceeded and not (
+            self.phase in {BimanualPhase.APPROACH, BimanualPhase.PRELOAD}
+            and diagnostics.box_supported
         ):
             return "palm_slip"
         if diagnostics.collision_margin_m < 0.0:
@@ -335,7 +353,12 @@ class BimanualMission:
                 self._hold_elapsed_ns = (
                     self._hold_elapsed_ns + elapsed_ns if stable_grasp else 0
                 )
-                if self._hold_elapsed_ns >= round(self.cfg.hold_duration_s * 1e9):
+                hold_time_s = (
+                    self.cfg.hold_duration_s
+                    if self._grasp_goal is None
+                    else self._grasp_goal.lift_criteria.hold_time_s
+                )
+                if self._hold_elapsed_ns >= round(hold_time_s * 1e9):
                     self._transition(BimanualPhase.LOWER)
             elif self.phase is BimanualPhase.LOWER:
                 if self._supported(diagnostics):

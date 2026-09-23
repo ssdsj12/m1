@@ -23,9 +23,6 @@ _SAFE_PHASES = frozenset(
         BimanualPhase.TERMINATED,
     }
 )
-_SUCCESS_PHASES = frozenset({BimanualPhase.DONE, BimanualPhase.TERMINATED})
-
-
 @dataclass(frozen=True)
 class BimanualGraspLiftStep:
     """One accepted or rejected control cycle at the pipeline boundary."""
@@ -56,14 +53,31 @@ class BimanualGraspLiftPipeline:
     ) -> None:
         if goal is not None and not isinstance(goal, BimanualGraspGoal):
             raise TypeError("goal must be BimanualGraspGoal or None")
-        self.goal = goal
         self.runtime = (
             BimanualRuntime(grasp_goal=goal) if runtime is None else runtime
         )
         if not callable(getattr(self.runtime, "compute", None)):
             raise TypeError("runtime must expose compute(snapshot)")
+
         mission = getattr(self.runtime, "mission", None)
-        if goal is not None and mission is not None:
+        runtime_goals = []
+        for candidate in (
+            getattr(mission, "grasp_goal", None),
+            getattr(self.runtime, "_grasp_goal", None),
+            getattr(self.runtime, "latest_grasp_goal", None),
+        ):
+            if candidate is not None:
+                if not isinstance(candidate, BimanualGraspGoal):
+                    raise TypeError("runtime grasp_goal must be BimanualGraspGoal or None")
+                if all(candidate != existing for existing in runtime_goals):
+                    runtime_goals.append(candidate)
+        if len(runtime_goals) > 1:
+            raise ValueError("runtime exposes conflicting grasp_goal values")
+        existing_goal = runtime_goals[0] if runtime_goals else None
+        if goal is not None and existing_goal is not None and goal != existing_goal:
+            raise ValueError("conflicting grasp_goal between pipeline and runtime")
+        self.goal = goal if goal is not None else existing_goal
+        if goal is not None and existing_goal is None and mission is not None:
             setter = getattr(mission, "set_grasp_goal", None)
             if callable(setter):
                 setter(goal)
@@ -94,17 +108,28 @@ class BimanualGraspLiftPipeline:
                 raise TypeError("runtime.compute() must return BimanualCommand-like data")
         phase = self.phase
         reasons = tuple(getattr(command, "fallback_reasons", ()))
-        fallback = (not bool(command.feasible)) or phase in _SAFE_PHASES
+        reason = reasons[0] if reasons else None
+        mission_state = getattr(self.runtime, "latest_mission_state", None)
+        if reason is None and mission_state is not None:
+            reason = getattr(mission_state, "fallback_reason", None)
+        if reason is None:
+            reason = getattr(self.runtime, "fallback_reason", None)
+        fallback = (not bool(command.feasible)) or phase in _SAFE_PHASES or reason is not None
         latest = getattr(self.runtime, "latest_solutions", {})
         left = latest.get("left_hand") if isinstance(latest, dict) else None
         right = latest.get("right_hand") if isinstance(latest, dict) else None
+        step_goal = self.goal
+        if step_goal is None:
+            step_goal = getattr(self.runtime, "latest_grasp_goal", None)
+        if step_goal is None:
+            step_goal = getattr(getattr(self.runtime, "mission", None), "grasp_goal", None)
         return BimanualGraspLiftStep(
             command=command,
             phase=phase,
-            success=phase in _SUCCESS_PHASES,
+            success=phase is BimanualPhase.DONE and not fallback,
             fallback=fallback,
-            fallback_reason=reasons[0] if reasons else None,
-            grasp_goal=self.goal,
+            fallback_reason=reason,
+            grasp_goal=step_goal,
             left_hand_target=None if left is None else getattr(left, "q_ref", None),
             right_hand_target=None if right is None else getattr(right, "q_ref", None),
         )
