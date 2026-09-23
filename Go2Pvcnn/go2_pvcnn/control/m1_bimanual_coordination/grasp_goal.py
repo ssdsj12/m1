@@ -27,6 +27,14 @@ _PROFILES = frozenset(
         "generic",
     }
 )
+_PROFILE_ALIASES = {
+    "stable": "generic",
+    "two_hand_stable": "symmetric_two_hand",
+}
+_PROFILE_NAMES = tuple(sorted(_PROFILES))
+_PROFILE_ALIAS_NAMES = tuple(
+    f"{alias}={canonical}" for alias, canonical in sorted(_PROFILE_ALIASES.items())
+)
 _PROFILE_CLASS = {
     "cylindrical": "bottle",
     "rim_or_body": "cup",
@@ -44,6 +52,24 @@ _PROFILE_FORCE = {
     "polygonal_two_hand": 5.0,
     "generic": 4.0,
 }
+
+
+def normalize_grasp_profile(value: object) -> str:
+    """Return the canonical goal profile for a catalog or perception label."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(
+            "grasp_profile must be a non-empty string; supported profiles are "
+            f"{', '.join(_PROFILE_NAMES)}"
+        )
+    canonical = _PROFILE_ALIASES.get(value, value)
+    if canonical not in _PROFILES:
+        aliases = ", ".join(_PROFILE_ALIAS_NAMES)
+        raise ValueError(
+            f"unsupported grasp_profile: {value!r}; supported profiles are "
+            f"{', '.join(_PROFILE_NAMES)}; aliases: {aliases}"
+        )
+    return canonical
 
 
 def _finite_float(name: str, value: object) -> float:
@@ -339,8 +365,7 @@ def generate_bimanual_grasp_goal(
     caller.  The profile changes conservative clamp force and clearance only;
     it never changes the left/right symmetry contract.
     """
-    if not isinstance(grasp_profile, str) or grasp_profile not in _PROFILES:
-        raise ValueError(f"unsupported grasp_profile: {grasp_profile!r}")
+    grasp_profile = normalize_grasp_profile(grasp_profile)
     if object_class is not None and (not isinstance(object_class, str) or not object_class.strip()):
         raise ValueError("object_class must be a non-empty string when provided")
     if obb is not None and not isinstance(obb, OrientedBoundingBox):
@@ -472,4 +497,5 @@ __all__ = [
     "build_bimanual_grasp_goal",
     "generate_bimanual_grasp_goal",
     "generate_grasp_goal",
+    "normalize_grasp_profile",
 ]

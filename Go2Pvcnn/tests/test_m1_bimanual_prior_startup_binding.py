@@ -12,6 +12,7 @@ import torch
 
 from test_m1_bimanual_expert_prior_runtime import production_artifact, _sample
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior import runtime
+from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -127,6 +128,20 @@ def test_wrapper_consumes_bound_workers_without_reloading_or_owning_them(product
             wrapper.close(close_env=False)
             assert all(prior._worker.process.is_alive() for prior in priors)
     assert all(not prior._worker.process.is_alive() for prior in priors)
+
+
+def test_wrapper_attaches_catalog_grasp_goal_provider_to_supplied_runtime(monkeypatch):
+    wrapper_module = _load_wrapper(monkeypatch)
+    provider = lambda _snapshot: None
+    supplied_runtime = BimanualRuntime()
+    wrapper = object.__new__(wrapper_module.M1DualPandaO6BimanualWrapper)
+    wrapper._fingertip_priors = ()
+    wrapper._grasp_goal_provider = provider
+
+    result = wrapper._runtime_for_lane(supplied_runtime)
+
+    assert result is supplied_runtime
+    assert supplied_runtime._grasp_goal_provider is provider
 
 
 def test_prepared_binding_rejects_construction_pin_mismatch_and_reuse_after_close(production_artifact):

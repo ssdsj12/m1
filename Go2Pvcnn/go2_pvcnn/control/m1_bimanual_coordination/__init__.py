@@ -95,6 +95,7 @@ from .task_goal import (
     DEFAULT_CATALOG_DIMENSIONS,
     build_catalog_grasp_goal,
     build_catalog_grasp_goal_provider,
+    convert_pose_b_rotation_vector_to_quaternion,
     resolve_target_object_ids,
 )
 from .grasp_goal import (
@@ -108,6 +109,7 @@ from .grasp_goal import (
     build_bimanual_grasp_goal,
     generate_bimanual_grasp_goal,
     generate_grasp_goal,
+    normalize_grasp_profile,
 )
 
 __all__ = [
@@ -183,6 +185,7 @@ __all__ = [
     "DEFAULT_CATALOG_DIMENSIONS",
     "build_catalog_grasp_goal",
     "build_catalog_grasp_goal_provider",
+    "convert_pose_b_rotation_vector_to_quaternion",
     "BimanualGraspGoal",
     "ClampCriteria",
     "ContactSet",
@@ -193,4 +196,5 @@ __all__ = [
     "build_bimanual_grasp_goal",
     "generate_bimanual_grasp_goal",
     "generate_grasp_goal",
+    "normalize_grasp_profile",
 ]

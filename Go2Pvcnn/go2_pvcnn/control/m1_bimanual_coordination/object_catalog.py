@@ -12,6 +12,8 @@ import shlex
 from types import MappingProxyType
 from typing import Mapping, Sequence
 
+from .grasp_goal import normalize_grasp_profile
+
 
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _SUPPORTED_USD_SUFFIXES = frozenset({".usd", ".usda", ".usdc"})
@@ -112,7 +114,9 @@ class ObjectClassRecord:
             self, "scale", _require_positive_real("scale", self.scale)
         )
         _require_non_empty_text("collision_profile", self.collision_profile)
-        _require_non_empty_text("grasp_profile", self.grasp_profile)
+        object.__setattr__(
+            self, "grasp_profile", normalize_grasp_profile(self.grasp_profile)
+        )
         if self.dimensions is not None:
             if (
                 isinstance(self.dimensions, (str, bytes))

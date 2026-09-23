@@ -798,11 +798,16 @@ class M1DualPandaO6BimanualWrapper:
         """Attach the two approved workers without a second artifact load."""
 
         if not self._fingertip_priors:
-            return (
-                BimanualRuntime(grasp_goal_provider=self._grasp_goal_provider)
-                if supplied_runtime is None
-                else supplied_runtime
-            )
+            if supplied_runtime is None:
+                return BimanualRuntime(grasp_goal_provider=self._grasp_goal_provider)
+            if self._grasp_goal_provider is not None:
+                if getattr(supplied_runtime, "_grasp_goal", None) is not None:
+                    raise ValueError(
+                        "supplied runtime already has grasp_goal; it cannot accept "
+                        "the wrapper's grasp_goal_provider"
+                    )
+                supplied_runtime._grasp_goal_provider = self._grasp_goal_provider
+            return supplied_runtime
         from go2_pvcnn.control.m1_bimanual_coordination.hand_mpc import O6HandMpc
 
         left_prior, right_prior = self._fingertip_priors
@@ -822,6 +827,13 @@ class M1DualPandaO6BimanualWrapper:
             controllers.append((controller, prior))
         for controller, prior in controllers:
             controller.expert_prior = prior
+        if self._grasp_goal_provider is not None:
+            if getattr(supplied_runtime, "_grasp_goal", None) is not None:
+                raise ValueError(
+                    "supplied runtime already has grasp_goal; it cannot accept "
+                    "the wrapper's grasp_goal_provider"
+                )
+            supplied_runtime._grasp_goal_provider = self._grasp_goal_provider
         return supplied_runtime
 
     def _close_prior_workers(self) -> None:

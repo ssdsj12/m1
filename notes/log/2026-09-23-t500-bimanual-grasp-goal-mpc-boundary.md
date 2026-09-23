@@ -22,6 +22,15 @@ is configured.
   bilateral palm/fingertip/contact targets and clamp/lift criteria through the
   existing runtime target. Catalog-target wrapper construction accepts an
   injectable geometry provider and explicit default-dimension opt-in.
+- Follow-up hardening converts the frame-kinematics `(xyz, rotvec)` runtime
+  pose to the grasp adapter's `(xyz, quaternion)` contract before goal
+  generation, with a non-axis-aligned rotation regression.
+- Catalog profiles are canonicalized through the supported grasp-goal mapping:
+  `two_hand_stable -> symmetric_two_hand` and `stable -> generic`; unsupported
+  values fail with the supported profile and alias list.
+- A caller-supplied `BimanualRuntime` retains its identity while receiving the
+  wrapper's catalog grasp-goal provider, including the provider's geometry and
+  default-dimension options.
 
 ## Exact verification
 
@@ -29,13 +38,16 @@ Environment: `/home/xk/miniconda3/envs/go2/bin/python`, pytest plugin
 autoload disabled.
 
 ```text
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_grasp_goal_boundary.py
-4 passed
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_grasp_goal_boundary.py tests/test_m1_bimanual_grasp_goal.py tests/test_m1_bimanual_object_mpc.py tests/test_m1_bimanual_runtime.py
+50 passed
 
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_grasp_goal_boundary.py tests/test_m1_bimanual_grasp_goal.py tests/test_m1_bimanual_object_mpc.py tests/test_m1_bimanual_runtime.py tests/test_m1_object_target_contract.py
-62 passed
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_bimanual_prior_startup_binding.py -k 'wrapper_consumes_bound_workers_without_reloading_or_owning_them or attaches_catalog_grasp_goal_provider'
+2 passed
 
-/home/xk/miniconda3/envs/go2/bin/python -m py_compile go2_pvcnn/control/m1_bimanual_coordination/{__init__.py,object_catalog.py,task_goal.py,motion_primitives.py,object_mpc.py,runtime.py} go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_wrapper.py tests/test_m1_bimanual_grasp_goal_boundary.py
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. /home/xk/miniconda3/envs/go2/bin/python -m pytest -q tests/test_m1_object_catalog.py -k 'load_catalog_resolves_all_six_classes_and_verifies_hashes or load_catalog_validates_materialized_usd_against_resolved_sha_only or validate_instances_rejects_duplicate_ids_and_sorts_deterministically or missing_catalog_uses_legacy_box_fallback or object_catalog_can_be_deepcopied'
+5 passed
+
+/home/xk/miniconda3/envs/go2/bin/python -m compileall -q go2_pvcnn/control/m1_bimanual_coordination go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_wrapper.py tests/test_m1_bimanual_grasp_goal_boundary.py tests/test_m1_bimanual_prior_startup_binding.py
 exit 0
 ```
 

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import math
 from typing import Callable, Mapping
 
 from go2_pvcnn.control.m1_bimanual_coordination.grasp_goal import (
     BimanualGraspGoal,
     OrientedBoundingBox,
     generate_bimanual_grasp_goal,
+    normalize_grasp_profile,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
     ObjectCatalog,
@@ -27,6 +29,44 @@ DEFAULT_CATALOG_DIMENSIONS: Mapping[str, tuple[float, float, float]] = {
     "cube": (0.12, 0.12, 0.12),
     "cylinder": (0.10, 0.10, 0.20),
 }
+
+
+def convert_pose_b_rotation_vector_to_quaternion(
+    object_pose: Sequence[object],
+) -> tuple[float, ...]:
+    """Convert a frame-kinematics ``(xyz, rotvec)`` pose to ``(xyz, quat)``.
+
+    ``frame_kinematics.pose_in_base`` deliberately returns a six-value
+    position-plus-rotation-vector tensor.  The perception goal adapter uses
+    six values for roll/pitch/yaw for historical callers, so this explicit
+    boundary conversion prevents those representations from being conflated.
+    Three-value positions and seven-value quaternion poses pass through after
+    finite numeric validation in the downstream goal generator.
+    """
+
+    try:
+        values = tuple(object_pose)
+    except TypeError as error:
+        raise TypeError("object_pose must be a sequence of 3, 6, or 7 numbers") from error
+    if len(values) != 6:
+        return tuple(values)
+    try:
+        translation = tuple(float(value) for value in values[:3])
+        rotation_vector = tuple(float(value) for value in values[3:])
+    except (TypeError, ValueError) as error:
+        raise TypeError("object_pose must contain finite numeric values") from error
+    if not all(math.isfinite(value) for value in (*translation, *rotation_vector)):
+        raise ValueError("object_pose must contain finite numeric values")
+    angle = math.sqrt(sum(value * value for value in rotation_vector))
+    if angle <= 1.0e-12:
+        quaternion = (1.0, 0.0, 0.0, 0.0)
+    else:
+        scale = math.sin(angle / 2.0) / angle
+        quaternion = (
+            math.cos(angle / 2.0),
+            *(scale * value for value in rotation_vector),
+        )
+    return (*translation, *quaternion)
 
 
 def resolve_target_object_ids(
@@ -95,7 +135,7 @@ def build_catalog_grasp_goal(
         if not isinstance(catalog, ObjectCatalog):
             raise TypeError("catalog must be an ObjectCatalog or None")
         record = catalog.resolve(object_class)
-    profile = record.grasp_profile if record is not None else "generic"
+    profile = normalize_grasp_profile(record.grasp_profile if record is not None else "generic")
     chosen_dimensions = dimensions
     if chosen_dimensions is None and obb is None and point_cloud is None and record is not None:
         chosen_dimensions = record.dimensions
@@ -162,8 +202,11 @@ def build_catalog_grasp_goal_provider(
         pose = getattr(getattr(snapshot, "box", None), "pose_b", None)
         if pose is None:
             raise TypeError("snapshot must expose box.pose_b for catalog grasp-goal generation")
+        pose = convert_pose_b_rotation_vector_to_quaternion(
+            pose.tolist() if hasattr(pose, "tolist") else pose
+        )
         return build_catalog_grasp_goal(
-            pose.tolist() if hasattr(pose, "tolist") else pose,
+            pose,
             object_class=target.object_class,
             catalog=catalog,
             allow_default_dimensions=allow_default_dimensions,
@@ -178,5 +221,6 @@ __all__ = [
     "DEFAULT_CATALOG_DIMENSIONS",
     "build_catalog_grasp_goal",
     "build_catalog_grasp_goal_provider",
+    "convert_pose_b_rotation_vector_to_quaternion",
     "resolve_target_object_ids",
 ]

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import math
+from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -97,6 +100,63 @@ def test_custom_dimensions_are_forwarded_without_catalog_geometry() -> None:
     assert result.left_palm_pose[-1, 1].item() == pytest.approx(
         goal.left_palm_target[1]
     )
+
+
+def test_runtime_pose_b_rotation_vector_is_converted_to_quaternion() -> None:
+    snapshot = _snapshot()
+    rotation_vector = torch.tensor((0.31, -0.23, 0.17), dtype=torch.float64)
+    snapshot = replace(
+        snapshot,
+        box=replace(
+            snapshot.box,
+            pose_b=torch.cat((snapshot.box.pose_b[:3], rotation_vector)),
+        ),
+    )
+    provider = build_catalog_grasp_goal_provider(
+        _catalog(),
+        (ObjectInstance("target", "book", (0.0, 0.0, 0.0)),),
+        "target",
+        geometry_provider=lambda _snapshot, _instance: (0.30, 0.21, 0.035),
+    )
+
+    goal = provider(snapshot)
+
+    angle = float(torch.linalg.vector_norm(rotation_vector).item())
+    expected_quaternion = np.asarray(
+        (
+            math.cos(angle / 2.0),
+            *(math.sin(angle / 2.0) / angle * rotation_vector.numpy()),
+        )
+    )
+    assert goal.object_pose[3:] == pytest.approx(expected_quaternion)
+
+
+def test_legacy_catalog_grasp_profile_alias_is_normalized_for_goal_generation() -> None:
+    catalog = ObjectCatalog(
+        {
+            "book": ObjectClassRecord(
+                "book",
+                Path("book.usd"),
+                "1" * 64,
+                "2" * 64,
+                0.3,
+                1.0,
+                "box",
+                "two_hand_stable",
+            )
+        },
+        {},
+    )
+
+    goal = build_catalog_grasp_goal(
+        (0.0, 0.0, 0.0),
+        object_class="book",
+        catalog=catalog,
+        dimensions=(0.30, 0.21, 0.035),
+    )
+
+    assert catalog.resolve("book").grasp_profile == "symmetric_two_hand"
+    assert goal.grasp_profile == "symmetric_two_hand"
 
 
 def test_catalog_default_dimensions_require_explicit_opt_in() -> None:
