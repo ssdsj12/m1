@@ -4,6 +4,8 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
+- 2026-09-23：[T500 bimanual grasp-goal to O6 MPC boundary](2026-09-23-t500-bimanual-grasp-goal-mpc-boundary.md)：catalog book/bottle/custom geometry reaches the immutable runtime/MPC goal; legacy Box remains `grasp_goal=None`; focused `62 passed` plus compile check. No live camera/point-cloud or Isaac physical claim.
+
 - 2026-09-23：[T500 bimanual perception grasp-goal boundary](2026-09-23-t500-bimanual-grasp-goal.md)：新增纯 CPU OBB/点云确定性目标适配器，覆盖 book/bottle/cup/cube/cylinder、无效几何、镜像对称和未见尺寸；focused `14 passed`，未接入 Play/MPC 或相机/VLM。
 
 - 2026-09-20：[T500 geometry bundle gate](2026-09-20-t500-geometry-bundle.md)：独立 builder/validator focused `3 passed`；真实 pinned archive 93 个 raw-covered 主手引用全部未通过 watertight/positive-volume 门，未发布 manifest，双来源转换/训练/GPU Play 继续阻塞。

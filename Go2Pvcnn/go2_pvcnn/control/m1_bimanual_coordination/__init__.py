@@ -91,7 +91,12 @@ from .object_catalog import (
     PreparationRequiredError,
     load_catalog,
 )
-from .task_goal import resolve_target_object_ids
+from .task_goal import (
+    DEFAULT_CATALOG_DIMENSIONS,
+    build_catalog_grasp_goal,
+    build_catalog_grasp_goal_provider,
+    resolve_target_object_ids,
+)
 from .grasp_goal import (
     BimanualGraspGoal,
     ClampCriteria,
@@ -175,6 +180,9 @@ __all__ = [
     "ObjectInstance",
     "load_catalog",
     "resolve_target_object_ids",
+    "DEFAULT_CATALOG_DIMENSIONS",
+    "build_catalog_grasp_goal",
+    "build_catalog_grasp_goal_provider",
     "BimanualGraspGoal",
     "ClampCriteria",
     "ContactSet",

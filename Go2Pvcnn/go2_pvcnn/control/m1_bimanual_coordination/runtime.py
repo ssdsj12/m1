@@ -10,6 +10,7 @@ import torch
 from go2_pvcnn.control.m1_panda_coordination.arm_mpc import ArmMpcInput
 
 from .constraints import BimanualWbcRequest
+from .grasp_goal import BimanualGraspGoal
 from .contracts import (
     BimanualCommand,
     BimanualPhase,
@@ -35,6 +36,7 @@ from .whole_body_qp import BimanualWbcSolution, BimanualWholeBodyQp
 ObjectInputProvider = Callable[
     [BimanualSnapshot, BimanualPhase, ObjectMpcSolution | None], ObjectMpcInput
 ]
+GraspGoalProvider = Callable[[BimanualSnapshot], BimanualGraspGoal | None]
 ArmInputProvider = Callable[[BimanualSnapshot], tuple[ArmMpcInput, ArmMpcInput]]
 HandInputProvider = Callable[[BimanualSnapshot, str, torch.Tensor], HandMpcInput]
 CollisionProvider = Callable[
@@ -129,7 +131,15 @@ class BimanualRuntime:
         hand_input_provider: HandInputProvider | None = None,
         collision_provider: CollisionProvider | None = None,
         motion_primitive: BimanualMotionPrimitive | None = None,
+        grasp_goal: BimanualGraspGoal | None = None,
+        grasp_goal_provider: GraspGoalProvider | None = None,
     ) -> None:
+        if grasp_goal is not None and grasp_goal_provider is not None:
+            raise ValueError("grasp_goal and grasp_goal_provider are mutually exclusive")
+        if grasp_goal is not None and not isinstance(grasp_goal, BimanualGraspGoal):
+            raise TypeError("grasp_goal must be BimanualGraspGoal or None")
+        if grasp_goal_provider is not None and not callable(grasp_goal_provider):
+            raise TypeError("grasp_goal_provider must be callable or None")
         self.object_mpc = BimanualObjectMpc() if object_mpc is None else object_mpc
         self.arm_mpc = DualArmMpcCoordinator() if arm_mpc is None else arm_mpc
         self.left_hand_mpc = O6HandMpc() if left_hand_mpc is None else left_hand_mpc
@@ -148,6 +158,8 @@ class BimanualRuntime:
         self._arm_input_provider = arm_input_provider
         self._hand_input_provider = hand_input_provider
         self._collision_provider = collision_provider
+        self._grasp_goal = grasp_goal
+        self._grasp_goal_provider = grasp_goal_provider
         self._step = 0
         self._counts = {"object": 0, "arm": 0, "hand": 0, "wbc": 0}
         self._last_snapshot: BimanualSnapshot | None = None
@@ -180,6 +192,12 @@ class BimanualRuntime:
     def latest_motion_target(self) -> ManipulationTarget | None:
         return self._latest_motion_target
 
+    @property
+    def latest_grasp_goal(self) -> BimanualGraspGoal | None:
+        """Return the immutable geometry/contact goal used by the last target."""
+
+        return None if self._latest_motion_target is None else self._latest_motion_target.grasp_goal
+
     def reset(self) -> None:
         """Clear temporal caches and object-planner state for deterministic replay."""
         reset_object = getattr(self.object_mpc, 'reset', None)
@@ -209,9 +227,21 @@ class BimanualRuntime:
     def _object_input(self, snapshot: BimanualSnapshot) -> ObjectMpcInput:
         if self._object_input_provider is not None:
             return self._object_input_provider(snapshot, self.mission.phase, self._last_object)
-        self._latest_motion_target = self.motion_primitive.target(
-            self.mission.phase, snapshot
-        )
+        grasp_goal = self._grasp_goal
+        if self._grasp_goal_provider is not None:
+            grasp_goal = self._grasp_goal_provider(snapshot)
+            if grasp_goal is not None and not isinstance(grasp_goal, BimanualGraspGoal):
+                raise TypeError("grasp_goal_provider must return BimanualGraspGoal or None")
+        if grasp_goal is None:
+            # Keep the legacy motion-primitive call shape untouched for Box
+            # users and third-party primitive implementations.
+            self._latest_motion_target = self.motion_primitive.target(
+                self.mission.phase, snapshot
+            )
+        else:
+            self._latest_motion_target = self.motion_primitive.target(
+                self.mission.phase, snapshot, grasp_goal
+            )
         return ObjectMpcInput(
             snapshot=snapshot,
             target_box_pose_b=self._latest_motion_target.box_pose_b,
@@ -222,6 +252,7 @@ class BimanualRuntime:
             ),
             phase=self.mission.phase,
             previous_solution=self._last_object,
+            grasp_goal=grasp_goal,
         )
 
     def _arm_inputs(self, snapshot: BimanualSnapshot) -> tuple[ArmMpcInput, ArmMpcInput]:

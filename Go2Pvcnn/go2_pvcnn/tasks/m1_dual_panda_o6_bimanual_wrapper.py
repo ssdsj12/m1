@@ -49,6 +49,7 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     latch_contact_joint_targets,
     stack_stationary_wheel_jacobians,
     resolve_target_object_ids,
+    build_catalog_grasp_goal_provider,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
 from go2_pvcnn.control.m1_bimanual_coordination.contact_summary import (
@@ -647,6 +648,14 @@ def _configured_object_instances(env) -> tuple[object, ...]:
     return tuple(instances)
 
 
+def _configured_object_catalog(env):
+    raw = env.unwrapped if hasattr(env, "unwrapped") else env
+    cfg = getattr(raw, "cfg", None)
+    if cfg is None:
+        cfg = getattr(env, "cfg", None)
+    return getattr(cfg, "object_catalog", None) if cfg is not None else None
+
+
 class M1DualPandaO6BimanualWrapper:
     """Compute one MPC command and apply it atomically on every physics step."""
 
@@ -662,6 +671,8 @@ class M1DualPandaO6BimanualWrapper:
         fingertip_prior_artifact: str | Path | None = None,
         fingertip_prior_metadata_sha256: str | None = None,
         fingertip_prior_binding: object | None = None,
+        grasp_geometry_provider=None,
+        allow_default_grasp_dimensions: bool = False,
     ) -> None:
         if mode not in {"teacher", "latent"}:
             raise ValueError("mode must be 'teacher' or 'latent'")
@@ -719,6 +730,16 @@ class M1DualPandaO6BimanualWrapper:
             _configured_object_instances(env),
             requested_object_id,
         )
+        self._grasp_goal_provider = None
+        catalog = _configured_object_catalog(env)
+        if catalog is not None and self.target_object_id not in (None, "box"):
+            self._grasp_goal_provider = build_catalog_grasp_goal_provider(
+                catalog,
+                _configured_object_instances(env),
+                self.target_object_id,
+                geometry_provider=grasp_geometry_provider,
+                allow_default_dimensions=allow_default_grasp_dimensions,
+            )
         self.lanes: list[BimanualLaneController] = []
         try:
             raw = self.env.unwrapped
@@ -777,7 +798,11 @@ class M1DualPandaO6BimanualWrapper:
         """Attach the two approved workers without a second artifact load."""
 
         if not self._fingertip_priors:
-            return BimanualRuntime() if supplied_runtime is None else supplied_runtime
+            return (
+                BimanualRuntime(grasp_goal_provider=self._grasp_goal_provider)
+                if supplied_runtime is None
+                else supplied_runtime
+            )
         from go2_pvcnn.control.m1_bimanual_coordination.hand_mpc import O6HandMpc
 
         left_prior, right_prior = self._fingertip_priors
@@ -785,6 +810,7 @@ class M1DualPandaO6BimanualWrapper:
             return BimanualRuntime(
                 left_hand_mpc=O6HandMpc(expert_prior=left_prior),
                 right_hand_mpc=O6HandMpc(expert_prior=right_prior),
+                grasp_goal_provider=self._grasp_goal_provider,
             )
         controllers: list[tuple[object, object]] = []
         for side, prior in (("left", left_prior), ("right", right_prior)):

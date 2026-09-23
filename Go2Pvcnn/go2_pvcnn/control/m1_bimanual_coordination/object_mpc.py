@@ -17,6 +17,7 @@ from go2_pvcnn.control.m1_panda_coordination.qp_backend import (
 )
 
 from .contracts import BimanualPhase, BimanualSnapshot
+from .grasp_goal import BimanualGraspGoal
 
 
 OBJECT_MPC_DT = 0.04
@@ -190,6 +191,7 @@ class ObjectMpcInput:
     previous_solution: ObjectMpcSolution | None = None
     target_object_pose_b: torch.Tensor | None = None
     obstacle_object_poses_b: tuple[torch.Tensor, ...] | torch.Tensor = ()
+    grasp_goal: BimanualGraspGoal | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.snapshot, BimanualSnapshot):
@@ -200,6 +202,8 @@ class ObjectMpcInput:
             self.previous_solution, ObjectMpcSolution
         ):
             raise TypeError("previous_solution must be ObjectMpcSolution or None")
+        if self.grasp_goal is not None and not isinstance(self.grasp_goal, BimanualGraspGoal):
+            raise TypeError("grasp_goal must be BimanualGraspGoal or None")
         target_box_pose = self.target_box_pose_b
         target_object_pose = self.target_object_pose_b
         if target_box_pose is None and target_object_pose is None:
@@ -497,16 +501,26 @@ def _palm_targets(
     left_orientation: torch.Tensor,
     right_orientation: torch.Tensor,
     right_height_offset: float = 0.0,
+    grasp_goal: BimanualGraspGoal | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     left = box_pose.clone()
     right = box_pose.clone()
-    # Palm origins sit behind the O6 fingertips; contact targets are defined
-    # on the box while arm MPC must track the corresponding palm origins.
-    left[:, 0] -= reach_offset
-    right[:, 0] -= reach_offset
-    left[:, 1] += half_width
-    right[:, 1] -= half_width
-    right[:, 2] += right_height_offset
+    if grasp_goal is None:
+        # Palm origins sit behind the O6 fingertips; contact targets are
+        # defined on the box while arm MPC tracks the corresponding origins.
+        left[:, 0] -= reach_offset
+        right[:, 0] -= reach_offset
+        left[:, 1] += half_width
+        right[:, 1] -= half_width
+        right[:, 2] += right_height_offset
+    else:
+        # The adapter goal is expressed at the measured object pose.  Shift
+        # the immutable bilateral targets with the planned object translation
+        # while retaining the calibrated O6 orientation below.
+        center = torch.tensor(grasp_goal.object_center, dtype=torch.float64)
+        delta = box_pose[:, :3] - center
+        left[:, :3] = torch.tensor(grasp_goal.left_palm_target, dtype=torch.float64) + delta
+        right[:, :3] = torch.tensor(grasp_goal.right_palm_target, dtype=torch.float64) + delta
     # The O6 mounting transform is not the box frame.  For this fixed first
     # task, retain each calibrated mounted-hand orientation while translating
     # the palms to the two object faces.
@@ -575,6 +589,7 @@ class BimanualObjectMpc:
             sample.snapshot.left_arm.palm_pose_b[3:],
             sample.snapshot.right_arm.palm_pose_b[3:],
             self.cfg.right_palm_height_offset_m,
+            sample.grasp_goal,
         )
         return ObjectMpcSolution(
             box_pose=box_pose,
@@ -625,6 +640,7 @@ class BimanualObjectMpc:
             sample.snapshot.left_arm.palm_pose_b[3:],
             sample.snapshot.right_arm.palm_pose_b[3:],
             self.cfg.right_palm_height_offset_m,
+            sample.grasp_goal,
         )
         return ObjectMpcSolution(
             box_pose=box_pose,
@@ -694,6 +710,7 @@ class BimanualObjectMpc:
                 sample.snapshot.left_arm.palm_pose_b[3:],
                 sample.snapshot.right_arm.palm_pose_b[3:],
                 self.cfg.right_palm_height_offset_m,
+                sample.grasp_goal,
             )
             fractions = (
                 torch.arange(1, horizon + 1, dtype=torch.float64) / horizon

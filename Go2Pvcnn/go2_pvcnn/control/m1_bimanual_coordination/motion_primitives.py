@@ -8,6 +8,7 @@ import math
 import torch
 
 from .contracts import BimanualPhase, BimanualSnapshot
+from .grasp_goal import BimanualGraspGoal
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,31 @@ class ManipulationTarget:
     right_palm_in_box: torch.Tensor
     target_normal_force_n: float
     recovery_side: str | None
+    grasp_goal: BimanualGraspGoal | None = None
+
+    @property
+    def left_fingertip_targets(self):
+        return () if self.grasp_goal is None else self.grasp_goal.left_fingertip_targets
+
+    @property
+    def right_fingertip_targets(self):
+        return () if self.grasp_goal is None else self.grasp_goal.right_fingertip_targets
+
+    @property
+    def left_contact_targets(self):
+        return () if self.grasp_goal is None else self.grasp_goal.left_contact_targets
+
+    @property
+    def right_contact_targets(self):
+        return () if self.grasp_goal is None else self.grasp_goal.right_contact_targets
+
+    @property
+    def clamp_criteria(self):
+        return None if self.grasp_goal is None else self.grasp_goal.clamp_criteria
+
+    @property
+    def lift_criteria(self):
+        return None if self.grasp_goal is None else self.grasp_goal.lift_criteria
 
 
 class BimanualMotionPrimitive:
@@ -82,6 +108,7 @@ class BimanualMotionPrimitive:
         self,
         phase: BimanualPhase,
         snapshot: BimanualSnapshot,
+        grasp_goal: BimanualGraspGoal | None = None,
     ) -> ManipulationTarget:
         if not isinstance(phase, BimanualPhase):
             raise TypeError("phase must be BimanualPhase")
@@ -151,4 +178,5 @@ class BimanualMotionPrimitive:
             right_palm_in_box=self._right_palm_in_box.clone(),
             target_normal_force_n=target_force,
             recovery_side=recovery_side,
+            grasp_goal=grasp_goal,
         )

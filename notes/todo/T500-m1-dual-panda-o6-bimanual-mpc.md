@@ -138,6 +138,8 @@ T500 专项测试 `224 passed`，Python 编译和 staged diff 检查通过；正
 
 ## Related Logs
 
+- [2026-09-23 grasp-goal to O6 MPC boundary](../log/2026-09-23-t500-bimanual-grasp-goal-mpc-boundary.md)
+
 - [2026-09-23 perception grasp-goal boundary](../log/2026-09-23-t500-bimanual-grasp-goal.md)
 
 - [2026-09-15 run_e 身份 / 双来源资格拒绝](../log/2026-09-15-t500-run-e-expert-artifact.md)

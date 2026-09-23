@@ -253,7 +253,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Recent Logs
 
-| 2026-09-23 | T500 perception grasp-goal boundary | T500 geometry/task-goal adapter | CPU OBB/point-cloud deterministic symmetric targets; `14 passed`; no Play/MPC/camera/VLM wiring | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [grasp-goal log](log/2026-09-23-t500-bimanual-grasp-goal.md) |
+| 2026-09-23 | T500 perception grasp-goal boundary + O6 MPC wiring | T500 geometry/task-goal/MPC boundary | CPU OBB/point-cloud adapter and injectable catalog goal reach runtime/object MPC; focused `62 passed`; no live camera/point-cloud/Isaac physical claim | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [boundary log](log/2026-09-23-t500-bimanual-grasp-goal-mpc-boundary.md) |
 
 | 2026-09-15 | T500 DexManipNet runtime external metadata pin | T500.5 runtime deployment gate | artifact/pin atomic pair and strict Frozen/Wrapper/Probe/Play propagation; focused `43 passed`, expert-prior `299 passed`, pure QP `103 passed`; no production Isaac prior-on claim | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [runtime pin log](log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md) |
 

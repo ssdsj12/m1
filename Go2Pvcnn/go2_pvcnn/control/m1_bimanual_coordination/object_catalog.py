@@ -94,6 +94,10 @@ class ObjectClassRecord:
     scale: float
     collision_profile: str
     grasp_profile: str
+    # Optional object-frame dimensions.  Catalogs that do not carry measured
+    # geometry leave this unset; task-goal code must opt into its conservative
+    # class defaults explicitly in that case.
+    dimensions: tuple[float, float, float] | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty_text("object_class", self.object_class)
@@ -109,12 +113,26 @@ class ObjectClassRecord:
         )
         _require_non_empty_text("collision_profile", self.collision_profile)
         _require_non_empty_text("grasp_profile", self.grasp_profile)
+        if self.dimensions is not None:
+            if (
+                isinstance(self.dimensions, (str, bytes))
+                or len(tuple(self.dimensions)) != 3
+            ):
+                raise ValueError("dimensions must contain exactly three positive numbers")
+            dimensions = tuple(_require_positive_real("dimensions", value) for value in self.dimensions)
+            object.__setattr__(self, "dimensions", dimensions)
 
     @property
     def sha256(self) -> str | None:
         """Backward-compatible alias for the resolved USD digest."""
 
         return self.resolved_sha256
+
+    @property
+    def dimensions_m(self) -> tuple[float, float, float] | None:
+        """Explicit object-frame dimensions, when the catalog provides them."""
+
+        return self.dimensions
 
 
 @dataclass(frozen=True)
@@ -325,6 +343,7 @@ def _load_class_record(
         scale=payload["scale"],
         collision_profile=payload["collision_profile"],
         grasp_profile=payload["grasp_profile"],
+        dimensions=payload.get("dimensions", payload.get("dimensions_m")),
     )
     return record, note
 
