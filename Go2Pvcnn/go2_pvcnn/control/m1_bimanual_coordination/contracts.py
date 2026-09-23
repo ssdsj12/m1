@@ -241,6 +241,15 @@ class BimanualPhase(Enum):
     LOWER_SAFE = auto()
     SAFE_RELEASE = auto()
     TERMINATED = auto()
+    # Human-facing names for the catalog grasp/lift pipeline.  They are enum
+    # aliases so legacy Box callers and serialized phase values remain stable.
+    CLOSE = PRELOAD
+    CONTACT = PRELOAD
+    CLOSE_CONTACT = PRELOAD
+    CLAMP = GRASP
+    CLAMP_HOLD = GRASP
+    SUCCESS = DONE
+    SAFE_FALLBACK = HOLD_SAFE
 
 
 def validate_monotonic_snapshot(

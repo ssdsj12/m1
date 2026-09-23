@@ -145,7 +145,13 @@ class BimanualRuntime:
         self.left_hand_mpc = O6HandMpc() if left_hand_mpc is None else left_hand_mpc
         self.right_hand_mpc = O6HandMpc() if right_hand_mpc is None else right_hand_mpc
         self.wbc = BimanualWholeBodyQp() if wbc is None else wbc
-        self.mission = BimanualMission() if mission is None else mission
+        self.mission = (
+            BimanualMission(grasp_goal=grasp_goal)
+            if mission is None
+            else mission
+        )
+        if grasp_goal is not None:
+            self.mission.set_grasp_goal(grasp_goal)
         self.motion_primitive = (
             BimanualMotionPrimitive() if motion_primitive is None else motion_primitive
         )
@@ -158,7 +164,9 @@ class BimanualRuntime:
         self._arm_input_provider = arm_input_provider
         self._hand_input_provider = hand_input_provider
         self._collision_provider = collision_provider
-        self._grasp_goal = grasp_goal
+        self._grasp_goal = (
+            grasp_goal if grasp_goal is not None else self.mission.grasp_goal
+        )
         self._grasp_goal_provider = grasp_goal_provider
         self._step = 0
         self._counts = {"object": 0, "arm": 0, "hand": 0, "wbc": 0}
@@ -198,6 +206,12 @@ class BimanualRuntime:
 
         return None if self._latest_motion_target is None else self._latest_motion_target.grasp_goal
 
+    @property
+    def phase(self) -> BimanualPhase:
+        """Current closed-loop phase (convenient for headless probes)."""
+
+        return self.mission.phase
+
     def reset(self) -> None:
         """Clear temporal caches and object-planner state for deterministic replay."""
         reset_object = getattr(self.object_mpc, 'reset', None)
@@ -205,7 +219,10 @@ class BimanualRuntime:
             reset_object()
         self.motion_primitive.reset()
 
-        self.mission = BimanualMission(cfg=self.mission.cfg)
+        self.mission = BimanualMission(
+            cfg=self.mission.cfg,
+            grasp_goal=self._grasp_goal,
+        )
         self._step = 0
         self._counts = {"object": 0, "arm": 0, "hand": 0, "wbc": 0}
         self._last_snapshot = None
@@ -227,11 +244,16 @@ class BimanualRuntime:
     def _object_input(self, snapshot: BimanualSnapshot) -> ObjectMpcInput:
         if self._object_input_provider is not None:
             return self._object_input_provider(snapshot, self.mission.phase, self._last_object)
+        # A caller may provide a preconfigured mission instead of the runtime
+        # shorthand.  Preserve that goal while keeping the Box default None.
         grasp_goal = self._grasp_goal
+        if grasp_goal is None:
+            grasp_goal = self.mission.grasp_goal
         if self._grasp_goal_provider is not None:
             grasp_goal = self._grasp_goal_provider(snapshot)
             if grasp_goal is not None and not isinstance(grasp_goal, BimanualGraspGoal):
                 raise TypeError("grasp_goal_provider must return BimanualGraspGoal or None")
+        self.mission.set_grasp_goal(grasp_goal)
         if grasp_goal is None:
             # Keep the legacy motion-primitive call shape untouched for Box
             # users and third-party primitive implementations.
@@ -319,6 +341,23 @@ class BimanualRuntime:
                     float(torch.linalg.vector_norm(current_offset - previous_offset).item()),
                 )
         reason = wbc_solution.diagnostics.fallback_reason
+        left_forces = (
+            torch.zeros((5, 3), dtype=torch.float64)
+            if self._last_left_hand is None
+            else self._last_left_hand.predicted_forces_b
+        )
+        right_forces = (
+            torch.zeros((5, 3), dtype=torch.float64)
+            if self._last_right_hand is None
+            else self._last_right_hand.predicted_forces_b
+        )
+        left_normal_force = float(left_forces[:, 2].sum().item())
+        right_normal_force = float(right_forces[:, 2].sum().item())
+        vertical_force = left_normal_force + right_normal_force
+        # BoxState stores a rotation vector in base coordinates.  Roll/pitch
+        # are the relevant lift stability components; yaw does not tilt the
+        # object and is intentionally excluded from this gate.
+        object_tilt = float(torch.linalg.vector_norm(snapshot.box.pose_b[3:5]).item())
         return BimanualMissionDiagnostics(
             command_accepted=wbc_solution.feasible,
             palms_reached=bool(
@@ -349,6 +388,12 @@ class BimanualRuntime:
             collision_margin_m=wbc_solution.diagnostics.min_collision_distance - 0.02,
             support_margin_m=wbc_solution.diagnostics.support_margin,
             subsystem_failure=None if wbc_solution.feasible else (reason or "wbc_infeasible"),
+            left_contact_count=int(snapshot.left_hand.contact_mask.sum().item()),
+            right_contact_count=int(snapshot.right_hand.contact_mask.sum().item()),
+            left_normal_force_n=left_normal_force,
+            right_normal_force_n=right_normal_force,
+            vertical_force_n=vertical_force,
+            object_tilt_rad=object_tilt,
         )
 
     def compute(self, snapshot: BimanualSnapshot) -> BimanualCommand:

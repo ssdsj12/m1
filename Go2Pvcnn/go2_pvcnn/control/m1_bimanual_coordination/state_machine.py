@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import math
 
 from .contracts import BimanualPhase, BimanualSnapshot
+from .grasp_goal import BimanualGraspGoal
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,15 @@ class BimanualMissionDiagnostics:
     collision_margin_m: float
     support_margin_m: float
     subsystem_failure: str | None
+    # These measurements are optional for the legacy Box path.  Catalog goals
+    # use them to make the clamp/lift gate explicit instead of treating a
+    # contact bit as proof of a successful grasp.
+    left_contact_count: int = 0
+    right_contact_count: int = 0
+    left_normal_force_n: float = 0.0
+    right_normal_force_n: float = 0.0
+    vertical_force_n: float = 0.0
+    object_tilt_rad: float = 0.0
 
     def __post_init__(self) -> None:
         for name in (
@@ -101,6 +111,21 @@ class BimanualMissionDiagnostics:
             or not self.subsystem_failure.strip()
         ):
             raise ValueError("subsystem_failure must be None or a non-empty string")
+        for name in ("left_contact_count", "right_contact_count"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        for name in (
+            "left_normal_force_n",
+            "right_normal_force_n",
+            "vertical_force_n",
+            "object_tilt_rad",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"{name} must be a real number")
+            if not math.isfinite(float(value)) or float(value) < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
 
 
 @dataclass(frozen=True)
@@ -116,10 +141,18 @@ class BimanualMissionState:
 class BimanualMission:
     """Own phase progression; normal progress requires an accepted command."""
 
-    def __init__(self, cfg: BimanualMissionCfg | None = None) -> None:
+    def __init__(
+        self,
+        cfg: BimanualMissionCfg | None = None,
+        *,
+        grasp_goal: BimanualGraspGoal | None = None,
+    ) -> None:
         self.cfg = BimanualMissionCfg() if cfg is None else cfg
         if not isinstance(self.cfg, BimanualMissionCfg):
             raise TypeError("cfg must be BimanualMissionCfg")
+        if grasp_goal is not None and not isinstance(grasp_goal, BimanualGraspGoal):
+            raise TypeError("grasp_goal must be BimanualGraspGoal or None")
+        self._grasp_goal = grasp_goal
         self.phase = BimanualPhase.APPROACH
         self._step = 0
         self._phase_steps = 0
@@ -132,6 +165,17 @@ class BimanualMission:
         self._previous_timestamp_ns: int | None = None
         self._hold_elapsed_ns = 0
 
+    @property
+    def grasp_goal(self) -> BimanualGraspGoal | None:
+        return self._grasp_goal
+
+    def set_grasp_goal(self, grasp_goal: BimanualGraspGoal | None) -> None:
+        """Update the immutable catalog criteria used by subsequent samples."""
+
+        if grasp_goal is not None and not isinstance(grasp_goal, BimanualGraspGoal):
+            raise TypeError("grasp_goal must be BimanualGraspGoal or None")
+        self._grasp_goal = grasp_goal
+
     def _transition(self, phase: BimanualPhase) -> None:
         self.phase = phase
         self._phase_steps = 0
@@ -142,6 +186,50 @@ class BimanualMission:
     def _supported(self, diagnostics: BimanualMissionDiagnostics) -> bool:
         return diagnostics.box_supported and (
             diagnostics.box_twist_norm <= self.cfg.supported_twist_tolerance
+        )
+
+    def _clamp_ready(self, diagnostics: BimanualMissionDiagnostics) -> bool:
+        """Return the contact/force gate for a catalog target.
+
+        The legacy Box path intentionally retains its historical force-closure
+        gate.  Catalog goals additionally require the configured minimum
+        contact count and per-hand normal force.
+        """
+
+        if self._grasp_goal is None:
+            return (
+                diagnostics.left_contact
+                and diagnostics.right_contact
+                and diagnostics.contact_consistent
+                and diagnostics.bilateral_contact
+                and diagnostics.force_closure_margin > 0.0
+                and diagnostics.relative_palm_slip_m <= self.cfg.max_relative_palm_slip_m
+            )
+        criteria = self._grasp_goal.clamp_criteria
+        return (
+            diagnostics.left_contact
+            and diagnostics.right_contact
+            and diagnostics.contact_consistent
+            and diagnostics.bilateral_contact
+            and diagnostics.force_closure_margin > 0.0
+            and diagnostics.left_contact_count >= criteria.min_contact_count_per_hand
+            and diagnostics.right_contact_count >= criteria.min_contact_count_per_hand
+            and diagnostics.left_normal_force_n >= criteria.min_normal_force_n
+            and diagnostics.right_normal_force_n >= criteria.min_normal_force_n
+            and diagnostics.relative_palm_slip_m <= self.cfg.max_relative_palm_slip_m
+        )
+
+    def _lift_ready(
+        self, snapshot: BimanualSnapshot, diagnostics: BimanualMissionDiagnostics
+    ) -> bool:
+        if self._grasp_goal is None:
+            return self.lift_height(snapshot) >= self.cfg.lift_height_m - 1.0e-9
+        criteria = self._grasp_goal.lift_criteria
+        return (
+            self.lift_height(snapshot) >= criteria.height_m - 1.0e-9
+            and diagnostics.vertical_force_n >= criteria.min_vertical_force_n
+            and diagnostics.object_tilt_rad <= criteria.max_tilt_rad
+            and self._clamp_ready(diagnostics)
         )
 
     def _enter_safe(self, diagnostics: BimanualMissionDiagnostics, reason: str) -> None:
@@ -166,6 +254,11 @@ class BimanualMission:
             return "collision_margin"
         if diagnostics.support_margin_m < 0.0:
             return "balance_margin"
+        if self._grasp_goal is not None and self.phase in {
+            BimanualPhase.LIFT,
+            BimanualPhase.HOLD,
+        } and not self._clamp_ready(diagnostics):
+            return "clamp_criteria_failed"
         if self._consecutive_failures >= self.cfg.max_consecutive_failures:
             return diagnostics.subsystem_failure or "repeated_infeasibility"
         return None
@@ -225,42 +318,20 @@ class BimanualMission:
                 if all(self._approach_side_ready):
                     self._transition(BimanualPhase.PRELOAD)
             elif self.phase is BimanualPhase.PRELOAD:
-                contact_ready = (
-                    diagnostics.left_contact
-                    and diagnostics.right_contact
-                    and diagnostics.contact_consistent
-                    and diagnostics.bilateral_contact
-                    and diagnostics.force_closure_margin > 0.0
-                    and diagnostics.relative_palm_slip_m
-                    <= self.cfg.max_relative_palm_slip_m
-                )
+                contact_ready = self._clamp_ready(diagnostics)
                 self._dwell_steps = self._dwell_steps + 1 if contact_ready else 0
                 if self._dwell_steps >= self.cfg.preload_dwell_steps:
                     self._transition(BimanualPhase.GRASP)
             elif self.phase is BimanualPhase.GRASP:
-                closed = (
-                    diagnostics.left_contact
-                    and diagnostics.right_contact
-                    and diagnostics.contact_consistent
-                    and diagnostics.bilateral_contact
-                    and diagnostics.force_closure_margin > 0.0
-                )
+                closed = self._clamp_ready(diagnostics)
                 self._dwell_steps = self._dwell_steps + 1 if closed else 0
                 if self._dwell_steps >= self.cfg.grasp_dwell_steps:
                     self._transition(BimanualPhase.LIFT)
             elif self.phase is BimanualPhase.LIFT:
-                if self.lift_height(snapshot) >= self.cfg.lift_height_m - 1.0e-9:
+                if self._lift_ready(snapshot, diagnostics):
                     self._transition(BimanualPhase.HOLD)
             elif self.phase is BimanualPhase.HOLD:
-                stable_grasp = (
-                    diagnostics.left_contact
-                    and diagnostics.right_contact
-                    and diagnostics.contact_consistent
-                    and diagnostics.bilateral_contact
-                    and diagnostics.force_closure_margin > 0.0
-                    and diagnostics.relative_palm_slip_m
-                    <= self.cfg.max_relative_palm_slip_m
-                )
+                stable_grasp = self._clamp_ready(diagnostics)
                 self._hold_elapsed_ns = (
                     self._hold_elapsed_ns + elapsed_ns if stable_grasp else 0
                 )

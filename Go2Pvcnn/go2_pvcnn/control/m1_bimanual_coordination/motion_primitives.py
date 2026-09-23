@@ -138,8 +138,13 @@ class BimanualMotionPrimitive:
         horizon = self.cfg.horizon_steps
         box_pose = snapshot.box.pose_b.repeat(horizon, 1)
         both_contact = left_contact and right_contact
+        lift_height = (
+            self.cfg.lift_height_m
+            if grasp_goal is None
+            else grasp_goal.lift_criteria.height_m
+        )
         if phase is BimanualPhase.LIFT and both_contact:
-            goal_z = float(self._initial_box_pose[2]) + self.cfg.lift_height_m
+            goal_z = float(self._initial_box_pose[2]) + lift_height
             increments = self.cfg.lift_speed_m_s * self.cfg.dt * torch.arange(
                 1, horizon + 1, dtype=torch.float64
             )
@@ -148,7 +153,7 @@ class BimanualMotionPrimitive:
                 max=goal_z,
             )
         elif phase is BimanualPhase.HOLD and both_contact:
-            box_pose[:, 2] = float(self._initial_box_pose[2]) + self.cfg.lift_height_m
+            box_pose[:, 2] = float(self._initial_box_pose[2]) + lift_height
         elif phase in {BimanualPhase.LOWER, BimanualPhase.LOWER_SAFE}:
             goal_z = float(self._initial_box_pose[2])
             decrements = self.cfg.lower_speed_m_s * self.cfg.dt * torch.arange(
@@ -159,8 +164,18 @@ class BimanualMotionPrimitive:
                 min=goal_z,
             )
 
+        preload_force = (
+            self.cfg.preload_force_n
+            if grasp_goal is None
+            else grasp_goal.clamp_criteria.min_normal_force_n
+        )
+        grasp_force = (
+            self.cfg.grasp_force_n
+            if grasp_goal is None
+            else grasp_goal.clamp_criteria.min_normal_force_n
+        )
         if phase is BimanualPhase.PRELOAD:
-            target_force = self.cfg.preload_force_n
+            target_force = preload_force
         elif phase in {
             BimanualPhase.GRASP,
             BimanualPhase.LIFT,
@@ -169,7 +184,7 @@ class BimanualMotionPrimitive:
             BimanualPhase.HOLD_SAFE,
             BimanualPhase.LOWER_SAFE,
         }:
-            target_force = self.cfg.grasp_force_n
+            target_force = grasp_force
         else:
             target_force = 0.0
         return ManipulationTarget(

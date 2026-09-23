@@ -83,6 +83,7 @@ from .state_machine import (
     BimanualMissionState,
 )
 from .runtime import BimanualRuntime
+from .grasp_lift_pipeline import BimanualGraspLiftPipeline, BimanualGraspLiftStep
 from .object_catalog import (
     AssetPreparationRequiredError,
     ObjectCatalog,
@@ -175,6 +176,8 @@ __all__ = [
     "BimanualMissionDiagnostics",
     "BimanualMissionState",
     "BimanualRuntime",
+    "BimanualGraspLiftPipeline",
+    "BimanualGraspLiftStep",
     "AssetPreparationRequiredError",
     "PreparationRequiredError",
     "ObjectCatalog",
