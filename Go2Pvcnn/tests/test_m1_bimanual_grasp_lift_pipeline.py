@@ -11,6 +11,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.grasp_goal import (
 from go2_pvcnn.control.m1_bimanual_coordination.grasp_lift_pipeline import (
     BimanualGraspLiftPipeline,
 )
+from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
 from go2_pvcnn.control.m1_bimanual_coordination.state_machine import (
     BimanualMission,
     BimanualMissionCfg,
@@ -233,6 +234,71 @@ def test_catalog_lift_requires_height_force_and_tilt_criteria():
     tilted = mission.update(lifted, _contact(object_tilt_rad=0.30))
     assert tilted.phase is BimanualPhase.LIFT
     assert mission.update(replace(lifted, timestamp_ns=6), _contact()).phase is BimanualPhase.HOLD
+
+
+@pytest.mark.parametrize(
+    ("diagnostic_override", "reason"),
+    [
+        ({"vertical_force_n": 1.0}, "lift force loss"),
+        ({"object_tilt_rad": 0.30}, "lift tilt loss"),
+    ],
+)
+def test_catalog_hold_loss_of_lift_force_or_tilt_enters_safe_fallback(
+    diagnostic_override, reason
+):
+    mission = BimanualMission(
+        BimanualMissionCfg(
+            approach_dwell_steps=1,
+            preload_dwell_steps=1,
+            grasp_dwell_steps=1,
+            safe_hold_steps=1,
+        ),
+        grasp_goal=_goal(),
+    )
+    snapshot = _snapshot()
+    mission.update(snapshot, _diagnostics(palms_reached=True))
+    mission.update(replace(snapshot, timestamp_ns=2), _contact())
+    mission.update(replace(snapshot, timestamp_ns=3), _contact())
+    pose = snapshot.box.pose_b.clone()
+    pose[2] += _goal().lift.height_m
+    lifted = replace(snapshot, timestamp_ns=4, box=replace(snapshot.box, pose_b=pose))
+    assert mission.update(lifted, _contact()).phase is BimanualPhase.HOLD
+
+    failed = mission.update(
+        replace(lifted, timestamp_ns=5),
+        _contact(**diagnostic_override),
+    )
+    assert failed.phase is BimanualPhase.HOLD_SAFE, reason
+    assert failed.fallback_reason == "lift_criteria_failed"
+
+    safe_landing = mission.update(
+        replace(lifted, timestamp_ns=6),
+        _diagnostics(box_supported=True),
+    )
+    assert safe_landing.phase is BimanualPhase.LOWER_SAFE
+    released = mission.update(
+        replace(lifted, timestamp_ns=7),
+        _diagnostics(box_supported=True, hands_open=True),
+    )
+    assert released.phase is BimanualPhase.SAFE_RELEASE
+    terminated = mission.update(
+        replace(lifted, timestamp_ns=8),
+        _diagnostics(box_supported=True, hands_open=True),
+    )
+    assert terminated.phase is BimanualPhase.TERMINATED
+    assert terminated.phase is not BimanualPhase.DONE
+
+
+def test_pipeline_injected_goal_survives_runtime_reset():
+    goal = _goal()
+    runtime = BimanualRuntime()
+    pipeline = BimanualGraspLiftPipeline(goal, runtime=runtime)
+
+    pipeline.reset()
+
+    assert runtime._grasp_goal is goal
+    assert runtime.mission.grasp_goal is goal
+    assert pipeline.goal is goal
 
 
 def test_catalog_clamp_enforces_goal_force_cap_and_alignment():

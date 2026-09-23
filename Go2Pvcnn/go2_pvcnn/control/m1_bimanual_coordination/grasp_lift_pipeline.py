@@ -77,10 +77,14 @@ class BimanualGraspLiftPipeline:
         if goal is not None and existing_goal is not None and goal != existing_goal:
             raise ValueError("conflicting grasp_goal between pipeline and runtime")
         self.goal = goal if goal is not None else existing_goal
-        if goal is not None and existing_goal is None and mission is not None:
-            setter = getattr(mission, "set_grasp_goal", None)
-            if callable(setter):
-                setter(goal)
+        if self.goal is not None:
+            binder = getattr(self.runtime, "bind_grasp_goal", None)
+            if callable(binder):
+                binder(self.goal)
+            elif goal is not None and existing_goal is None and mission is not None:
+                setter = getattr(mission, "set_grasp_goal", None)
+                if callable(setter):
+                    setter(goal)
 
     @property
     def phase(self) -> BimanualPhase:

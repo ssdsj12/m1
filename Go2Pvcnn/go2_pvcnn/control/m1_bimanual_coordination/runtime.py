@@ -247,6 +247,25 @@ class BimanualRuntime:
 
         return self.mission.phase
 
+    def bind_grasp_goal(self, grasp_goal: BimanualGraspGoal) -> None:
+        """Bind a catalog goal to both runtime and mission reset state."""
+
+        if not isinstance(grasp_goal, BimanualGraspGoal):
+            raise TypeError("grasp_goal must be BimanualGraspGoal")
+        existing_runtime_goal = self._grasp_goal
+        existing_mission_goal = self.mission.grasp_goal
+        if (
+            existing_runtime_goal is not None
+            and existing_mission_goal is not None
+            and existing_runtime_goal != existing_mission_goal
+        ):
+            raise ValueError("runtime exposes conflicting grasp_goal values")
+        for existing in (existing_runtime_goal, existing_mission_goal):
+            if existing is not None and existing != grasp_goal:
+                raise ValueError("conflicting grasp_goal between pipeline and runtime")
+        self._grasp_goal = grasp_goal
+        self.mission.set_grasp_goal(grasp_goal)
+
     def reset(self) -> None:
         """Clear temporal caches and object-planner state for deterministic replay."""
         reset_object = getattr(self.object_mpc, 'reset', None)

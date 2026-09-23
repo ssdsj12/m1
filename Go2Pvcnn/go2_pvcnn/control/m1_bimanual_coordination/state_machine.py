@@ -242,9 +242,21 @@ class BimanualMission:
         criteria = self._grasp_goal.lift_criteria
         return (
             self.lift_height(snapshot) >= criteria.height_m - 1.0e-9
-            and diagnostics.vertical_force_n >= criteria.min_vertical_force_n
-            and diagnostics.object_tilt_rad <= criteria.max_tilt_rad
+            and self._lift_measurements_ready(diagnostics)
             and self._clamp_ready(diagnostics)
+        )
+
+    def _lift_measurements_ready(
+        self, diagnostics: BimanualMissionDiagnostics
+    ) -> bool:
+        """Check catalog lift force/tilt health independently of clamp health."""
+
+        if self._grasp_goal is None:
+            return True
+        criteria = self._grasp_goal.lift_criteria
+        return (
+            diagnostics.vertical_force_n >= criteria.min_vertical_force_n
+            and diagnostics.object_tilt_rad <= criteria.max_tilt_rad
         )
 
     def _enter_safe(self, diagnostics: BimanualMissionDiagnostics, reason: str) -> None:
@@ -275,8 +287,13 @@ class BimanualMission:
         if self._grasp_goal is not None and self.phase in {
             BimanualPhase.LIFT,
             BimanualPhase.HOLD,
-        } and not self._clamp_ready(diagnostics):
-            return "clamp_criteria_failed"
+        }:
+            if self.phase is BimanualPhase.HOLD and not self._lift_measurements_ready(
+                diagnostics
+            ):
+                return "lift_criteria_failed"
+            if not self._clamp_ready(diagnostics):
+                return "clamp_criteria_failed"
         if self._consecutive_failures >= self.cfg.max_consecutive_failures:
             return diagnostics.subsystem_failure or "repeated_infeasibility"
         return None
