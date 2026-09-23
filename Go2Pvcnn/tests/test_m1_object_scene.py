@@ -108,8 +108,8 @@ def test_build_object_scene_cfg_uses_unique_deterministic_paths_and_class_settin
 
     assert tuple(configs) == ("bottle-01", "cube-02")
     assert len({cfg.prim_path for cfg in configs.values()}) == 2
-    assert configs["bottle-01"].prim_path == "{ENV_REGEX_NS}/Objects/bottle-01"
-    assert configs["cube-02"].prim_path == "{ENV_REGEX_NS}/Objects/cube-02"
+    assert configs["bottle-01"].prim_path == "{ENV_REGEX_NS}/bottle-01"
+    assert configs["cube-02"].prim_path == "{ENV_REGEX_NS}/cube-02"
     assert configs["bottle-01"].spawn.usd_path == str(catalog.resolve("bottle").usd_path)
     assert configs["bottle-01"].spawn.mass_props.mass == pytest.approx(0.4)
     assert configs["cube-02"].spawn.scale == (0.75, 0.75, 0.75)

@@ -1,0 +1,13 @@
+#usda 1.0
+(
+    defaultPrim = "Book"
+)
+
+def Xform "Book"
+{
+    def Xform "Asset" (
+        references = @../sources/book_fixed.usd@
+    )
+    {
+    }
+}

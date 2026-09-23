@@ -133,14 +133,26 @@ def build_object_scene_cfg(
     for instance in ordered:
         record = catalog.resolve(instance.object_class)
         pos, rot = _pose_parts(instance)
-        configs[instance.object_id] = RigidObjectCfg(
-            prim_path=f"{prim_prefix}/Objects/{instance.object_id}",
-            spawn=sim_utils.UsdFileCfg(
-                usd_path=str(record.usd_path),
-                scale=(record.scale, record.scale, record.scale),
-                mass_props=sim_utils.MassPropertiesCfg(mass=record.mass_kg),
-                activate_contact_sensors=True,
+        # Keep objects directly below the environment namespace. Isaac Lab's
+        # USD spawner resolves the parent as a regex before spawning; an
+        # intermediate ``Objects`` scope is not created by the scene config.
+        spawn_kwargs = {
+            "usd_path": str(record.usd_path),
+            "mass_props": sim_utils.MassPropertiesCfg(mass=record.mass_kg),
+            "articulation_props": sim_utils.ArticulationRootPropertiesCfg(
+                articulation_enabled=False
             ),
+            "activate_contact_sensors": True,
+        }
+        # Many scanned USDs already author xformOp:scale. Isaac's USD
+        # spawner adds a scale op when this field is supplied, which causes a
+        # duplicate-op Tf error even for unit scale. Leave unit scale to the
+        # source asset and only pass an explicit override when needed.
+        if record.scale != 1.0:
+            spawn_kwargs["scale"] = (record.scale, record.scale, record.scale)
+        configs[instance.object_id] = RigidObjectCfg(
+            prim_path=f"{prim_prefix}/{instance.object_id}",
+            spawn=sim_utils.UsdFileCfg(**spawn_kwargs),
             init_state=RigidObjectCfg.InitialStateCfg(pos=pos, rot=rot),
         )
     return configs

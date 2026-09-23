@@ -29,9 +29,9 @@
       "grasp_profile": "open_container"
     },
     "book": {
-      "usd_path": "sources/book_fixed.usd",
+      "usd_path": "resolved/book.usda",
       "source_sha256": "76c3a49dc82ed0b6efa4497c1d3da0d06962e935a27be2d5645b5bf37e40d959",
-      "resolved_sha256": "76c3a49dc82ed0b6efa4497c1d3da0d06962e935a27be2d5645b5bf37e40d959",
+      "resolved_sha256": "01f63803d21e924a62cb19b601e677a83b87bc4fb0cf71bcdb107f1415c9451b",
       "mass_kg": 0.3,
       "scale": 1.0,
       "collision_profile": "box",
