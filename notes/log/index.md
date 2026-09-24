@@ -4,70 +4,9 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Recent Logs
 
-- 2026-09-23：[T500 bimanual grasp-lift review-gap hardening](2026-09-23-t500-bimanual-grasp-lift-review-gaps.md)：catalog HOLD force/tilt loss now enters safe fallback, injected pipeline goals persist across runtime reset, and conflicting goals remain atomic; focused `35 passed`, full bimanual `752 passed`, compileall exit `0`. No Isaac/GPU physical acceptance claim.
-
-- 2026-09-23：[T500 bimanual grasp-goal to O6 MPC boundary](2026-09-23-t500-bimanual-grasp-goal-mpc-boundary.md)：catalog book/bottle/custom geometry reaches the immutable runtime/MPC goal; legacy Box remains `grasp_goal=None`; focused `62 passed` plus compile check. No live camera/point-cloud or Isaac physical claim.
-
-- 2026-09-23：[T500 bimanual perception grasp-goal boundary](2026-09-23-t500-bimanual-grasp-goal.md)：新增纯 CPU OBB/点云确定性目标适配器，覆盖 book/bottle/cup/cube/cylinder、无效几何、镜像对称和未见尺寸；focused `14 passed`，未接入 Play/MPC 或相机/VLM。
-
-- 2026-09-20：[T500 geometry bundle gate](2026-09-20-t500-geometry-bundle.md)：独立 builder/validator focused `3 passed`；真实 pinned archive 93 个 raw-covered 主手引用全部未通过 watertight/positive-volume 门，未发布 manifest，双来源转换/训练/GPU Play 继续阻塞。
-
-- 2026-09-20：[GPU RTI共同模型Gate C](2026-09-20-t500-gpu-rti-common-model-gate-c.md)：Planner、报告映射、四元数、逐row last-safe和fail-closed合同通过独立复审；nominal有效/四alpha全hard-infeasible覆盖已补齐。parent planner/contracts42、Gate A–C123，存储/显存稳定。非GPU Play/实时/Isaac验收。
-
-- 2026-09-17：[GPU RTI共同模型Task2](2026-09-17-t500-gpu-rti-common-model-task2.md)：固定四alpha、完整时域hard validation、严格merit改善、等上下界旁路和整行原子拒绝通过独立审查；parent GPU0 focused3、Tasks1–2 combined28，显存增量0。非last-safe/Play/性能/Isaac验收。
-
-- 2026-09-16：[GPU RTI共同模型Task1](2026-09-16-t500-gpu-rti-common-model-task1.md)：共同机器人/箱体转移、固定子步、完整时域GN方向与hard验证通过独立审查；parent GPU0 focused25、Task3 regression82，存储地址稳定且显存增量0。仅正确性后端，非Play/性能/Isaac验收。
-
-- 2026-09-16：[GPU RTI共同模型实施计划](2026-09-16-t500-gpu-rti-common-model-plan.md)：3个TDD审查门覆盖共同KKT/LQ、并行整轨迹选择与Task3原子发布；自检完成，无产品代码/运行声明。
-
-- 2026-09-16：[GPU RTI共同模型设计](2026-09-16-t500-gpu-rti-common-model-design.md)：43D公开动作+12D私有抓持wrench、等大反向耦合、40ms固定子步和hard/soft边界已写明；待复核，无Task5代码/运行声明。
-
-- 2026-09-16：[GPU RTI共同模型缺口](2026-09-16-t500-gpu-rti-coupled-model-gap.md)：Task5只读调查NEEDS_CONTEXT，确认现有KKT/object/hand缺共同转移合同；无代码/测试/物理声明，待模型决策。
-
-- GPU推进状态：Task3独立审查Approved/no findings，Task5 eager RTI推进中；上列验证记录为Task3基础设施范围，非线上GPU Play。
-
-- 2026-09-16：[T500 GPU状态/动力学/warm-start](2026-09-16-t500-gpu-state-dynamics-warm-start.md)：`1d12e53` parent82 passed；100次更新指针稳定、显存增量0，独立审查中，非RTI/物理验收。
-
-- 2026-09-16：[T500 CPU合同/runtime回归](2026-09-16-t500-cpu-contract-runtime-regression.md)：Task2后29 passed；首轮错误文件名无测试，修正后exit0，非全量/物理验收。
-
-- 2026-09-16：[T500 GPU RTI contracts](2026-09-16-t500-gpu-rti-contracts.md)：Task2 Approved、真实GPU0复跑46 passed；Task3推进中。eligible OakInk双手各216内存窗口通过，非完整语料生产资格；无GPU solver/Play/训练声明。
-
-- 2026-09-15：[T500 OakInkV2 geometry acquisition](2026-09-15-t500-oakink-geometry-acquisition.md)：独立resolver与审计/加载接线已审查通过，125 tests；两次mug生成SHA相同且真实预处理链通过。已启动主操作侧对象探针；CLI/aggregate pin、批量生成和双来源转换资格未完成，无训练/物理验收声明。
-
-- 2026-09-15：[T500 run_e expert artifact qualification](2026-09-15-t500-run-e-expert-artifact.md)：241 shards、固定 canonical SHA、984641 manifest/actual NPZ 样本身份通过；全为 FAVOR，OakInkV2 accepted=0，双来源生产资格拒绝且未训练。fixture RED `13 failed, 71 passed` → GREEN `84 passed`；旧无-shards BLOCKED 仅为历史。
-
-- 2026-09-15：[T500 Probe headless baseline test](2026-09-15-t500-probe-headless-baseline.md)：修正 AppLauncher-owned CLI 的源码字面误报，验证同 parser/namespace 的 AST 启动顺序与真实安装注册行为；不改生产 CLI/控制/metadata pin。
-
-- 2026-09-15：[T500 DexManipNet runtime external metadata pin](2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)：Frozen runtime、Wrapper、Probe 和 Play 现在要求 prior artifact 与外部 64 位小写 metadata SHA-256 成对出现，在 worker/AppLauncher/Isaac 前严格拒绝缺失、格式错误或不匹配；Probe report/formal manifest 记录同一 pin。focused `43 passed`、expert-prior `299 passed`、pure QP `103 passed`；未运行生产 artifact 或 Isaac prior-on。
-- 2026-09-13：[T500 DexManipNet full-data conversion gate](2026-09-11-t500-dexmanipnet-full-distillation.md)：fixed archives/source verify and extracted cleanly, but Task 11 is blocked before shards: all `1,292` source-compatible OakInkV2 sides lack required object URDF geometry and FAVOR’s stored 12-D Inspire vectors conflict with the pinned URDF mimic declarations. Extractor wrapper/staging fixes are `01830be`/`ade81da` with `17 passed`; no training, artifact, Isaac, or physical claim.
-- 2026-09-13：[T500 DexManipNet prior Probe/Play entrypoints](2026-09-13-t500-dexmanipnet-prior-entrypoints.md)：Task 10 keeps artifact activation opt-in, validates supplied artifacts before launcher/Isaac startup, constructs distinct left/right strict adapters before wrapper startup, and emits per-side JSON/JSONL prior diagnostics with enabled-only p99 and active-precision variance. Review focused `53 passed`, Tasks 1–10 relevant `199 passed`; no Isaac/artifact physical run.
-- 2026-09-12：[T500 DexManipNet atomic Hand MPC prior integration](2026-09-12-t500-dexmanipnet-hand-mpc-prior-integration.md)：Task 9 adds optional same-cycle precontact projection and contact two-pass QPs while keeping the disabled path exact and hard constraints unchanged. Every prior/second-QP failure accepts the current baseline; baseline infeasibility retains the old fallback without querying. Focused `31 passed`, Tasks 1–9 relevant regression `198 passed`; no artifact/config wrapper or physical claim.
-- 2026-09-12：[T500 DexManipNet runtime lifecycle review](2026-09-12-t500-dexmanipnet-runtime-lifecycle-review.md)：Task 8’s private copied worker is `spawn`-only with a bounded ready handshake; a matching process-wide slot semaphore and queue bound all live/pending children. Deadline timeout immediately terminates then delegates retrying bounded join/kill to one daemon reaper, so the caller does not wait for teardown. Context/GC cleanup is idempotent and close/query share a deadline-aware lifecycle lock. Fresh import graph rejects offline/HF/HDF5/Isaac modules; focused `20 passed`, Tasks 1–8 `154 passed`, pycompile/scoped diff pass.
-- 2026-09-11：[T500 DexManipNet compact student distillation](2026-09-11-t500-dexmanipnet-student-distillation.md)：Task 7 requires canonical metadata self-hash and validates schema/pinned raw metrics/latency reports before model construction or `weights_only` deserialization; approval is recomputed and synthetic provenance forces false. Independent same-seed retraining compares a latency-excluding artifact fingerprint; focused `16 passed`, Tasks 1–7 `133 passed`, and the two-epoch synthetic smoke reloaded with p99 `0.113534 ms` while remaining non-production.
-- 2026-09-11：[T500 DexManipNet offline expert ensemble](2026-09-11-t500-dexmanipnet-expert-ensemble.md)：Task 5 aggregate/audit/全部 shards 在训练前逐次 SHA 验证；three fixed-seed residual mixture members、NLL+finite temporal regularization、atomic best checkpoints 和 manifest 已实现。held-out gate 用完整 predictive mixture 的首节点/`0.01 s × 20` endpoint RMSE 与 80% exact-mixture coverage；resume 在解析 member/checkpoint facts 前以 writer-identical canonical self-hash 拒绝 manifest tampering，synthetic provenance cannot be relabeled production；Tasks 1–6 `117 passed`。
-- 2026-09-11：[T500 DexManipNet shard review hardening](2026-09-11-t500-dexmanipnet-shard-review-hardening.md)：转换前重算两 archive 的 size/SHA 并通过 Task 2 readonly Git check 固定 ManipTrans commit/tree；aggregate 绑定 verified facts 和 audit byte/SHA；mesh outward/inconsistent-winding 门与 target-rate CubicSpline 解析 normal speed 已覆盖；focused `28 passed`，Task 1–5 `108 passed`。
-- 2026-09-11：[T500 DexManipNet deterministic fingertip shards](2026-09-11-t500-dexmanipnet-deterministic-shards.md)：离线 source-hand FK 转换为规范掌坐标五指尖，以固定 `60 -> 100 Hz` CubicSpline 及解析导数生成 20 节点窗口；对象 collision mesh 距离/法向速度驱动接触滞回和七阶段；固定 ZIP metadata 的 NPZ、group-exclusive split、audit JSONL 与排序 aggregate manifest 在两次完整合成转换中逐文件 SHA 相同；focused `21 passed`，Tasks 1–5 `101 passed`。
-- 2026-09-11：[T500 DexManipNet sequence 审计与 rollout 选优](2026-09-11-t500-dexmanipnet-sequence-audit.md)：严格验证精确 source/interaction-side 合同、固定手型 joint width、长度/shape/有限性、手根/对象状态与对象 URDF；拒绝 HDF5 外部 link/storage 与越界 geometry symlink；全部 successful rollout 审计后按累计 reward 和名字确定性选优；focused `24 passed`，Task 1–4 `80 passed`，未下载 8.31 GB 数据。
-- 2026-09-11：[T500 DexManipNet Isaac-independent URDF FK](2026-09-11-t500-dexmanipnet-urdf-fk.md)：严格解析单根 URDF tree，按稳定拓扑执行批量 NumPy FK、递归 mimic 展开与掌坐标五指尖转换；Task 1–3 `56 passed`，真实固定 Inspire/Shadow URDF 兼容验证留待数据就绪。
-- 2026-09-11：[T500 DexManipNet 固定下载与安全解压](2026-09-11-t500-dexmanipnet-fetcher.md)：两个 archive 与 ManipTrans 均固定到合同 pin；安全 staged 解压拒绝 traversal、设备和越界链接；`--verify-only` 不联网、不写 manifest，且拒绝任何 tracked/untracked/ignored source 漂移；Task 1–2 `36 passed`，未下载 8.31 GB 数据。
-- 2026-09-11：[T500 DexManipNet 指尖先验合同冻结](2026-09-11-t500-dexmanipnet-prior-contracts.md)：冻结数据/源码 pin、精确 input/output layout、严格 float32 四分量分布、不可变 artifact/source registry 和四个受支持 ManipTrans 手型；第二轮 review 后与现有 dual-Panda 合同共 `33 passed`。
-- 2026-09-11：[T500 DexManipNet 指尖先验实施计划](2026-09-11-t500-dexmanipnet-fingertip-prior-plan.md)：12 个逐文件 TDD 任务覆盖下载、FK、转换、教师、蒸馏、Hand QP、完整数据和 GPU0/30 条门；尚未执行。
-
-- 2026-09-11：[T500 DexManipNet 指尖先验设计](2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)：完整 FAVOR + OakInk V2 经源手 FK 转为掌坐标五指尖概率先验；只作为 O6 Hand MPC 可退让软代价，尚未下载或实施。
-
-- 2026-09-11：[T500 远端快进合入与本地验证](2026-09-11-t500-remote-fast-forward-local-verification.md)：远端领先 3 个提交并快进至 `037595b`；本机 `go2` 环境专项 `224 passed`，正式物理验收仍待执行。
-
-- 2026-09-11：[T500 根 README 状态说明](2026-09-11-t500-readme-status.md)：分支首页补充改进、验证证据、入口和未完成物理/WebRTC 边界。
-
-- 2026-09-11：[T500 GitHub 上传验证](2026-09-11-t500-github-upload-verification.md)：SO(3)、接触、动作原语和固定步数训练链整理为 `265fbcf`；T500 专项 `224 passed`，正式 30/30 物理验收未执行。
-
-- 2026-09-08：[O6 源资产迁移](2026-09-08-o6-source-relocation.md)：仓库相对默认路径；临时规范化的 35 项哈希完全一致。
-
-- 2026-09-06：[T500 右掌姿态边界诊断](2026-09-06-right-palm-orientation-boundary-diagnosis.md)：350 步精确复现；首目标跟踪隐含校正率 7.29 rad/s，空间误差与坐标差不一致；控制行为未改。
-
 | Time | Topic | Stage | Result | Key Metrics | Todo | File |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-09-02 | M1 + dual Panda + dual O6 combined asset | T500 Tasks 1–3 | pass; normalized sources and relocatable single articulation committed | 53 physical DOF; 43 active; 2000 steps; zero hard-limit/contact/reset/nonfinite failures; mount drift `2.38e-7 m` / `4.81e-7 rad` | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md](2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md) |
+| 2026-09-05 | M1 + right Panda + right O6 multimodal MPC + Residual | T600 engineering roadmap design | approved interactive design written; no runtime, asset, or training change | 29 active channels; expected 34 physical DOF; truth baseline -> multimodal -> bounded 9D residual; fixed 30/30 gate | [T600](../todo/T600-m1-single-panda-o6-multimodal-mpc-residual.md) | [2026-09-05-m1-single-panda-o6-roadmap-design.md](2026-09-05-m1-single-panda-o6-roadmap-design.md) |
 | 2026-09-02 | M1 + dual Panda + dual O6 bimanual MPC plan | T500 implementation planning | 13-task TDD plan written and self-reviewed; execution choice pending; no runtime change | source closure → single articulation → physics → contracts → object/arm/hand MPC → WBC/runtime/env → 30-trial acceptance | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md) |
 | 2026-09-02 | M1 + dual Panda + dual O6 bimanual MPC design | T500 design | interactive and written design approved; no runtime change | 43 active channels; expected 53 runtime DOF; 25/50/100/200 Hz hierarchy; fixed 0.5 kg box; 30/30 acceptance | [T500](../todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md) |
 | 2026-09-01 | M1 + Panda Phase 6 bridge/normalizer preflight | T400.13 Phase 6 implementation | CPU implementation pass; GPU0 bridge next; no acceptance claim | persistent actor/critic count; exact v6 u100 migration; guarded total u100→u300; schema-v3 promotion; `134 passed`; compile/diff pass | [T400](../todo/T400-m1-panda-force-aware-teacher-student.md) | [2026-08-30-m1-panda-phase6-ppo-scale-normalization-execution.md](2026-08-30-m1-panda-phase6-ppo-scale-normalization-execution.md) |
@@ -487,8 +426,9 @@ This page indexes verification evidence. Keep it short enough to scan.
 
 ## Topic Log Index
 
+- T600 M1 + right Panda + right O6 multimodal MPC + Residual:
+  - [2026-09-05-m1-single-panda-o6-roadmap-design.md](2026-09-05-m1-single-panda-o6-roadmap-design.md)
 - T500 M1 + dual Panda + dual O6 bimanual MPC:
-  - [2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md](2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md)
   - [2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md)
   - [2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md](2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md)
 - T400 M1 + Panda force-aware Teacher–Student:

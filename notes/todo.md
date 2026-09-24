@@ -4,42 +4,6 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Start Here
 
-- GPU Task5共同模型 [实施计划](../docs/superpowers/plans/2026-09-16-t500-gpu-rti-common-model.md) 的 Gate A–C 已完成：共同动力学/LQ、四候选完整时域line search、Planner/last-safe原子发布均通过独立审查；parent planner/contracts `42 passed`、Gate A–C `123 passed`且全部GPU存储guard稳定。下一阶段是后续runtime/benchmark/Isaac门，GPU Play仍fail-closed。见 [Gate C证据](log/2026-09-20-t500-gpu-rti-common-model-gate-c.md)。
-
-- GPU Task5共同模型 [书面设计](../docs/superpowers/specs/2026-09-16-t500-gpu-rti-common-model-design.md) 已获确认：43D公开动作+内部12D抓持wrench、反作用与固定子步、hard/soft边界已明确；Gate A–C产品代码已完成，尚未接入可用GPU Play。
-
-- GPU Task5共同模型子节点NEEDS_CONTEXT：需确定内部抓持力辅助变量/机器人反作用、40ms网格及hard/soft目标关联；见 [模型缺口证据](log/2026-09-16-t500-gpu-rti-coupled-model-gap.md)。无Task5代码，Tasks2–3完成审查/测试，GPU Play尚未开放。
-
-- GPU Task3审查Approved/no findings；Task5 eager耦合RTI/并行线搜索推进中，prior-off；生产E0/Task4仍未完成。GPU入口当前未开放。
-
-- GPU Task3候选 `1d12e53`：parent82 passed，100次更新固定地址和显存稳定，独立审查中；见 [动力学验证](log/2026-09-16-t500-gpu-state-dynamics-warm-start.md)。
-
-- T500 CPU合同/runtime/reduced dynamics专项29 passed，见 [回归记录](log/2026-09-16-t500-cpu-contract-runtime-regression.md)。
-
-- GPU RTI：Task2 private CUDA合同/CLI已审查通过 `e280b8d`，parent复跑46 passed；Task3批量59+12 KKT凝聚、状态镜像和warm-start推进中。规格§12允许E0前prior-off开发。eligible OakInk左右各216内存窗口通过；仍无新双来源生产pin/训练。见 [当前证据](log/2026-09-16-t500-gpu-rti-contracts.md)。
-
-- T500 geometry 补齐：独立外部 SHA resolver `bcf43d8`、审计/加载共享接线 `a7346f2` 已通过独立审查，focused125 passed；两次mug生成字节一致并通过真实URDF/预处理链。mug均为非主操作侧，已启动主操作侧O02@0018@00001探针。仍需CLI triple/aggregate独立pin、批量生成、新目录转换和双来源新pin资格；不替换repair、不改run_e、不训练。见 [资产获取记录](log/2026-09-15-t500-oakink-geometry-acquisition.md)。
-
-- GPU RTI Task 1：当前 `run_e` 已是完整 241-shard 转换结果，固定 SHA 和实际 984641 NPZ 样本身份通过；但全为 FAVOR，OakInkV2 accepted=0，双来源生产资格 **BLOCKED**。fixture TDD `84 passed`，未启动训练、无生产 student。旧无-shards BLOCKED 日志仅为历史尝试；见 [当前资格拒绝证据](log/2026-09-15-t500-run-e-expert-artifact.md)。
-
-- T500 Probe baseline headless 静态检查已改为同 parser/namespace 的真实 AST 启动接线验证；见 [基线修复记录](log/2026-09-15-t500-probe-headless-baseline.md)。生产 CLI/控制合同不变。
-
-- T500.5 runtime external metadata pin 已完成本地接线：prior-on 的 artifact 与 64 位小写 metadata SHA 必须成对提供，Frozen runtime/Wrapper/Probe/Play 强制逐层传递并在 worker/AppLauncher/Isaac 前拒绝错误配置；Probe report/formal manifest 固定同一 pin。focused `43 passed`、expert-prior `299 passed`、pure QP `103 passed`，生产 student/Isaac prior-on 尚未执行。见 [验证记录](log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md)。
-
-- T500.5 Task 11 已完成完整固定 archive 下载、pin/SHA/source 验证和 atomic extraction，但在真实数据转换门 **BLOCKED**：全部 `1,292` 个 source-compatible OakInkV2 side 缺少 `seq_info` 指向的对象 URDF geometry，FAVOR 的 12-D Inspire q 又与 pinned URDF 的六个 mimic joint 声明冲突，不能诚信生成 geometry contact/FK。两项 extractor 修复已作 TDD (`17 passed`)，无 shards/ensemble/student/Isaac claim。见 [完整数据 gate 记录](log/2026-09-11-t500-dexmanipnet-full-distillation.md) 和 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md)。
-
-- T500.5 DexManipNet 指尖先验已形成 [12 任务 TDD 实施计划](../docs/superpowers/plans/2026-09-11-t500-dexmanipnet-fingertip-prior.md)：Tasks 1–9 已完成 strict artifact、runtime-only O6 adapter 和 atomic Hand MPC integration。默认 prior-off 保持精确单次 baseline；prior-on 仅在同周期 baseline 可行后运行 bounded precontact projection 或 contact second QP，任何 prior/second-QP failure 接受同周期 baseline，baseline infeasible 不查询 prior 并沿用旧 fallback。左右真实 palm-frame O6 positions/folded Jacobian/q/qd/contact/phase 已送入各自 Hand MPC；Tasks 1–9 相关回归 `198 passed`。下一步为 Task 10 wrapper artifact/config/diagnostics wiring；见 [Task 9 验证](log/2026-09-12-t500-dexmanipnet-hand-mpc-prior-integration.md)。
-
-- T500.5 DexManipNet 指尖运动先验设计已获用户批准：完整 FAVOR + OakInk V2 只蒸馏掌坐标五指尖短时分布，经 O6 真实 Jacobian 作为 Hand MPC 可退让软代价；不输入任务/对象 ID，不决定掌、物体、机械臂或底盘轨迹。离线实施已完成 Tasks 1–5，仍未下载完整数据、训练模型或接线运行时。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [设计记录](log/2026-09-11-t500-dexmanipnet-fingertip-prior-design.md)。
-
-- T500 GitHub 同名分支已从 `d761df0` 快进合入到 `037595b`；本机 `go2` 环境重新验证 `224 passed`，README 命令已改为可移植相对路径。见 [本地合入验证](log/2026-09-11-t500-remote-fast-forward-local-verification.md)。
-
-- T500 GitHub 根 README 已补齐已完成改进、验证边界、常用入口和未完成验收清单；入口见 [README](../README.md) 与 [记录](log/2026-09-11-t500-readme-status.md)。
-
-- T500 2026-09-11 上传候选：SO(3)、接触摘要、举升动作原语和固定步数训练链已整理到 `265fbcf`；专项 `224 passed`，正式 30/30 物理验收仍待执行。见 [T500 分支页](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) 与 [上传验证日志](log/2026-09-11-t500-github-upload-verification.md)。
-
-- T500 worktree 当前验证叶子：[T500.4 右掌姿态传递与跟踪边界](todo/T500-m1-dual-panda-o6-bimanual-mpc.md)；[350 步诊断](log/2026-09-06-right-palm-orientation-boundary-diagnosis.md)已复现，物理验收未通过。
-
 - Current focus: **T302u semantic map contact collision**.
 - Active branch page: [T302u](todo/T302u-semantic-map-contact-collision-plan.md).
 - Active implementation plan: [T302u semantic map contact collision plan](todo/T302u-semantic-map-contact-collision-plan.md).
@@ -157,7 +121,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Front | State | Why It Matters Now | Next Step |
 | --- | --- | --- | --- |
-| T500 | active | Inline Execution 已完成 Tasks 1–3：左右 O6 已规范化入库，M1 + 公共 yaw 平台 + 双 Panda + 双 O6 已形成单 articulation；Isaac 2000 步资产硬门通过。 | Task 4 冻结 43 通道主动关节顺序和运行时名称映射。 |
+| T600 | design-review | M1 + 右 Panda + 右 O6 的多模态感知、Contact-aware MPC 和受限 9D Residual 工程路线图已完成交互确认。 | 用户复核书面路线图；批准后为 T600.1 资产与接口基座编写逐文件 TDD 实施计划。 |
+| T500 | plan-ready | M1 + 公共 yaw 平台 + 双 Panda + 双 O6 的规格已确认，13 任务 TDD 实施计划已完成；尚未修改资产或运行代码。 | 用户选择 Subagent-Driven 或 Inline Execution 后，从隔离 worktree 的 O6 资产闭合 RED 开始。 |
 | T400 | active | T400.12 Phase 1–4 已验收；Phase 5 Arm MPC + Phase 6 8D PPO 交互设计已确认，首轮限定原地 M1 + Panda 小幅六自由度运动。 | 用户复核 Phase 5–6 书面规格后，编写单代理 TDD 实施计划。 |
 | T302q | active | Flat-small run `2026-06-11_18-31-19` has stable locomotion and signal-first clearance is nonzero, but curriculum never opens and the semantic signal is tiny. | Redesign curriculum metrics/gate aggregation before another long run; optionally eval `model_20700.pt` only as behavior sanity. |
 | T302s | active | Fixed command ranges opened terrain curriculum, and controlled crossing eval now has sufficient path-obstacle opportunities. `model_28900.pt` still has `foot_over_count=0` and overpass success `0/15`, so the current training signal is not teaching clean low-small overpass. | Redesign training to provide staged/dense path-aligned crossing signal instead of continuing this run blindly. |
@@ -173,7 +138,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Root | Status | Stage | Branch | Current | Refs |
 | --- | --- | --- | --- | --- | --- |
-| T500 | active | M1 dual-Panda O6 bimanual manipulation | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | Tasks 1–3 committed; normalized sources and single-articulation asset pass 53-DOF/43-active, 2000-step Isaac verification. | [asset evidence](log/2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md); [plan](../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md) |
+| T600 | design-review | M1 single-Panda O6 multimodal MPC + Residual | [T600](todo/T600-m1-single-panda-o6-multimodal-mpc-residual.md) | Six-stage engineering roadmap written; first plan will cover only the 29-active-channel asset/interface foundation. | [roadmap design](../docs/superpowers/specs/2026-09-05-m1-single-panda-o6-multimodal-mpc-residual-roadmap-design.md) |
+| T500 | plan-ready | M1 dual-Panda O6 bimanual manipulation | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | Written spec approved; 13-task TDD plan covers source closure through 30-trial acceptance; execution choice pending. | [design](../docs/superpowers/specs/2026-09-02-m1-dual-panda-o6-bimanual-mpc-design.md); [plan](../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md) |
 | T400 | active | M1 + Panda force-aware Teacher–Student balance and grasping | [T400](todo/T400-m1-panda-force-aware-teacher-student.md) | C0 stationary prioritized-WBC foundation accepted on GPU0; rolling C1/C2, wrench C3, Student and grasping remain open. | [C0 acceptance](log/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md); [runbook](../docs/superpowers/runbooks/2026-08-17-m1-panda-prioritized-wbc-teacher-c0.md) |
 | T302q | active | flat small-obstacle avoidance RL reward | [T302q](todo/T302q-flat-small-avoidance-reward-plan.md) | Local implementation complete; focused regression, pycompile, fresh IsaacLab train smoke, and old-checkpoint resume smoke pass; small-collision eval smoke remains open. | design [2026-06-10](../docs/superpowers/specs/2026-06-10-flat-small-obstacle-avoidance-reward-design.html); latest log [2026-06-10 20:35](log/2026-06-10-2035-t302q-flat-small-local-implementation-and-smoke.md) |
 | T302r | active | Go2 geometry clearance reward | [T302r](todo/T302r-go2-geometry-clearance-reward-plan.md) | Local implementation, smoke, and radius/margin probe pass; signal-first params can produce nonzero reward, but TensorBoard sanity is still open. | design [2026-06-11](../docs/superpowers/specs/2026-06-11-go2-body-geometry-clearance-reward-design.html); latest log [2026-06-11 18:10](log/2026-06-11-1810-t302r-clearance-radius-margin-probe.md) |
@@ -199,7 +165,8 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 | Leaf | Parent | Status | Priority | Why Active | Next Read |
 | --- | --- | --- | --- | --- | --- |
-| T500.2 | T500 | active | P0 | Inline Execution Tasks 1–3 pass; asset/source closure is complete and Task 4 control-order contract is in progress. | [asset evidence](log/2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md) |
+| T600.1 | T600 | design-review | P0 | The roadmap is approved interactively; the written spec must be reviewed before planning the single-articulation asset and 29-channel interface foundation. | [roadmap design](../docs/superpowers/specs/2026-09-05-m1-single-panda-o6-multimodal-mpc-residual-roadmap-design.md) |
+| T500.2 | T500 | plan-ready | P0 | Written specification is approved; 13-task TDD plan is self-reviewed and ready for an execution-mode choice. | [plan](../docs/superpowers/plans/2026-09-02-m1-dual-panda-o6-bimanual-mpc.md) |
 | T400.12 | T400 | done | P0 | 8D Residual WBC Phase 1–4 完成；CPU `185 passed`，GPU0 零残差 256 步和 16 组 ±0.1 探针全部通过。 | [GPU0 evidence](log/2026-08-26-m1-panda-8d-residual-wbc-gpu0-smoke.md) |
 | T400.10b | T400 | active | P0 | Tasks 1–8 通过；train/eval/编排、严格完整 SHA 父链、固定三种子接受与失败 rollback 已接通；GPU 尚未完成。 | [Task 8 log](log/2026-08-25-m1-panda-folded-load-curriculum-orchestrator.md) |
 | T400.10a | T400 | active | P0 | Tasks 1–9 implementation/短门/清理完成；fresh 64×600 已在 GPU0 启动，PID `1128844`，首个 update 健康；尚无 acceptance claim。 | [launch evidence](log/2026-08-24-m1-panda-coordinated-stable-long-launch.md) |
@@ -229,6 +196,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 ## Branch Pages
 
 - [todo/README.md](todo/README.md)
+- [T600-m1-single-panda-o6-multimodal-mpc-residual.md](todo/T600-m1-single-panda-o6-multimodal-mpc-residual.md)
 - [T500-m1-dual-panda-o6-bimanual-mpc.md](todo/T500-m1-dual-panda-o6-bimanual-mpc.md)
 - [T400-m1-panda-force-aware-teacher-student.md](todo/T400-m1-panda-force-aware-teacher-student.md)
 - [T302s-env-level-collision-curriculum-plan.md](todo/T302s-env-level-collision-curriculum-plan.md)
@@ -253,11 +221,7 @@ This page is the fast-start dashboard for agent work. Detailed memory lives in [
 
 ## Recent Logs
 
-| 2026-09-23 | T500 perception grasp-goal boundary + O6 MPC wiring | T500 geometry/task-goal/MPC boundary | CPU OBB/point-cloud adapter and injectable catalog goal reach runtime/object MPC; focused `62 passed`; no live camera/point-cloud/Isaac physical claim | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [boundary log](log/2026-09-23-t500-bimanual-grasp-goal-mpc-boundary.md) |
-
-| 2026-09-15 | T500 DexManipNet runtime external metadata pin | T500.5 runtime deployment gate | artifact/pin atomic pair and strict Frozen/Wrapper/Probe/Play propagation; focused `43 passed`, expert-prior `299 passed`, pure QP `103 passed`; no production Isaac prior-on claim | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [runtime pin log](log/2026-09-15-t500-dexmanipnet-runtime-metadata-pin.md) |
-
-| 2026-09-02 | M1 + 双 Panda + 双 O6 组合资产 | T500 Tasks 1–3 | normalized O6 sources, single articulation, and final 2000-step Isaac hard gate pass | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [asset log](log/2026-09-02-m1-dual-panda-o6-asset-tasks1-3.md) |
+| 2026-09-05 | M1 + 右 Panda + 右 O6 多模态 MPC + Residual | T600 engineering roadmap design | approved interactive design written; no runtime, asset, or training change | [T600](todo/T600-m1-single-panda-o6-multimodal-mpc-residual.md) | [design log](log/2026-09-05-m1-single-panda-o6-roadmap-design.md) |
 
 | 2026-09-02 | M1 + 双 Panda + 双 O6 分层双手 MPC | T500 implementation plan | 13-task TDD plan written and self-reviewed; no runtime or asset change | [T500](todo/T500-m1-dual-panda-o6-bimanual-mpc.md) | [plan log](log/2026-09-02-m1-dual-panda-o6-bimanual-mpc-plan.md) |
 
