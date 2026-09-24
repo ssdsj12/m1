@@ -55,6 +55,16 @@
       "collision_profile": "convex_decomposition",
       "grasp_profile": "polygonal_two_hand",
       "geometry_note": "poly.glb is a polygonal cylinder candidate; retain this note until the converted geometry is inspected."
+    },
+    "wire": {
+      "usd_path": "wire_usdc/wire_black_s20_r0.001_l1_smooth.usdc",
+      "source_sha256": "8838b8734ab90d05d84432b88ee3baad026caca5e875c3828987c4894b9082d7",
+      "resolved_sha256": "8838b8734ab90d05d84432b88ee3baad026caca5e875c3828987c4894b9082d7",
+      "mass_kg": 0.05,
+      "scale": 1.0,
+      "collision_profile": "convex_decomposition",
+      "grasp_profile": "cylindrical",
+      "geometry_note": "Default DeformX wire variant; additional color, radius and roughness variants are listed in assets/m1_objects/wire_usdc/manifest.json."
     }
   }
 }
