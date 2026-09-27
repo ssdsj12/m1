@@ -4,7 +4,7 @@
     "bottle": {
       "usd_path": "sources/bottle_fixed.usd",
       "source_sha256": "91a7fe2ba5255739ffcbc54dba3d03f03bd9c1aacf5e48cf74827776885accff",
-      "resolved_sha256": "91a7fe2ba5255739ffcbc54dba3d03f03bd9c1aacf5e48cf74827776885accff",
+      "resolved_sha256": "98061c31c99fed3e1b8d8a464089d95615eefa1b18b3bf720d0cb7405fe4a1ed",
       "mass_kg": 0.5,
       "scale": 1.0,
       "collision_profile": "convex_decomposition",
@@ -22,7 +22,7 @@
     "bowl": {
       "usd_path": "sources/bowlnrack2.usd",
       "source_sha256": "e45c6c75dc153d624fdf13a86af4a2333e4087039ea22ecc6f11cd2d97a2a25d",
-      "resolved_sha256": "e45c6c75dc153d624fdf13a86af4a2333e4087039ea22ecc6f11cd2d97a2a25d",
+      "resolved_sha256": "98061c31c99fed3e1b8d8a464089d95615eefa1b18b3bf720d0cb7405fe4a1ed",
       "mass_kg": 0.45,
       "scale": 1.0,
       "collision_profile": "convex_decomposition",
@@ -31,7 +31,7 @@
     "book": {
       "usd_path": "resolved/book.usda",
       "source_sha256": "76c3a49dc82ed0b6efa4497c1d3da0d06962e935a27be2d5645b5bf37e40d959",
-      "resolved_sha256": "01f63803d21e924a62cb19b601e677a83b87bc4fb0cf71bcdb107f1415c9451b",
+      "resolved_sha256": "98061c31c99fed3e1b8d8a464089d95615eefa1b18b3bf720d0cb7405fe4a1ed",
       "mass_kg": 0.3,
       "scale": 1.0,
       "collision_profile": "box",
@@ -57,13 +57,14 @@
       "geometry_note": "poly.glb is a polygonal cylinder candidate; retain this note until the converted geometry is inspected."
     },
     "wire": {
-      "usd_path": "wire_usdc/wire_black_s20_r0.001_l1_smooth.usdc",
+      "usd_path": "wire_usdc/resolved/wire_default.usda",
       "source_sha256": "8838b8734ab90d05d84432b88ee3baad026caca5e875c3828987c4894b9082d7",
-      "resolved_sha256": "8838b8734ab90d05d84432b88ee3baad026caca5e875c3828987c4894b9082d7",
+      "resolved_sha256": "98061c31c99fed3e1b8d8a464089d95615eefa1b18b3bf720d0cb7405fe4a1ed",
       "mass_kg": 0.05,
       "scale": 1.0,
       "collision_profile": "convex_decomposition",
       "grasp_profile": "cylindrical",
+      "dimensions": [0.08, 0.01, 0.01],
       "geometry_note": "Default DeformX wire variant; additional color, radius and roughness variants are listed in assets/m1_objects/wire_usdc/manifest.json."
     }
   }
