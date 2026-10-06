@@ -18,6 +18,8 @@ from .contracts import (
     validate_monotonic_snapshot,
 )
 from .dual_arm_mpc import DualArmMpcCoordinator, DualArmMpcInput, DualArmMpcSolution
+from .deformx_adapter import DualDloStepResult
+from .dlo_wire_trajectory import DloWireTrajectoryPlanner
 from .hand_mpc import HandMpcInput, HandMpcSolution, O6HandMpc
 from .motion_primitives import BimanualMotionPrimitive, ManipulationTarget
 from .object_mpc import (
@@ -165,6 +167,7 @@ class BimanualRuntime:
         grasp_goal_provider: GraspGoalProvider | None = None,
         dlo_backend=None,
         dlo_frame_provider=None,
+        dlo_trajectory_planner=None,
     ) -> None:
         if grasp_goal is not None and grasp_goal_provider is not None:
             raise ValueError("grasp_goal and grasp_goal_provider are mutually exclusive")
@@ -204,9 +207,23 @@ class BimanualRuntime:
             raise TypeError("dlo_backend must expose step()")
         if dlo_frame_provider is not None and not callable(dlo_frame_provider):
             raise TypeError("dlo_frame_provider must be callable")
+        if dlo_trajectory_planner is not None and not callable(
+            getattr(dlo_trajectory_planner, "plan", None)
+        ):
+            raise TypeError("dlo_trajectory_planner must expose plan()")
         self.dlo_backend = dlo_backend
         self.dlo_frame_provider = dlo_frame_provider
+        self._auto_dlo_trajectory_planner = (
+            dlo_backend is not None and dlo_trajectory_planner is None
+        )
+        self.dlo_trajectory_planner = (
+            DloWireTrajectoryPlanner()
+            if dlo_backend is not None and dlo_trajectory_planner is None
+            else dlo_trajectory_planner
+        )
         self.latest_dlo_step = None
+        self.latest_wire_goal = None
+        self._active_wire_goal = None
         self._step = 0
         self._counts = {"object": 0, "arm": 0, "hand": 0, "wbc": 0}
         self._last_snapshot: BimanualSnapshot | None = None
@@ -280,6 +297,13 @@ class BimanualRuntime:
         reset_object = getattr(self.object_mpc, 'reset', None)
         if callable(reset_object):
             reset_object()
+        reset_dlo = getattr(self.dlo_backend, "reset", None)
+        if callable(reset_dlo):
+            reset_dlo()
+        for hand_mpc in (self.left_hand_mpc, self.right_hand_mpc):
+            reset_hand = getattr(hand_mpc, "reset", None)
+            if callable(reset_hand):
+                reset_hand()
         self.motion_primitive.reset()
 
         self.mission = BimanualMission(
@@ -294,6 +318,9 @@ class BimanualRuntime:
         self._last_left_hand = None
         self._last_right_hand = None
         self._last_command = None
+        self.latest_dlo_step = None
+        self.latest_wire_goal = None
+        self._active_wire_goal = None
         self._initial_box_pose = None
         self._latest_motion_target = None
         self._latest_mission_state = None
@@ -352,6 +379,23 @@ class BimanualRuntime:
         if self._hand_input_provider is not None:
             return self._hand_input_provider(snapshot, side, target)
         sample = _default_hand_input(snapshot, side, target)
+        fingertip_targets = None
+        fingertip_target_mask = None
+        if self._active_wire_goal is not None:
+            side_targets = (
+                self._active_wire_goal.left_contact_targets
+                if side == "left"
+                else self._active_wire_goal.right_contact_targets
+            )
+            fingertip_targets = sample.fingertip_positions_b.clone()
+            mapped = min(2, len(side_targets))
+            for index in range(mapped):
+                fingertip_targets[index] = torch.tensor(
+                    side_targets[index].position,
+                    dtype=torch.float64,
+                )
+            fingertip_target_mask = torch.zeros(5, dtype=torch.bool)
+            fingertip_target_mask[:mapped] = True
         return HandMpcInput(
             q=sample.q,
             qd=sample.qd,
@@ -366,6 +410,8 @@ class BimanualRuntime:
             qd_max=sample.qd_max,
             phase=self.mission.phase,
             palm_pose_b=sample.palm_pose_b,
+            fingertip_target_positions_b=fingertip_targets,
+            fingertip_target_mask=fingertip_target_mask,
         )
 
     def _collision(self, snapshot: BimanualSnapshot) -> tuple[torch.Tensor, torch.Tensor]:
@@ -493,6 +539,10 @@ class BimanualRuntime:
             raise TypeError("snapshot must be BimanualSnapshot")
         if self._last_snapshot is not None:
             validate_monotonic_snapshot(self._last_snapshot, snapshot)
+        # The active goal may be consumed by this cycle's hand QP, but it is
+        # published as latest_wire_goal only after the WBC atomically accepts
+        # the complete object/arm/hand command.
+        self._active_wire_goal = self.latest_wire_goal
 
         # DeformX owns the fine-rate wire integration.  The frame provider is
         # intentionally injected by Isaac-facing code so the core runtime
@@ -511,6 +561,21 @@ class BimanualRuntime:
         right_hand_solution = self._last_right_hand
         if self._step % self.OBJECT_PERIOD == 0 or object_solution is None:
             object_solution = self.object_mpc.plan(self._object_input(snapshot))
+            if (
+                self.dlo_trajectory_planner is not None
+                and self.latest_dlo_step is not None
+                and (
+                    not self._auto_dlo_trajectory_planner
+                    or isinstance(self.latest_dlo_step, DualDloStepResult)
+                )
+            ):
+                wire_plan = self.dlo_trajectory_planner.plan(
+                    snapshot,
+                    object_solution,
+                    self.latest_dlo_step,
+                )
+                object_solution = wire_plan.object_solution
+                self._active_wire_goal = wire_plan.contact_goal
             self._counts["object"] += 1
         if self._step % self.ARM_PERIOD == 0 or arm_solution is None:
             left_input, right_input = self._arm_inputs(snapshot)
@@ -557,6 +622,7 @@ class BimanualRuntime:
             self._last_left_hand = left_hand_solution
             self._last_right_hand = right_hand_solution
             self._last_command = command
+            self.latest_wire_goal = self._active_wire_goal
         else:
             reason = wbc_solution.diagnostics.fallback_reason or "wbc_infeasible"
             effort = (

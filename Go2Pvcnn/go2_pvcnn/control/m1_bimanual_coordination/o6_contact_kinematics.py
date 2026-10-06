@@ -99,6 +99,9 @@ class PrecontactHandController:
             (6,), torch.nan, dtype=torch.float64
         )
 
+    def reset(self) -> None:
+        self._latched_contact_q.fill_(torch.nan)
+
     def reference(
         self,
         q: torch.Tensor,

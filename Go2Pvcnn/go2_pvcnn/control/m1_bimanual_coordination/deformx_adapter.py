@@ -67,7 +67,8 @@ class DeformXWireBackend:
     def __init__(self, config: Any | None = None):
         Engine, Config, FrameState, _ = _load_deformx()
         self._frame_state_type = FrameState
-        self._engine = Engine(Config() if config is None else config)
+        self.config = Config() if config is None else config
+        self._engine = Engine(self.config)
 
     @classmethod
     def from_config(cls, **kwargs: Any) -> "DeformXWireBackend":
@@ -103,6 +104,11 @@ class DeformXWireBackend:
             angular_impulse=np.asarray(impulse.angular_impulse, dtype=np.float64),
             elapsed_time=float(impulse.elapsed_time),
         )
+
+    def reset(self) -> None:
+        Engine, _, FrameState, _ = _load_deformx()
+        self._frame_state_type = FrameState
+        self._engine = Engine(self.config)
 
 
 class DeformXDualWireBackend:
@@ -183,6 +189,12 @@ class DeformXDualWireBackend:
             right_angular_impulse=np.asarray(impulse.right_angular_impulse, dtype=np.float64),
             elapsed_time=float(impulse.elapsed_time),
         )
+
+    def reset(self) -> None:
+        """Drop all episode-local rod and dual-frame integration state."""
+
+        self._engine = None
+        self._frame_state_type = None
 
 
 __all__ = [

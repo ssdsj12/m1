@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import numpy as np
 import pytest
 import torch
 
@@ -16,6 +17,11 @@ from go2_pvcnn.control.m1_bimanual_coordination.grasp_goal import (
     generate_bimanual_grasp_goal,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
+from go2_pvcnn.control.m1_bimanual_coordination.deformx_adapter import (
+    DloStepResult,
+    DualDloStepResult,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_goal import DloCenterlineState
 from go2_pvcnn.control.m1_bimanual_coordination.whole_body_qp import (
     BimanualWbcDiagnostics,
     BimanualWbcSolution,
@@ -47,6 +53,15 @@ class _ArmController:
 class _HandController:
     def plan(self, _sample):
         return O6HandMpc().plan(_hand_input())
+
+
+class _RecordingHandController(_HandController):
+    def __init__(self):
+        self.samples = []
+
+    def plan(self, sample):
+        self.samples.append(sample)
+        return super().plan(sample)
 
 
 class _RecordingUnavailablePrior:
@@ -83,6 +98,43 @@ class _WbcController:
         )
 
 
+class _FixedDualDloBackend:
+    def __init__(self):
+        self.reset_calls = 0
+
+    def step(self, **_frame):
+        return DualDloStepResult(
+            state=DloCenterlineState(
+                np.array(
+                    [[0.40, 0.00, 1.20], [0.50, 0.00, 1.20], [0.60, 0.00, 1.20]],
+                    dtype=np.float64,
+                ),
+                radius_m=0.004,
+            ),
+            left_linear_impulse=np.zeros(3),
+            left_angular_impulse=np.zeros(3),
+            right_linear_impulse=np.zeros(3),
+            right_angular_impulse=np.zeros(3),
+            elapsed_time=0.005,
+        )
+
+    def reset(self):
+        self.reset_calls += 1
+
+
+class _FixedSingleDloBackend:
+    def step(self, **_frame):
+        return DloStepResult(
+            state=DloCenterlineState(
+                np.array([[0.40, 0.00, 1.20], [0.60, 0.00, 1.20]], dtype=np.float64),
+                radius_m=0.004,
+            ),
+            linear_impulse=np.zeros(3),
+            angular_impulse=np.zeros(3),
+            elapsed_time=0.005,
+        )
+
+
 def _runtime(wbc=None):
     return BimanualRuntime(
         object_mpc=_ObjectController(),
@@ -98,6 +150,100 @@ def test_runtime_cadence_is_25_50_100_200_hz_at_200_hz_physics():
     for step in range(16):
         runtime.compute(replace(_snapshot(), timestamp_ns=step + 1))
     assert runtime.counts == {"object": 2, "arm": 4, "hand": 8, "wbc": 16}
+
+
+def test_runtime_routes_dual_dlo_centerline_into_arm_palm_trajectory():
+    left_hand = _RecordingHandController()
+    right_hand = _RecordingHandController()
+    runtime = BimanualRuntime(
+        object_mpc=_ObjectController(),
+        arm_mpc=_ArmController(),
+        left_hand_mpc=left_hand,
+        right_hand_mpc=right_hand,
+        wbc=_WbcController(),
+        dlo_backend=_FixedDualDloBackend(),
+        dlo_frame_provider=lambda _snapshot: {
+            "left_frame": {},
+            "right_frame": {},
+        },
+    )
+    rigid_solution = _object_solution()
+
+    runtime.compute(replace(_snapshot(), timestamp_ns=1))
+
+    routed = runtime.latest_solutions["object"]
+    assert runtime.latest_wire_goal is not None
+    assert runtime.latest_wire_goal.object_class == "wire"
+    assert not torch.equal(routed.left_palm_pose, rigid_solution.left_palm_pose)
+    assert not torch.equal(routed.right_palm_pose, rigid_solution.right_palm_pose)
+    for controller in (left_hand, right_hand):
+        sample = controller.samples[-1]
+        assert sample.fingertip_target_positions_b is not None
+        assert torch.equal(
+            sample.fingertip_target_mask,
+            torch.tensor([True, True, False, False, False]),
+        )
+
+
+def test_runtime_keeps_single_endpoint_dlo_backend_backward_compatible():
+    runtime = BimanualRuntime(
+        object_mpc=_ObjectController(),
+        arm_mpc=_ArmController(),
+        left_hand_mpc=_HandController(),
+        right_hand_mpc=_HandController(),
+        wbc=_WbcController(),
+        dlo_backend=_FixedSingleDloBackend(),
+        dlo_frame_provider=lambda _snapshot: {"position": np.zeros(3)},
+    )
+
+    runtime.compute(replace(_snapshot(), timestamp_ns=1))
+
+    assert isinstance(runtime.latest_dlo_step, DloStepResult)
+    assert runtime.latest_wire_goal is None
+    torch.testing.assert_close(
+        runtime.latest_solutions["object"].left_palm_pose,
+        _object_solution().left_palm_pose,
+    )
+
+
+def test_runtime_reset_clears_the_stateful_dlo_backend_and_public_goal():
+    backend = _FixedDualDloBackend()
+    runtime = BimanualRuntime(
+        object_mpc=_ObjectController(),
+        arm_mpc=_ArmController(),
+        left_hand_mpc=_HandController(),
+        right_hand_mpc=_HandController(),
+        wbc=_WbcController(),
+        dlo_backend=backend,
+        dlo_frame_provider=lambda _snapshot: {"left_frame": {}, "right_frame": {}},
+    )
+    runtime.compute(replace(_snapshot(), timestamp_ns=1))
+    assert runtime.latest_wire_goal is not None
+
+    runtime.reset()
+
+    assert backend.reset_calls == 1
+    assert runtime.latest_dlo_step is None
+    assert runtime.latest_wire_goal is None
+
+
+def test_rejected_wbc_cycle_does_not_publish_unaccepted_wire_goal():
+    left_hand = _RecordingHandController()
+    runtime = BimanualRuntime(
+        object_mpc=_ObjectController(),
+        arm_mpc=_ArmController(),
+        left_hand_mpc=left_hand,
+        right_hand_mpc=_HandController(),
+        wbc=_WbcController(fail_at=1),
+        dlo_backend=_FixedDualDloBackend(),
+        dlo_frame_provider=lambda _snapshot: {"left_frame": {}, "right_frame": {}},
+    )
+
+    command = runtime.compute(replace(_snapshot(), timestamp_ns=1))
+
+    assert not command.feasible
+    assert left_hand.samples[-1].fingertip_target_positions_b is not None
+    assert runtime.latest_wire_goal is None
 
 
 def test_rejected_wbc_cycle_returns_last_safe_command_atomically():

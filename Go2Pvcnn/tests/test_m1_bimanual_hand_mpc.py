@@ -165,6 +165,111 @@ def test_input_requires_exact_cpu_float64_bool_and_positive_limits():
         _input(wrench_map=matrix)
 
 
+def test_fingertip_target_requires_paired_positions_and_mask():
+    with pytest.raises(ValueError, match="together"):
+        _input(fingertip_target_positions_b=torch.zeros(5, 3, dtype=DTYPE))
+    with pytest.raises(ValueError, match="together"):
+        _input(fingertip_target_mask=torch.ones(5, dtype=torch.bool))
+
+
+def test_precontact_fingertip_target_softly_guides_only_selected_digits():
+    positions = torch.zeros(5, 3, dtype=DTYPE)
+    jacobian = torch.zeros(15, 6, dtype=DTYPE)
+    jacobian[2, 0] = 1.0
+    jacobian[5, 2] = 1.0
+    sample = _input(
+        phase=BimanualPhase.APPROACH,
+        contact_mask=torch.zeros(5, dtype=torch.bool),
+        fingertip_positions_b=positions,
+        contact_jacobian=jacobian,
+        q=torch.full((6,), 0.2, dtype=DTYPE),
+    )
+    targets = positions.clone()
+    targets[0, 2] = -0.01
+    targets[1, 2] = -0.01
+    guided = replace(
+        sample,
+        fingertip_target_positions_b=targets,
+        fingertip_target_mask=torch.tensor([True, True, False, False, False]),
+    )
+
+    baseline = O6HandMpc().plan(sample)
+    result = O6HandMpc().plan(guided)
+
+    assert result.diagnostics.feasible
+    assert result.qd_ref[0] < baseline.qd_ref[0]
+    assert result.qd_ref[2] < baseline.qd_ref[2]
+    torch.testing.assert_close(result.qd_ref[3:], baseline.qd_ref[3:])
+
+
+def test_wire_fingertip_target_stays_latched_off_after_grasp_contact_dropout():
+    positions = torch.zeros(5, 3, dtype=DTYPE)
+    targets = positions.clone()
+    targets[0, 2] = -0.01
+    jacobian = torch.zeros(15, 6, dtype=DTYPE)
+    jacobian[2, 0] = 1.0
+    target_mask = torch.tensor([True, False, False, False, False])
+    common = dict(
+        phase=BimanualPhase.GRASP,
+        fingertip_positions_b=positions,
+        fingertip_target_positions_b=targets,
+        fingertip_target_mask=target_mask,
+        contact_jacobian=jacobian,
+        target_wrench_b=torch.zeros(6, dtype=DTYPE),
+        q=torch.full((6,), 0.2, dtype=DTYPE),
+    )
+    planner = O6HandMpc()
+    planner.plan(
+        _input(
+            **common,
+            contact_mask=torch.tensor([True, False, False, False, False]),
+        )
+    )
+    dropout = _input(**common, contact_mask=torch.zeros(5, dtype=torch.bool))
+
+    latched = planner.plan(dropout)
+    without_target = O6HandMpc().plan(
+        replace(
+            dropout,
+            fingertip_target_positions_b=None,
+            fingertip_target_mask=None,
+        )
+    )
+
+    torch.testing.assert_close(latched.qd_ref, without_target.qd_ref)
+
+
+def test_hand_mpc_reset_reenables_wire_fingertip_targets_for_new_episode():
+    positions = torch.zeros(5, 3, dtype=DTYPE)
+    targets = positions.clone()
+    targets[0, 2] = -0.01
+    jacobian = torch.zeros(15, 6, dtype=DTYPE)
+    jacobian[2, 0] = 1.0
+    common = dict(
+        phase=BimanualPhase.GRASP,
+        fingertip_positions_b=positions,
+        fingertip_target_positions_b=targets,
+        fingertip_target_mask=torch.tensor([True, False, False, False, False]),
+        contact_jacobian=jacobian,
+        target_wrench_b=torch.zeros(6, dtype=DTYPE),
+        q=torch.full((6,), 0.2, dtype=DTYPE),
+    )
+    planner = O6HandMpc()
+    planner.plan(
+        _input(
+            **common,
+            contact_mask=torch.tensor([True, False, False, False, False]),
+        )
+    )
+
+    planner.reset()
+    result = planner.plan(
+        _input(**common, contact_mask=torch.zeros(5, dtype=torch.bool))
+    )
+
+    assert result.qd_ref[0] < 0.0
+
+
 def test_repeated_plans_are_deterministic_and_inputs_are_caller_isolated():
     source = torch.zeros(6, dtype=DTYPE)
     sample = _input(qd=source)

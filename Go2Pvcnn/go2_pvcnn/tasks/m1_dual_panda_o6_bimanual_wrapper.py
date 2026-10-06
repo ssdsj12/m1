@@ -805,7 +805,7 @@ class M1DualPandaO6BimanualWrapper:
             physics_dt = float(getattr(raw_env, "physics_dt", 0.005))
             dlo_kwargs = {
                 "dlo_backend": DeformXDualWireBackend.from_config(
-                    py_dt=float(os.environ.get("M1_DEFORMX_PY_DT", "1e-5")),
+                    py_dt=float(os.environ.get("M1_DEFORMX_PY_DT", "1e-6")),
                     isaac_dt=physics_dt,
                     base_radius=float(os.environ.get("M1_DEFORMX_RADIUS", "0.0025")),
                 ),

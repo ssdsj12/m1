@@ -81,6 +81,8 @@ class HandMpcCfg:
     qp_max_iterations: int = 256
     fingertip_prior_weight: float = 1.0
     precontact_tracking_weight: float = 100.0
+    fingertip_target_weight: float = 40.0
+    fingertip_target_speed_m_s: float = 0.08
 
     def __post_init__(self) -> None:
         _positive("dt", self.dt)
@@ -102,6 +104,8 @@ class HandMpcCfg:
             "hessian_regularization",
             "fingertip_prior_weight",
             "precontact_tracking_weight",
+            "fingertip_target_weight",
+            "fingertip_target_speed_m_s",
             "qp_tolerance",
         ):
             _positive(name, getattr(self, name))
@@ -155,6 +159,8 @@ class HandMpcInput:
     qd_max: torch.Tensor
     phase: BimanualPhase = BimanualPhase.GRASP
     palm_pose_b: torch.Tensor | None = None
+    fingertip_target_positions_b: torch.Tensor | None = None
+    fingertip_target_mask: torch.Tensor | None = None
 
     def __post_init__(self) -> None:
         for name, shape in (
@@ -179,6 +185,28 @@ class HandMpcInput:
                 "palm_pose_b",
                 _float64("palm_pose_b", self.palm_pose_b, (6,)),
             )
+        if (self.fingertip_target_positions_b is None) != (
+            self.fingertip_target_mask is None
+        ):
+            raise ValueError(
+                "fingertip_target_positions_b and fingertip_target_mask must be provided together"
+            )
+        if self.fingertip_target_positions_b is not None:
+            object.__setattr__(
+                self,
+                "fingertip_target_positions_b",
+                _float64(
+                    "fingertip_target_positions_b",
+                    self.fingertip_target_positions_b,
+                    (HAND_FINGERTIP_COUNT, 3),
+                ),
+            )
+            mask = self.fingertip_target_mask
+            if not isinstance(mask, torch.Tensor) or mask.dtype != torch.bool:
+                raise TypeError("fingertip_target_mask must have dtype torch.bool")
+            if mask.device.type != "cpu" or tuple(mask.shape) != (HAND_FINGERTIP_COUNT,):
+                raise ValueError("fingertip_target_mask must be on CPU with shape (5,)")
+            object.__setattr__(self, "fingertip_target_mask", mask.clone())
         if not torch.all(self.q_min < self.q_max).item():
             raise ValueError("q_min must be strictly below q_max")
         if not torch.all(self.qd_max > 0.0).item():
@@ -289,11 +317,52 @@ def add_fingertip_prior(
     return replace(problem, hessian=hessian, gradient=gradient)
 
 
+def _fingertip_target_terms(
+    sample: HandMpcInput,
+    cfg: HandMpcCfg,
+    disabled_mask: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor] | None:
+    if sample.fingertip_target_positions_b is None:
+        return None
+    active = sample.fingertip_target_mask & ~sample.contact_mask
+    if disabled_mask is not None:
+        active &= ~disabled_mask
+    rows = active.repeat_interleave(3)
+    if not bool(rows.any()):
+        return None
+    error = sample.fingertip_target_positions_b - sample.fingertip_positions_b
+    velocity = error / cfg.dt
+    speed = torch.linalg.vector_norm(velocity, dim=1)
+    scale = torch.clamp(cfg.fingertip_target_speed_m_s / speed.clamp_min(1.0e-12), max=1.0)
+    velocity = velocity * scale[:, None]
+    return sample.contact_jacobian[rows], velocity.reshape(-1)[rows]
+
+
+def add_fingertip_target(
+    problem: DenseQpProblem,
+    sample: HandMpcInput,
+    cfg: HandMpcCfg,
+    disabled_mask: torch.Tensor | None = None,
+) -> DenseQpProblem:
+    terms = _fingertip_target_terms(sample, cfg, disabled_mask)
+    if terms is None:
+        return problem
+    jacobian, velocity = terms
+    selector = torch.zeros(
+        (jacobian.shape[0], problem.gradient.numel()), dtype=torch.float64
+    )
+    selector[:, :HAND_ACTIVE_DOF] = jacobian
+    hessian = problem.hessian + 2.0 * cfg.fingertip_target_weight * selector.T @ selector
+    gradient = problem.gradient - 2.0 * cfg.fingertip_target_weight * selector.T @ velocity
+    return replace(problem, hessian=hessian, gradient=gradient)
+
+
 def build_hand_contact_qp(
     sample: HandMpcInput,
     cfg: HandMpcCfg,
     *,
     prior_target: Any | None = None,
+    target_disabled_mask: torch.Tensor | None = None,
 ) -> DenseQpProblem:
     """Build a linear-compliance QP over six rates and five 3D forces."""
 
@@ -381,6 +450,7 @@ def build_hand_contact_qp(
         lower_bound=lower,
         upper_bound=upper,
     )
+    problem = add_fingertip_target(problem, sample, cfg, target_disabled_mask)
     if prior_target is None:
         return problem
     return add_fingertip_prior(
@@ -413,6 +483,14 @@ class O6HandMpc:
         self.expert_prior = expert_prior
         self._last_safe: HandMpcSolution | None = None
         self.precontact = PrecontactHandController()
+        self._fingertip_target_contact_latch = torch.zeros(
+            HAND_FINGERTIP_COUNT, dtype=torch.bool
+        )
+
+    def reset(self) -> None:
+        self._last_safe = None
+        self.precontact.reset()
+        self._fingertip_target_contact_latch.zero_()
 
     @staticmethod
     def _clone(
@@ -501,7 +579,7 @@ class O6HandMpc:
         forces = sample.fingertip_forces_b.clone()
         forces[~sample.contact_mask] = 0.0
         wrench = sample.wrench_map @ forces.reshape(-1)
-        return HandMpcSolution(
+        baseline = HandMpcSolution(
             q_ref=q_ref,
             qd_ref=qd_ref,
             predicted_forces_b=forces,
@@ -518,6 +596,74 @@ class O6HandMpc:
                 ),
                 iterations=0,
             ),
+        )
+        return self._project_precontact_fingertip_target(sample, baseline)
+
+    def _project_precontact_fingertip_target(
+        self,
+        sample: HandMpcInput,
+        baseline: HandMpcSolution,
+    ) -> HandMpcSolution:
+        terms = _fingertip_target_terms(
+            sample,
+            self.cfg,
+            self._fingertip_target_contact_latch,
+        )
+        if terms is None:
+            return baseline
+        jacobian, velocity = terms
+        identity = torch.eye(HAND_ACTIVE_DOF, dtype=torch.float64)
+        hessian = (
+            2.0 * self.cfg.precontact_tracking_weight * identity
+            + 2.0 * self.cfg.fingertip_target_weight * jacobian.T @ jacobian
+            + 2.0 * self.cfg.hessian_regularization * identity
+        )
+        gradient = (
+            -2.0 * self.cfg.precontact_tracking_weight * baseline.qd_ref
+            - 2.0 * self.cfg.fingertip_target_weight * jacobian.T @ velocity
+        )
+        lower = torch.maximum(
+            -sample.qd_max, (sample.q_min - sample.q) / self.cfg.dt
+        )
+        upper = torch.minimum(
+            sample.qd_max, (sample.q_max - sample.q) / self.cfg.dt
+        )
+        latched_axes = torch.isfinite(self.precontact._latched_contact_q)
+        if (
+            torch.any(lower[latched_axes] > 0.0).item()
+            or torch.any(upper[latched_axes] < 0.0).item()
+        ):
+            return baseline
+        lower[latched_axes] = 0.0
+        upper[latched_axes] = 0.0
+        problem = DenseQpProblem(
+            hessian=hessian,
+            gradient=gradient,
+            equality_matrix=torch.empty((0, HAND_ACTIVE_DOF), dtype=torch.float64),
+            equality_rhs=torch.empty(0, dtype=torch.float64),
+            inequality_matrix=torch.empty((0, HAND_ACTIVE_DOF), dtype=torch.float64),
+            inequality_upper=torch.empty(0, dtype=torch.float64),
+            lower_bound=lower,
+            upper_bound=upper,
+        )
+        try:
+            result = solve_reference_qp(
+                problem,
+                tolerance=self.cfg.qp_tolerance,
+                max_iterations=self.cfg.qp_max_iterations,
+            )
+        except Exception:
+            return baseline
+        if not result.success or not torch.isfinite(result.solution).all().item():
+            return baseline
+        rate = torch.maximum(lower, torch.minimum(upper, result.solution)).clone()
+        rate[latched_axes] = 0.0
+        return HandMpcSolution(
+            q_ref=sample.q + self.cfg.dt * rate,
+            qd_ref=rate,
+            predicted_forces_b=baseline.predicted_forces_b,
+            predicted_wrench_b=baseline.predicted_wrench_b,
+            diagnostics=replace(baseline.diagnostics, iterations=result.iterations),
         )
 
     @staticmethod
@@ -741,6 +887,10 @@ class O6HandMpc:
     def plan(self, sample: HandMpcInput) -> HandMpcSolution:
         if not isinstance(sample, HandMpcInput):
             raise TypeError("sample must be HandMpcInput")
+        if sample.fingertip_target_mask is not None:
+            self._fingertip_target_contact_latch |= (
+                sample.fingertip_target_mask & sample.contact_mask
+            )
         if sample.phase in {BimanualPhase.APPROACH, BimanualPhase.PRELOAD}:
             baseline = self._precontact_solution(sample)
             if self.expert_prior is None:
@@ -768,7 +918,11 @@ class O6HandMpc:
             )
             return self._accept(self._clone(projected, diagnostics))
         baseline_result = solve_reference_qp(
-            build_hand_contact_qp(sample, self.cfg),
+            build_hand_contact_qp(
+                sample,
+                self.cfg,
+                target_disabled_mask=self._fingertip_target_contact_latch,
+            ),
             tolerance=self.cfg.qp_tolerance,
             max_iterations=self.cfg.qp_max_iterations,
         )
@@ -785,7 +939,12 @@ class O6HandMpc:
         target = queried[0]
         try:
             regularized_result = solve_reference_qp(
-                build_hand_contact_qp(sample, self.cfg, prior_target=target),
+                build_hand_contact_qp(
+                    sample,
+                    self.cfg,
+                    prior_target=target,
+                    target_disabled_mask=self._fingertip_target_contact_latch,
+                ),
                 tolerance=self.cfg.qp_tolerance,
                 max_iterations=self.cfg.qp_max_iterations,
             )

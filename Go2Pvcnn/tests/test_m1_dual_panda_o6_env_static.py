@@ -96,6 +96,11 @@ def test_wrapper_resolves_ids_once_and_rejects_ambiguous_names():
     assert "state.bias + 20.0 * (target - state.q) - 8.0 * state.qd" in source
 
 
+def test_wrapper_uses_gpu_smoke_validated_deformx_substep_by_default():
+    source = _source(WRAPPER)
+    assert 'os.environ.get("M1_DEFORMX_PY_DT", "1e-6")' in source
+
+
 def test_wrapper_handles_root_inclusive_and_legacy_jacobian_body_layouts():
     source = _source(FRAME_KINEMATICS)
     assert "if jacobian_body_count == body_count:" in source
