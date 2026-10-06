@@ -1,0 +1,98 @@
+"""Optional DeformX Cosserat bridge for the M1 wire controller.
+
+The import is lazy so CPU unit tests and non-wire tasks do not require the
+DeformX checkout.  Isaac-facing code calls :meth:`step` once per coarse
+control tick; DeformX advances its fine internal rod steps and returns the
+integrated frame impulse.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
+import sys
+from typing import Any
+
+import numpy as np
+
+from .dlo_wire_goal import DloCenterlineState
+
+
+def _deformx_root() -> str:
+    root = os.environ.get("DEFORMX_ROOT")
+    if not root:
+        raise RuntimeError("DEFORMX_ROOT must point to the DeformX checkout")
+    return root
+
+
+def _load_deformx() -> tuple[Any, Any, Any, Any]:
+    root = _deformx_root()
+    mesh_root = os.environ.get("DEFORMX_ELASTICA_ROOT", os.path.join(root, "PyElastica-Mesh"))
+    for path in (root, mesh_root):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+    try:
+        from co_sim.engine import CoSimEngine
+        from co_sim.models import CoSimConfig, FrameState
+        from co_sim.models import RodInitialState
+    except ImportError as exc:
+        raise RuntimeError(
+            "DeformX backend unavailable; install its dependencies and set "
+            "DEFORMX_ROOT/DEFORMX_ELASTICA_ROOT"
+        ) from exc
+    return CoSimEngine, CoSimConfig, FrameState, RodInitialState
+
+
+@dataclass(frozen=True)
+class DloStepResult:
+    state: DloCenterlineState
+    linear_impulse: np.ndarray
+    angular_impulse: np.ndarray
+    elapsed_time: float
+
+
+class DeformXWireBackend:
+    """Thin adapter translating M1 frame commands to DeformX."""
+
+    def __init__(self, config: Any | None = None):
+        Engine, Config, FrameState, _ = _load_deformx()
+        self._frame_state_type = FrameState
+        self._engine = Engine(Config() if config is None else config)
+
+    @classmethod
+    def from_config(cls, **kwargs: Any) -> "DeformXWireBackend":
+        _, Config, _, _ = _load_deformx()
+        return cls(Config(**kwargs))
+
+    def step(
+        self,
+        position: np.ndarray,
+        director: np.ndarray,
+        velocity: np.ndarray | None = None,
+        acceleration: np.ndarray | None = None,
+        omega: np.ndarray | None = None,
+        alpha: np.ndarray | None = None,
+    ) -> DloStepResult:
+        zeros = np.zeros(3, dtype=np.float64)
+        frame = self._frame_state_type(
+            position=np.asarray(position, dtype=np.float64),
+            director=np.asarray(director, dtype=np.float64),
+            velocity=zeros if velocity is None else np.asarray(velocity, dtype=np.float64),
+            acceleration=zeros if acceleration is None else np.asarray(acceleration, dtype=np.float64),
+            omega=zeros if omega is None else np.asarray(omega, dtype=np.float64),
+            alpha=zeros if alpha is None else np.asarray(alpha, dtype=np.float64),
+        )
+        impulse = self._engine.update_frame_state(frame)
+        snapshot = self._engine.snapshot()
+        centerline = np.asarray(snapshot.rod_position, dtype=np.float64).T
+        radius = float(getattr(self._engine.config, "base_radius", 0.0))
+        state = DloCenterlineState(centerline, radius_m=radius)
+        return DloStepResult(
+            state=state,
+            linear_impulse=np.asarray(impulse.linear_impulse, dtype=np.float64),
+            angular_impulse=np.asarray(impulse.angular_impulse, dtype=np.float64),
+            elapsed_time=float(impulse.elapsed_time),
+        )
+
+
+__all__ = ["DeformXWireBackend", "DloStepResult"]
