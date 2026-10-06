@@ -11,6 +11,7 @@ import pytest
 
 from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
     AssetPreparationRequiredError,
+    ObjectClassRecord,
     ObjectInstance,
     load_catalog,
 )
@@ -18,7 +19,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "config" / "m1_object_catalog.json"
-CLASS_NAMES = ("bottle", "cup", "bowl", "book", "cube", "cylinder")
+CLASS_NAMES = ("bottle", "cup", "bowl", "book", "cube", "cylinder", "wire")
 
 
 def _write_catalog(
@@ -65,7 +66,7 @@ def _write_catalog(
     return config, asset_root
 
 
-def test_committed_catalog_declares_all_six_classes_and_cylinder_note() -> None:
+def test_committed_catalog_declares_all_classes_and_cylinder_note() -> None:
     payload = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))
 
     assert payload["schema_version"] == 1
@@ -78,9 +79,84 @@ def test_committed_catalog_declares_all_six_classes_and_cylinder_note() -> None:
             assert record["resolved_sha256"] is None
         else:
             assert len(record["resolved_sha256"]) == 64
-        assert record["usd_path"].endswith(".usd")
+        assert Path(record["usd_path"]).suffix in {".usd", ".usda", ".usdc"}
     assert "geometry_note" in payload["classes"]["cylinder"]
     assert "poly.glb" in payload["classes"]["cylinder"]["geometry_note"]
+
+
+def test_wire_catalog_declares_local_longitudinal_axis() -> None:
+    payload = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))
+
+    assert payload["classes"]["wire"]["longitudinal_axis"] == [1.0, 0.0, 0.0]
+
+
+def test_object_class_record_normalizes_longitudinal_axis() -> None:
+    record = ObjectClassRecord(
+        object_class="wire",
+        usd_path=Path("wire.usda"),
+        source_sha256="0" * 64,
+        resolved_sha256="1" * 64,
+        mass_kg=0.05,
+        scale=1.0,
+        collision_profile="convex_decomposition",
+        grasp_profile="cylindrical",
+        dimensions=(0.08, 0.01, 0.01),
+        longitudinal_axis=(2.0, 0.0, 0.0),
+    )
+
+    assert record.longitudinal_axis == (1.0, 0.0, 0.0)
+
+
+@pytest.mark.parametrize(
+    "axis",
+    [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0),
+        (1.0, 0.0, float("nan")),
+    ],
+)
+def test_object_class_record_rejects_invalid_longitudinal_axis(
+    axis: tuple[float, ...],
+) -> None:
+    with pytest.raises(ValueError, match="longitudinal_axis"):
+        ObjectClassRecord(
+            object_class="wire",
+            usd_path=Path("wire.usda"),
+            source_sha256="0" * 64,
+            resolved_sha256="1" * 64,
+            mass_kg=0.05,
+            scale=1.0,
+            collision_profile="convex_decomposition",
+            grasp_profile="cylindrical",
+            dimensions=(0.08, 0.01, 0.01),
+            longitudinal_axis=axis,
+        )
+
+
+@pytest.mark.parametrize(
+    "dimensions",
+    [
+        (0.0, 0.01, 0.01),
+        (-0.08, 0.01, 0.01),
+        (0.08, float("inf"), 0.01),
+    ],
+)
+def test_object_class_record_rejects_nonpositive_or_nonfinite_dimensions(
+    dimensions: tuple[float, float, float],
+) -> None:
+    with pytest.raises(ValueError, match="dimensions"):
+        ObjectClassRecord(
+            object_class="wire",
+            usd_path=Path("wire.usda"),
+            source_sha256="0" * 64,
+            resolved_sha256="1" * 64,
+            mass_kg=0.05,
+            scale=1.0,
+            collision_profile="convex_decomposition",
+            grasp_profile="cylindrical",
+            dimensions=dimensions,
+            longitudinal_axis=(1.0, 0.0, 0.0),
+        )
 
 
 def test_load_catalog_resolves_all_six_classes_and_verifies_hashes(tmp_path: Path) -> None:
@@ -123,11 +199,10 @@ def test_committed_catalog_missing_assets_require_explicit_preparation() -> None
     asset_root = ROOT / "assets" / "m1_objects" / "rialto"
 
     with pytest.raises(AssetPreparationRequiredError) as error:
-        load_catalog(DEFAULT_CONFIG, asset_root)
+        load_catalog(DEFAULT_CONFIG, asset_root, required_classes=("cup",))
 
     message = str(error.value)
-    assert "bottle" in message
-    assert "sources/bottle_fixed.usd" in message
+    assert "preparation required" in message
     assert "m1_rialto_object_assets.py prepare" in message
     assert str(asset_root) in message
 

@@ -27,6 +27,7 @@ _DEFAULT_OBJECT_POSES: dict[str, tuple[float, float, float]] = {
     "book": (0.88, 0.00, 1.20),
     "cube": (0.88, 0.28, 1.20),
     "cylinder": (0.88, -0.28, 1.20),
+    "wire": (0.65, 0.0, 1.20),
 }
 _DEFAULT_OBJECT_IDS = frozenset(
     f"{object_class}_000" for object_class in _DEFAULT_OBJECT_POSES

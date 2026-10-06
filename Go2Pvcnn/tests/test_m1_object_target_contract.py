@@ -107,6 +107,16 @@ def _load_play_module():
     return module
 
 
+def test_wire_default_instance_uses_reachable_scene_pose():
+    module = _load_play_module()
+
+    assert module.default_object_instances(("wire",))[0].pose == (
+        0.65,
+        0.0,
+        1.20,
+    )
+
+
 def test_play_config_omission_keeps_legacy_box_and_does_not_load_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ):

@@ -92,6 +92,7 @@ from .object_catalog import (
     PreparationRequiredError,
     load_catalog,
 )
+from .wire_scene_geometry import WireSceneGeometry, build_wire_scene_geometry
 from .task_goal import (
     DEFAULT_CATALOG_DIMENSIONS,
     build_catalog_grasp_goal,
@@ -184,6 +185,8 @@ __all__ = [
     "ObjectClassRecord",
     "ObjectInstance",
     "load_catalog",
+    "WireSceneGeometry",
+    "build_wire_scene_geometry",
     "resolve_target_object_ids",
     "DEFAULT_CATALOG_DIMENSIONS",
     "build_catalog_grasp_goal",

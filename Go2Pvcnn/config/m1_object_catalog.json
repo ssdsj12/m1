@@ -65,6 +65,7 @@
       "collision_profile": "convex_decomposition",
       "grasp_profile": "cylindrical",
       "dimensions": [0.08, 0.01, 0.01],
+      "longitudinal_axis": [1.0, 0.0, 0.0],
       "geometry_note": "Default DeformX wire variant; additional color, radius and roughness variants are listed in assets/m1_objects/wire_usdc/manifest.json."
     }
   }

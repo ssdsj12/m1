@@ -100,6 +100,7 @@ class ObjectClassRecord:
     # geometry leave this unset; task-goal code must opt into its conservative
     # class defaults explicitly in that case.
     dimensions: tuple[float, float, float] | None = None
+    longitudinal_axis: tuple[float, float, float] | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty_text("object_class", self.object_class)
@@ -125,6 +126,20 @@ class ObjectClassRecord:
                 raise ValueError("dimensions must contain exactly three positive numbers")
             dimensions = tuple(_require_positive_real("dimensions", value) for value in self.dimensions)
             object.__setattr__(self, "dimensions", dimensions)
+        if self.longitudinal_axis is not None:
+            axis = tuple(float(value) for value in self.longitudinal_axis)
+            if len(axis) != 3 or not all(math.isfinite(value) for value in axis):
+                raise ValueError(
+                    "longitudinal_axis must contain three finite numbers"
+                )
+            norm = math.sqrt(sum(value * value for value in axis))
+            if norm <= 1.0e-12:
+                raise ValueError("longitudinal_axis must be nonzero")
+            object.__setattr__(
+                self,
+                "longitudinal_axis",
+                tuple(value / norm for value in axis),
+            )
 
     @property
     def sha256(self) -> str | None:
@@ -348,6 +363,7 @@ def _load_class_record(
         collision_profile=payload["collision_profile"],
         grasp_profile=payload["grasp_profile"],
         dimensions=payload.get("dimensions", payload.get("dimensions_m")),
+        longitudinal_axis=payload.get("longitudinal_axis"),
     )
     return record, note
 
