@@ -801,10 +801,12 @@ class M1DualPandaO6BimanualWrapper:
 
         dlo_kwargs = {}
         if os.environ.get("M1_ENABLE_DEFORMX", "0") == "1":
+            raw_env = self.env.unwrapped if hasattr(self.env, "unwrapped") else self.env
+            physics_dt = float(getattr(raw_env, "physics_dt", 0.005))
             dlo_kwargs = {
                 "dlo_backend": DeformXWireBackend.from_config(
                     py_dt=float(os.environ.get("M1_DEFORMX_PY_DT", "1e-5")),
-                    isaac_dt=float(self.env.physics_dt),
+                    isaac_dt=physics_dt,
                     base_radius=float(os.environ.get("M1_DEFORMX_RADIUS", "0.0025")),
                 ),
                 "dlo_frame_provider": right_palm_frame,
