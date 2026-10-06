@@ -8,7 +8,7 @@ integrated frame impulse.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 import sys
 from typing import Any
@@ -48,6 +48,16 @@ class DloStepResult:
     state: DloCenterlineState
     linear_impulse: np.ndarray
     angular_impulse: np.ndarray
+    elapsed_time: float
+
+
+@dataclass(frozen=True)
+class DualDloStepResult:
+    state: DloCenterlineState
+    left_linear_impulse: np.ndarray
+    left_angular_impulse: np.ndarray
+    right_linear_impulse: np.ndarray
+    right_angular_impulse: np.ndarray
     elapsed_time: float
 
 
@@ -95,4 +105,89 @@ class DeformXWireBackend:
         )
 
 
-__all__ = ["DeformXWireBackend", "DloStepResult"]
+class DeformXDualWireBackend:
+    """Lazy dual-endpoint adapter around one DeformX Cosserat rod."""
+
+    def __init__(self, config: Any):
+        self.config = config
+        self._engine = None
+        self._frame_state_type = None
+
+    @classmethod
+    def from_config(cls, **kwargs: Any) -> "DeformXDualWireBackend":
+        _, Config, _, _ = _load_deformx()
+        return cls(Config(**kwargs))
+
+    def _frame(self, values: dict[str, np.ndarray]):
+        if self._frame_state_type is None:
+            raise RuntimeError("dual backend frame type is not initialized")
+        zeros = np.zeros(3, dtype=np.float64)
+        return self._frame_state_type(
+            position=np.asarray(values["position"], dtype=np.float64),
+            director=np.asarray(values["director"], dtype=np.float64),
+            velocity=np.asarray(values.get("velocity", zeros), dtype=np.float64),
+            acceleration=np.asarray(values.get("acceleration", zeros), dtype=np.float64),
+            omega=np.asarray(values.get("omega", zeros), dtype=np.float64),
+            alpha=np.asarray(values.get("alpha", zeros), dtype=np.float64),
+        )
+
+    def _initialize(self, left_values: dict[str, np.ndarray], right_values: dict[str, np.ndarray]) -> None:
+        Engine, _, FrameState, RodInitialState = _load_deformx()
+        self._frame_state_type = FrameState
+        left = self._frame(left_values)
+        right = self._frame(right_values)
+        delta = right.position - left.position
+        length = float(np.linalg.norm(delta))
+        if not np.isfinite(length) or length <= 1.0e-4:
+            raise ValueError("dual DeformX endpoints must be distinct and finite")
+        direction = delta / length
+        normal = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        if abs(float(np.dot(direction, normal))) > 0.9:
+            normal = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        normal -= float(np.dot(normal, direction)) * direction
+        normal /= np.linalg.norm(normal)
+        config = replace(self.config, base_length=length)
+        rod_initial = RodInitialState(
+            start=left.position.copy(),
+            direction=direction,
+            normal=normal,
+        )
+        self._engine = Engine(
+            config,
+            rod_initial_state=rod_initial,
+            frame_initial_state=left,
+            second_frame_initial_state=right,
+        )
+        self.config = config
+
+    def step(
+        self,
+        left_frame: dict[str, np.ndarray],
+        right_frame: dict[str, np.ndarray],
+    ) -> DualDloStepResult:
+        if self._engine is None:
+            self._initialize(left_frame, right_frame)
+        left = self._frame(left_frame)
+        right = self._frame(right_frame)
+        impulse = self._engine.update_dual_frame_state(left, right)
+        snapshot = self._engine.snapshot()
+        state = DloCenterlineState(
+            np.asarray(snapshot.rod_position, dtype=np.float64).T,
+            radius_m=float(self.config.base_radius),
+        )
+        return DualDloStepResult(
+            state=state,
+            left_linear_impulse=np.asarray(impulse.left_linear_impulse, dtype=np.float64),
+            left_angular_impulse=np.asarray(impulse.left_angular_impulse, dtype=np.float64),
+            right_linear_impulse=np.asarray(impulse.right_linear_impulse, dtype=np.float64),
+            right_angular_impulse=np.asarray(impulse.right_angular_impulse, dtype=np.float64),
+            elapsed_time=float(impulse.elapsed_time),
+        )
+
+
+__all__ = [
+    "DeformXDualWireBackend",
+    "DeformXWireBackend",
+    "DloStepResult",
+    "DualDloStepResult",
+]

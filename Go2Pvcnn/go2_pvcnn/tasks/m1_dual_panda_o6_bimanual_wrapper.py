@@ -52,8 +52,8 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     build_catalog_grasp_goal_provider,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
-from go2_pvcnn.control.m1_bimanual_coordination.deformx_adapter import DeformXWireBackend
-from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import right_palm_frame
+from go2_pvcnn.control.m1_bimanual_coordination.deformx_adapter import DeformXDualWireBackend
+from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import dual_palm_frames
 from go2_pvcnn.control.m1_bimanual_coordination.contact_summary import (
     ContactSummary,
     summarize_contacts,
@@ -804,12 +804,12 @@ class M1DualPandaO6BimanualWrapper:
             raw_env = self.env.unwrapped if hasattr(self.env, "unwrapped") else self.env
             physics_dt = float(getattr(raw_env, "physics_dt", 0.005))
             dlo_kwargs = {
-                "dlo_backend": DeformXWireBackend.from_config(
+                "dlo_backend": DeformXDualWireBackend.from_config(
                     py_dt=float(os.environ.get("M1_DEFORMX_PY_DT", "1e-5")),
                     isaac_dt=physics_dt,
                     base_radius=float(os.environ.get("M1_DEFORMX_RADIUS", "0.0025")),
                 ),
-                "dlo_frame_provider": right_palm_frame,
+                "dlo_frame_provider": dual_palm_frames,
             }
         if not self._fingertip_priors:
             if supplied_runtime is None:
