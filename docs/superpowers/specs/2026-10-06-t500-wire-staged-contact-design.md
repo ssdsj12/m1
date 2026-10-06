@@ -96,11 +96,12 @@ Wire coupling has an explicit episode-local state machine:
    - Enter only after both sides are latched.
    - Initialize a DeformX rod representing the held span from the measured
      scene centerline, not from the historical palm-to-palm segment.
-   - Reject the transition when either palm-to-station error exceeds 0.005 m
-     or any input is non-finite.
-   - Once accepted, the existing dual palm frames drive the two Cosserat
-     endpoints and DeformX predictions feed the existing wire trajectory
-     planner.
+   - Reject the transition when either measured thumb/index pinch-center to
+     station error exceeds 0.005 m or any input is non-finite.
+   - Once accepted, a virtual grasp frame rigidly attached to each palm drives
+     its Cosserat endpoint. The frame origin is the measured pinch center, not
+     the palm-body origin, so the endpoint begins on the wire without a jump.
+     DeformX predictions then feed the existing wire trajectory planner.
 5. `SAFE_HOLD`
    - Enter on post-bind contact dropout, DeformX failure, non-finite geometry,
      infeasible WBC, or rejected binding.
@@ -147,9 +148,11 @@ semantics.
 
 The backend receives an explicit `bind(initial_centerline, left_frame,
 right_frame)` call. `step()` before a successful bind is invalid and cannot
-implicitly construct a rod. Binding initializes the rod at the scene-derived
-left/right grasp stations, checks continuity, and records one immutable bind
-event for diagnostics.
+implicitly construct a rod. The supplied frames are virtual grasp frames:
+their poses are captured from each thumb/index pinch center at bind time and
+their transforms relative to the corresponding palm are held fixed afterward.
+Binding initializes the rod at the scene-derived left/right grasp stations,
+checks continuity, and records one immutable bind event for diagnostics.
 
 The initial implementation models only the span held between the two grasp
 stations. The two free outer tails remain part of the rigid USD proxy but are
@@ -214,7 +217,7 @@ Every diagnostic record includes:
 - selected object and resolved target prim path;
 - coupling state and transition reason;
 - measured centerline midpoint, tangent, radius, and grasp stations;
-- left/right station error;
+- left/right pinch-center-to-station error and palm-to-grasp-frame transform;
 - raw and target-filtered contact masks and debounce counters;
 - bind accepted/rejected flag and initial continuity error;
 - DeformX elapsed time and impulse norms after binding;
@@ -236,8 +239,11 @@ contract. Diagnostics must not change solver behavior.
 - Verify raw-only contact does not latch, 4 filtered ticks do not latch, and
   the fifth consecutive tick does.
 - Verify unilateral contact holds only the latched side.
+- Verify virtual grasp frames start at the measured thumb/index pinch centers,
+  then move rigidly with their palms.
 - Verify DeformX cannot step before bind, initializes from the measured
-  centerline, rejects mismatch above 0.005 m, and resets deterministically.
+  centerline, rejects pinch-center mismatch above 0.005 m, and resets
+  deterministically.
 - Verify rejected WBC candidates do not mutate latch state, bind state,
   backend state, last safe command, or `latest_wire_goal`.
 - Verify post-bind dropout enters `SAFE_HOLD` without reinitialization.
@@ -258,8 +264,8 @@ contract. Diagnostics must not change solver behavior.
 2. A longer fixed-seed smoke must demonstrate, in order,
    `SCENE_TRACKED -> APPROACH_ENDPOINTS -> CONTACT_LATCHING -> COSSERAT_BOUND`.
 3. The smoke fails on NaN/Inf, wrong target prim, same-station targeting,
-   implicit pre-contact binding, missing bilateral contact, continuity error
-   above 0.005 m, or traceback.
+   implicit pre-contact binding, missing bilateral contact, pinch-center
+   continuity error above 0.005 m, or traceback.
 
 Formal lift or deformable visual motion is not a success criterion for this
 stage and must not be claimed from these tests.
@@ -275,7 +281,7 @@ The stage is complete only when all of the following are evidenced:
    contact masks.
 4. Each side is stable for 5 consecutive ticks before latching.
 5. DeformX remains uninitialized before bilateral latch and binds exactly once
-   afterward with at most 0.005 m endpoint mismatch.
+   afterward with at most 0.005 m pinch-center-to-station mismatch.
 6. The bind transition does not cause a target discontinuity above 0.005 m.
 7. Atomic rejection and reset tests pass without state leakage.
 8. Existing CPU regression tests pass with the thread cap, and the GPU0 smoke
