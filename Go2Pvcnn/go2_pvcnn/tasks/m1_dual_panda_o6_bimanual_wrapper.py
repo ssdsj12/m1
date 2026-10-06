@@ -52,6 +52,8 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     build_catalog_grasp_goal_provider,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
+from go2_pvcnn.control.m1_bimanual_coordination.deformx_adapter import DeformXWireBackend
+from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import right_palm_frame
 from go2_pvcnn.control.m1_bimanual_coordination.contact_summary import (
     ContactSummary,
     summarize_contacts,
@@ -797,9 +799,19 @@ class M1DualPandaO6BimanualWrapper:
     ) -> BimanualRuntime:
         """Attach the two approved workers without a second artifact load."""
 
+        dlo_kwargs = {}
+        if os.environ.get("M1_ENABLE_DEFORMX", "0") == "1":
+            dlo_kwargs = {
+                "dlo_backend": DeformXWireBackend.from_config(
+                    py_dt=float(os.environ.get("M1_DEFORMX_PY_DT", "1e-5")),
+                    isaac_dt=float(self.env.physics_dt),
+                    base_radius=float(os.environ.get("M1_DEFORMX_RADIUS", "0.0025")),
+                ),
+                "dlo_frame_provider": right_palm_frame,
+            }
         if not self._fingertip_priors:
             if supplied_runtime is None:
-                return BimanualRuntime(grasp_goal_provider=self._grasp_goal_provider)
+                return BimanualRuntime(grasp_goal_provider=self._grasp_goal_provider, **dlo_kwargs)
             if self._grasp_goal_provider is not None:
                 if getattr(supplied_runtime, "_grasp_goal", None) is not None:
                     raise ValueError(
@@ -816,6 +828,7 @@ class M1DualPandaO6BimanualWrapper:
                 left_hand_mpc=O6HandMpc(expert_prior=left_prior),
                 right_hand_mpc=O6HandMpc(expert_prior=right_prior),
                 grasp_goal_provider=self._grasp_goal_provider,
+                **dlo_kwargs,
             )
         controllers: list[tuple[object, object]] = []
         for side, prior in (("left", left_prior), ("right", right_prior)):
