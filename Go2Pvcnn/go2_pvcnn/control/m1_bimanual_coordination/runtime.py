@@ -163,6 +163,8 @@ class BimanualRuntime:
         motion_primitive: BimanualMotionPrimitive | None = None,
         grasp_goal: BimanualGraspGoal | None = None,
         grasp_goal_provider: GraspGoalProvider | None = None,
+        dlo_backend=None,
+        dlo_frame_provider=None,
     ) -> None:
         if grasp_goal is not None and grasp_goal_provider is not None:
             raise ValueError("grasp_goal and grasp_goal_provider are mutually exclusive")
@@ -198,6 +200,13 @@ class BimanualRuntime:
             grasp_goal if grasp_goal is not None else self.mission.grasp_goal
         )
         self._grasp_goal_provider = grasp_goal_provider
+        if dlo_backend is not None and not callable(getattr(dlo_backend, "step", None)):
+            raise TypeError("dlo_backend must expose step()")
+        if dlo_frame_provider is not None and not callable(dlo_frame_provider):
+            raise TypeError("dlo_frame_provider must be callable")
+        self.dlo_backend = dlo_backend
+        self.dlo_frame_provider = dlo_frame_provider
+        self.latest_dlo_step = None
         self._step = 0
         self._counts = {"object": 0, "arm": 0, "hand": 0, "wbc": 0}
         self._last_snapshot: BimanualSnapshot | None = None
@@ -484,6 +493,17 @@ class BimanualRuntime:
             raise TypeError("snapshot must be BimanualSnapshot")
         if self._last_snapshot is not None:
             validate_monotonic_snapshot(self._last_snapshot, snapshot)
+
+        # DeformX owns the fine-rate wire integration.  The frame provider is
+        # intentionally injected by Isaac-facing code so the core runtime
+        # remains independent of USD/Omniverse types.
+        if self.dlo_backend is not None:
+            if self.dlo_frame_provider is None:
+                raise RuntimeError("dlo_frame_provider is required with dlo_backend")
+            frame = self.dlo_frame_provider(snapshot)
+            if not isinstance(frame, dict):
+                raise TypeError("dlo_frame_provider must return a mapping of frame fields")
+            self.latest_dlo_step = self.dlo_backend.step(**frame)
 
         object_solution = self._last_object
         arm_solution = self._last_arm
