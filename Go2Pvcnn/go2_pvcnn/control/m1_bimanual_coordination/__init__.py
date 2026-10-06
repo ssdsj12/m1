@@ -93,6 +93,19 @@ from .object_catalog import (
     load_catalog,
 )
 from .wire_scene_geometry import WireSceneGeometry, build_wire_scene_geometry
+from .wire_coupling import (
+    WireCouplingPhase,
+    WireCouplingProposal,
+    WireCouplingState,
+    propose_wire_coupling,
+)
+from .dlo_frame_provider import (
+    PalmGraspAttachment,
+    capture_palm_grasp_attachment,
+    dual_palm_attached_grasp_frames,
+    dual_palm_frames,
+    right_palm_frame,
+)
 from .task_goal import (
     DEFAULT_CATALOG_DIMENSIONS,
     build_catalog_grasp_goal,
@@ -187,6 +200,15 @@ __all__ = [
     "load_catalog",
     "WireSceneGeometry",
     "build_wire_scene_geometry",
+    "WireCouplingPhase",
+    "WireCouplingProposal",
+    "WireCouplingState",
+    "propose_wire_coupling",
+    "PalmGraspAttachment",
+    "capture_palm_grasp_attachment",
+    "dual_palm_attached_grasp_frames",
+    "dual_palm_frames",
+    "right_palm_frame",
     "resolve_target_object_ids",
     "DEFAULT_CATALOG_DIMENSIONS",
     "build_catalog_grasp_goal",
