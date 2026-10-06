@@ -118,53 +118,115 @@ class DeformXDualWireBackend:
         self.config = config
         self._engine = None
         self._frame_state_type = None
+        self._bind_count = 0
 
     @classmethod
     def from_config(cls, **kwargs: Any) -> "DeformXDualWireBackend":
         _, Config, _, _ = _load_deformx()
         return cls(Config(**kwargs))
 
+    @property
+    def is_bound(self) -> bool:
+        """Whether an initial centerline and both virtual grasp frames are bound."""
+
+        return self._engine is not None
+
+    @property
+    def bind_count(self) -> int:
+        """Number of successful binds since the last reset."""
+
+        return self._bind_count
+
+    @staticmethod
+    def _frame_with_type(frame_state_type: Any, values: dict[str, np.ndarray]):
+        zeros = np.zeros(3, dtype=np.float64)
+        try:
+            position = np.asarray(values["position"], dtype=np.float64)
+            director = np.asarray(values["director"], dtype=np.float64)
+            velocity = np.asarray(values.get("velocity", zeros), dtype=np.float64)
+            acceleration = np.asarray(values.get("acceleration", zeros), dtype=np.float64)
+            omega = np.asarray(values.get("omega", zeros), dtype=np.float64)
+            alpha = np.asarray(values.get("alpha", zeros), dtype=np.float64)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("dual DeformX frame fields must be numeric") from exc
+        frame_values = (position, director, velocity, acceleration, omega, alpha)
+        if not all(np.isfinite(value).all() for value in frame_values):
+            raise ValueError("dual DeformX frame fields must be finite")
+        return frame_state_type(
+            position=position,
+            director=director,
+            velocity=velocity,
+            acceleration=acceleration,
+            omega=omega,
+            alpha=alpha,
+        )
+
     def _frame(self, values: dict[str, np.ndarray]):
         if self._frame_state_type is None:
             raise RuntimeError("dual backend frame type is not initialized")
-        zeros = np.zeros(3, dtype=np.float64)
-        return self._frame_state_type(
-            position=np.asarray(values["position"], dtype=np.float64),
-            director=np.asarray(values["director"], dtype=np.float64),
-            velocity=np.asarray(values.get("velocity", zeros), dtype=np.float64),
-            acceleration=np.asarray(values.get("acceleration", zeros), dtype=np.float64),
-            omega=np.asarray(values.get("omega", zeros), dtype=np.float64),
-            alpha=np.asarray(values.get("alpha", zeros), dtype=np.float64),
-        )
+        return self._frame_with_type(self._frame_state_type, values)
 
-    def _initialize(self, left_values: dict[str, np.ndarray], right_values: dict[str, np.ndarray]) -> None:
+    def bind(
+        self,
+        initial_state: DloCenterlineState,
+        left_frame: dict[str, np.ndarray],
+        right_frame: dict[str, np.ndarray],
+        *,
+        max_endpoint_error_m: float = 0.005,
+    ) -> None:
+        """Bind once after checking both virtual frames match centerline endpoints."""
+
+        try:
+            max_endpoint_error_m = float(max_endpoint_error_m)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("max_endpoint_error_m must be positive and finite") from exc
+        if not np.isfinite(max_endpoint_error_m) or max_endpoint_error_m <= 0.0:
+            raise ValueError("max_endpoint_error_m must be positive and finite")
+        if self.is_bound:
+            raise RuntimeError("dual DeformX backend is already bound")
+        if not isinstance(initial_state, DloCenterlineState):
+            raise TypeError("initial_state must be DloCenterlineState")
+
+        positions = np.asarray(initial_state.positions, dtype=np.float64)
+        if positions.ndim != 2 or positions.shape[1] != 3 or positions.shape[0] < 2:
+            raise ValueError("centerline must contain at least two XYZ points")
+        if not np.isfinite(positions).all():
+            raise ValueError("centerline positions must be finite")
+        segments = np.diff(positions, axis=0)
+        segment_lengths = np.linalg.norm(segments, axis=1)
+        if not np.isfinite(segment_lengths).all() or np.any(segment_lengths <= 1.0e-8):
+            raise ValueError("centerline segments must be distinct and finite")
+
         Engine, _, FrameState, RodInitialState = _load_deformx()
-        self._frame_state_type = FrameState
-        left = self._frame(left_values)
-        right = self._frame(right_values)
-        delta = right.position - left.position
-        length = float(np.linalg.norm(delta))
-        if not np.isfinite(length) or length <= 1.0e-4:
-            raise ValueError("dual DeformX endpoints must be distinct and finite")
-        direction = delta / length
+        left = self._frame_with_type(FrameState, left_frame)
+        right = self._frame_with_type(FrameState, right_frame)
+        left_error = float(np.linalg.norm(left.position - positions[0]))
+        right_error = float(np.linalg.norm(right.position - positions[-1]))
+        if left_error > max_endpoint_error_m or right_error > max_endpoint_error_m:
+            raise ValueError("dual DeformX frame endpoint error exceeds max_endpoint_error_m")
+
+        direction = segments[0] / segment_lengths[0]
         normal = np.array([0.0, 0.0, 1.0], dtype=np.float64)
         if abs(float(np.dot(direction, normal))) > 0.9:
             normal = np.array([0.0, 1.0, 0.0], dtype=np.float64)
         normal -= float(np.dot(normal, direction)) * direction
         normal /= np.linalg.norm(normal)
-        config = replace(self.config, base_length=length)
+        config = replace(self.config, base_length=float(segment_lengths.sum()))
         rod_initial = RodInitialState(
-            start=left.position.copy(),
+            start=positions[0].copy(),
             direction=direction,
             normal=normal,
         )
-        self._engine = Engine(
+        engine = Engine(
             config,
             rod_initial_state=rod_initial,
             frame_initial_state=left,
             second_frame_initial_state=right,
         )
+        self._engine = engine
+        self._frame_state_type = FrameState
         self.config = config
+        self._bind_count = 1
 
     def step(
         self,
@@ -172,7 +234,7 @@ class DeformXDualWireBackend:
         right_frame: dict[str, np.ndarray],
     ) -> DualDloStepResult:
         if self._engine is None:
-            self._initialize(left_frame, right_frame)
+            raise RuntimeError("dual DeformX backend requires bind() before step()")
         left = self._frame(left_frame)
         right = self._frame(right_frame)
         impulse = self._engine.update_dual_frame_state(left, right)
@@ -195,6 +257,7 @@ class DeformXDualWireBackend:
 
         self._engine = None
         self._frame_state_type = None
+        self._bind_count = 0
 
 
 __all__ = [
