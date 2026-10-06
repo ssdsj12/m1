@@ -127,6 +127,12 @@ def test_play_config_omission_keeps_legacy_box_and_does_not_load_catalog(
     class FakeCfg:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
+            self.target_object_id = kwargs.get("target_object_id")
+            self.target_contact_prim_path = (
+                "{ENV_REGEX_NS}/Box"
+                if self.target_object_id in {None, "box"}
+                else f"{{ENV_REGEX_NS}}/{self.target_object_id}"
+            )
             self.object_catalog = kwargs.get("object_catalog")
             self.object_instances = kwargs.get("object_instances", ())
             self.scene = type("Scene", (), {"num_envs": 99})()
@@ -135,6 +141,8 @@ def test_play_config_omission_keeps_legacy_box_and_does_not_load_catalog(
     monkeypatch.setattr(module, "_load_env_cfg_type", lambda: FakeCfg)
     cfg = module.build_play_config(seed=7, object_id=None)
 
+    assert cfg.target_object_id is None
+    assert cfg.target_contact_prim_path == "{ENV_REGEX_NS}/Box"
     assert cfg.object_catalog is None
     assert cfg.object_instances == ()
     assert cfg.scene.num_envs == 1
@@ -150,6 +158,12 @@ def test_play_config_accepts_prepared_legacy_empty_scene(
     class FakeCfg:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
+            self.target_object_id = kwargs.get("target_object_id")
+            self.target_contact_prim_path = (
+                "{ENV_REGEX_NS}/Box"
+                if self.target_object_id in {None, "box"}
+                else f"{{ENV_REGEX_NS}}/{self.target_object_id}"
+            )
             self.object_catalog = kwargs.get("object_catalog")
             self.object_instances = kwargs.get("object_instances", ())
             self.scene = type("Scene", (), {"num_envs": 99})()
@@ -158,7 +172,9 @@ def test_play_config_accepts_prepared_legacy_empty_scene(
     monkeypatch.setattr(module, "_load_env_cfg_type", lambda: FakeCfg)
     cfg = module.build_play_config(seed=5, object_id=None, catalog=None, object_instances=())
 
-    assert cfg.kwargs == {}
+    assert cfg.kwargs == {"target_object_id": None}
+    assert cfg.target_object_id is None
+    assert cfg.target_contact_prim_path == "{ENV_REGEX_NS}/Box"
     assert cfg.object_catalog is None
     assert cfg.object_instances == ()
     assert cfg.scene.num_envs == 1
@@ -171,7 +187,7 @@ def test_play_config_builds_catalog_scene_for_valid_object_id(
     module = _load_play_module()
     catalog = object()
     instances = (
-        ObjectInstance("bottle_000", "bottle", (0.65, 0.0, 1.20)),
+        ObjectInstance("wire_000", "wire", (0.65, 0.0, 1.20)),
         ObjectInstance("cube_000", "cube", (0.65, 0.30, 1.20)),
     )
     monkeypatch.setattr(
@@ -183,21 +199,41 @@ def test_play_config_builds_catalog_scene_for_valid_object_id(
     class FakeCfg:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
+            self.target_object_id = kwargs["target_object_id"]
+            self.target_contact_prim_path = f"{{ENV_REGEX_NS}}/{self.target_object_id}"
             self.object_catalog = kwargs["object_catalog"]
             self.object_instances = kwargs["object_instances"]
-            self.scene = type("Scene", (), {"num_envs": 99})()
+            target_sensor = type(
+                "Sensor",
+                (),
+                {"filter_prim_paths_expr": [self.target_contact_prim_path]},
+            )()
+            self.scene = type(
+                "Scene",
+                (),
+                {
+                    "num_envs": 99,
+                    "left_thumb_distal_target_contact": target_sensor,
+                },
+            )()
             self.seed = None
 
     monkeypatch.setattr(module, "_load_env_cfg_type", lambda: FakeCfg)
-    cfg = module.build_play_config(seed=11, object_id="bottle_000")
+    cfg = module.build_play_config(seed=11, object_id="wire_000")
 
     assert cfg.kwargs == {
+        "target_object_id": "wire_000",
         "object_catalog": catalog,
         "object_instances": instances,
     }
+    assert cfg.target_object_id == "wire_000"
+    assert cfg.target_contact_prim_path == "{ENV_REGEX_NS}/wire_000"
+    assert cfg.scene.left_thumb_distal_target_contact.filter_prim_paths_expr == [
+        "{ENV_REGEX_NS}/wire_000"
+    ]
     assert cfg.object_catalog is catalog
     assert tuple(instance.object_id for instance in cfg.object_instances) == (
-        "bottle_000",
+        "wire_000",
         "cube_000",
     )
     assert cfg.scene.num_envs == 1
@@ -226,6 +262,32 @@ def test_unknown_play_object_id_is_rejected_before_catalog_or_cfg(
         module.build_play_config(seed=42, object_id="missing_000")
 
     assert calls == []
+
+
+def test_disabled_prepared_target_is_rejected_before_cfg_construction(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = _load_play_module()
+    monkeypatch.setattr(
+        module,
+        "_load_env_cfg_type",
+        lambda: (_ for _ in ()).throw(AssertionError("cfg constructor was reached")),
+    )
+
+    with pytest.raises(ValueError, match="unknown target object_id"):
+        module.build_play_config(
+            seed=42,
+            object_id="wire_000",
+            catalog=object(),
+            object_instances=(
+                ObjectInstance(
+                    "wire_000",
+                    "wire",
+                    (0.65, 0.0, 1.20),
+                    enabled=False,
+                ),
+            ),
+        )
 
 
 def _write_play_catalog(tmp_path: Path) -> tuple[Path, Path]:

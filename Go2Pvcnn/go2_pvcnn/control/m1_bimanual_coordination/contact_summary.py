@@ -1,4 +1,4 @@
-"""Canonical Box-filtered contact facts for the dual O6 hands."""
+"""Canonical selected-target-filtered contact facts for the dual O6 hands."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def summarize_contacts(
     raw_forces_w: torch.Tensor,
     threshold_n: float = 0.2,
 ) -> ContactSummary:
-    """Select one body per digit and derive Box contact from filtered force."""
+    """Select one body per digit and derive target contact from filtered force."""
 
     if side not in {"left", "right"}:
         raise ValueError("side must be left or right")
@@ -74,7 +74,7 @@ def summarize_contacts(
     raw_max = float(raw_norms.max().item())
     consistency_reason = None
     if filtered_max <= float(threshold_n) < raw_max:
-        consistency_reason = "raw_contact_without_box_contact"
+        consistency_reason = "raw_contact_without_target_contact"
     return ContactSummary(
         side=side,
         selected_names=tuple(selected_names),

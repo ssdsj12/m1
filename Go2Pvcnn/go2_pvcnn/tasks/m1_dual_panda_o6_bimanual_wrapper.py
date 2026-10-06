@@ -242,12 +242,12 @@ class M1DualPandaO6SnapshotAdapter:
             tuple(_exact_sensor_body_id(right_sensor_names, name) for name in candidates)
             for candidates in _o6_contact_body_candidates("right")
         )
-        self.left_filtered_sensor_names = tuple(
-            tuple(f"{body_name}_box_contact" for body_name in candidates)
+        self.left_filtered_target_sensor_names = tuple(
+            tuple(f"{body_name}_target_contact" for body_name in candidates)
             for candidates in _o6_contact_body_candidates("left")
         )
-        self.right_filtered_sensor_names = tuple(
-            tuple(f"{body_name}_box_contact" for body_name in candidates)
+        self.right_filtered_target_sensor_names = tuple(
+            tuple(f"{body_name}_target_contact" for body_name in candidates)
             for candidates in _o6_contact_body_candidates("right")
         )
         self._sequence = 0
@@ -443,7 +443,7 @@ class M1DualPandaO6SnapshotAdapter:
         contact_body_id_candidates: tuple[tuple[int, ...], ...],
         contact_sensor_id_candidates: tuple[tuple[int, ...], ...],
         sensor_name: str,
-        filtered_sensor_names: tuple[tuple[str, ...], ...],
+        filtered_target_sensor_names: tuple[tuple[str, ...], ...],
         active_generalized_ids: tuple[int, ...],
         mimic_specs: tuple[tuple[int, int, float], ...],
     ) -> SideHandState:
@@ -457,15 +457,19 @@ class M1DualPandaO6SnapshotAdapter:
             for candidates in contact_sensor_id_candidates
             for sensor_id in candidates
         )
-        flat_filtered_sensor_names = tuple(
-            name for candidates in filtered_sensor_names for name in candidates
+        flat_filtered_target_sensor_names = tuple(
+            name
+            for candidates in filtered_target_sensor_names
+            for name in candidates
         )
         filtered_forces_w = []
-        for filtered_sensor_name in flat_filtered_sensor_names:
-            force_matrix_w = self.env.scene[filtered_sensor_name].data.force_matrix_w
+        for filtered_target_sensor_name in flat_filtered_target_sensor_names:
+            force_matrix_w = self.env.scene[
+                filtered_target_sensor_name
+            ].data.force_matrix_w
             if force_matrix_w is None:
                 raise RuntimeError(
-                    f"{filtered_sensor_name} must filter contacts against the box"
+                    f"{filtered_target_sensor_name} must filter contacts against the selected target"
                 )
             filtered_forces_w.append(force_matrix_w[env, 0, 0])
         summary = summarize_contacts(
@@ -590,7 +594,7 @@ class M1DualPandaO6SnapshotAdapter:
                 self.left_contact_body_id_candidates,
                 self.left_contact_sensor_id_candidates,
                 "o6_contacts",
-                self.left_filtered_sensor_names,
+                self.left_filtered_target_sensor_names,
                 self.left_hand_generalized_ids,
                 self.left_mimic_specs,
             ),
@@ -600,7 +604,7 @@ class M1DualPandaO6SnapshotAdapter:
                 self.right_contact_body_id_candidates,
                 self.right_contact_sensor_id_candidates,
                 "right_o6_contacts",
-                self.right_filtered_sensor_names,
+                self.right_filtered_target_sensor_names,
                 self.right_hand_generalized_ids,
                 self.right_mimic_specs,
             ),

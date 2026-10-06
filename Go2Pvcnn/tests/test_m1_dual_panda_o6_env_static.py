@@ -46,9 +46,12 @@ def test_env_is_200_hz_fixed_condition_and_43_effort():
     assert 'for name in ("left_o6", "right_o6")' in source
     assert "stiffness=80.0" in source
     assert "damping=5.0" in source
-    assert "def _box_contact_sensor(" in source
+    assert "def _target_contact_sensor(" in source
     assert source.count('filter_prim_paths_expr=["{ENV_REGEX_NS}/Box"]') == 1
-    assert source.count("= _box_contact_sensor(") == 18
+    assert source.count("= _target_contact_sensor(") == 18
+    assert source.count("_target_contact = _target_contact_sensor(") == 18
+    assert 'target_contact_prim_path: str = "{ENV_REGEX_NS}/Box"' in source
+    assert "sensor.filter_prim_paths_expr = [self.target_contact_prim_path]" in source
     assert "articulation_props.fix_root_link = True" in source
 
 
@@ -93,6 +96,10 @@ def test_wrapper_resolves_ids_once_and_rejects_ambiguous_names():
     assert "def _stabilize_preload_arms(" in source
     assert "contact_body_id_candidates" in source
     assert 'f"{side}_pinky_proximal"' in source
+    assert "left_filtered_target_sensor_names" in source
+    assert "right_filtered_target_sensor_names" in source
+    assert 'f"{body_name}_target_contact"' in source
+    assert "must filter contacts against the selected target" in source
     assert "state.bias + 20.0 * (target - state.q) - 8.0 * state.qd" in source
 
 

@@ -10,7 +10,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.contact_summary import summarize
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_box_filtered_force_is_the_contact_source_of_truth() -> None:
+def test_target_filtered_force_is_the_contact_source_of_truth() -> None:
     result = summarize_contacts(
         side="right",
         candidate_names=(("right_index_proximal", "right_index_distal"),),
@@ -29,7 +29,7 @@ def test_box_filtered_force_is_the_contact_source_of_truth() -> None:
     assert result.consistency_reason is None
 
 
-def test_raw_force_without_box_force_is_not_box_contact() -> None:
+def test_raw_force_without_target_force_is_not_target_contact() -> None:
     result = summarize_contacts(
         side="right",
         candidate_names=(("right_thumb_distal",),),
@@ -39,7 +39,7 @@ def test_raw_force_without_box_force_is_not_box_contact() -> None:
     )
 
     assert not result.contact_mask.any()
-    assert result.consistency_reason == "raw_contact_without_box_contact"
+    assert result.consistency_reason == "raw_contact_without_target_contact"
 
 
 def test_selection_is_deterministic_when_filtered_forces_are_zero() -> None:
@@ -71,15 +71,15 @@ def test_isaac_adapter_uses_deterministic_simulation_timestamps() -> None:
     assert "time.monotonic_ns()" not in source
 
 
-def test_box_filter_uses_one_sensor_body_per_contact_sensor() -> None:
+def test_target_filter_uses_one_sensor_body_per_contact_sensor() -> None:
     env_source = (
         ROOT / "go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_env_cfg.py"
     ).read_text()
     wrapper_source = (
         ROOT / "go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_wrapper.py"
     ).read_text()
-    assert "def _box_contact_sensor(" in env_source
-    assert "left_thumb_distal_box_contact" in env_source
-    assert "right_pinky_distal_box_contact" in env_source
+    assert "def _target_contact_sensor(" in env_source
+    assert "left_thumb_distal_target_contact" in env_source
+    assert "right_pinky_distal_target_contact" in env_source
     assert "filter_prim_paths_expr=[]" in env_source
-    assert "filtered_sensor_names" in wrapper_source
+    assert "filtered_target_sensor_names" in wrapper_source

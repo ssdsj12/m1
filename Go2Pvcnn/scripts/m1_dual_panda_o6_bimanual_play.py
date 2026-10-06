@@ -244,9 +244,10 @@ def build_play_config(
 
     cfg_type = _load_env_cfg_type()
     if catalog is None:
-        cfg = cfg_type()
+        cfg = cfg_type(target_object_id=object_id)
     else:
         cfg = cfg_type(
+            target_object_id=object_id,
             object_catalog=catalog,
             object_instances=tuple(object_instances),
         )

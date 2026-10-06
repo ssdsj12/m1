@@ -21,6 +21,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
 )
 from go2_pvcnn.tasks.m1_object_scene import (
     build_object_scene_cfg,
+    select_target_and_obstacles,
     validate_scene_object_ids,
 )
 from go2_pvcnn.tasks.m1_smoke_env_cfg import M1SmokeEnvCfg, M1SmokeSceneCfg
@@ -55,8 +56,8 @@ for name in ("left_o6", "right_o6"):
     )
 
 
-def _box_contact_sensor(body_name: str) -> ContactSensorCfg:
-    """Create an Isaac Lab-supported one-body-to-Box filtered sensor."""
+def _target_contact_sensor(body_name: str) -> ContactSensorCfg:
+    """Create a one-body sensor whose target filter is rebound by the env cfg."""
 
     side = body_name.split("_", 1)[0]
     return ContactSensorCfg(
@@ -115,24 +116,24 @@ class M1DualPandaO6BimanualSceneCfg(M1SmokeSceneCfg):
         history_length=3,
         track_air_time=False,
     )
-    left_thumb_distal_box_contact = _box_contact_sensor("left_thumb_distal")
-    left_index_proximal_box_contact = _box_contact_sensor("left_index_proximal")
-    left_index_distal_box_contact = _box_contact_sensor("left_index_distal")
-    left_middle_proximal_box_contact = _box_contact_sensor("left_middle_proximal")
-    left_middle_distal_box_contact = _box_contact_sensor("left_middle_distal")
-    left_ring_proximal_box_contact = _box_contact_sensor("left_ring_proximal")
-    left_ring_distal_box_contact = _box_contact_sensor("left_ring_distal")
-    left_pinky_proximal_box_contact = _box_contact_sensor("left_pinky_proximal")
-    left_pinky_distal_box_contact = _box_contact_sensor("left_pinky_distal")
-    right_thumb_distal_box_contact = _box_contact_sensor("right_thumb_distal")
-    right_index_proximal_box_contact = _box_contact_sensor("right_index_proximal")
-    right_index_distal_box_contact = _box_contact_sensor("right_index_distal")
-    right_middle_proximal_box_contact = _box_contact_sensor("right_middle_proximal")
-    right_middle_distal_box_contact = _box_contact_sensor("right_middle_distal")
-    right_ring_proximal_box_contact = _box_contact_sensor("right_ring_proximal")
-    right_ring_distal_box_contact = _box_contact_sensor("right_ring_distal")
-    right_pinky_proximal_box_contact = _box_contact_sensor("right_pinky_proximal")
-    right_pinky_distal_box_contact = _box_contact_sensor("right_pinky_distal")
+    left_thumb_distal_target_contact = _target_contact_sensor("left_thumb_distal")
+    left_index_proximal_target_contact = _target_contact_sensor("left_index_proximal")
+    left_index_distal_target_contact = _target_contact_sensor("left_index_distal")
+    left_middle_proximal_target_contact = _target_contact_sensor("left_middle_proximal")
+    left_middle_distal_target_contact = _target_contact_sensor("left_middle_distal")
+    left_ring_proximal_target_contact = _target_contact_sensor("left_ring_proximal")
+    left_ring_distal_target_contact = _target_contact_sensor("left_ring_distal")
+    left_pinky_proximal_target_contact = _target_contact_sensor("left_pinky_proximal")
+    left_pinky_distal_target_contact = _target_contact_sensor("left_pinky_distal")
+    right_thumb_distal_target_contact = _target_contact_sensor("right_thumb_distal")
+    right_index_proximal_target_contact = _target_contact_sensor("right_index_proximal")
+    right_index_distal_target_contact = _target_contact_sensor("right_index_distal")
+    right_middle_proximal_target_contact = _target_contact_sensor("right_middle_proximal")
+    right_middle_distal_target_contact = _target_contact_sensor("right_middle_distal")
+    right_ring_proximal_target_contact = _target_contact_sensor("right_ring_proximal")
+    right_ring_distal_target_contact = _target_contact_sensor("right_ring_distal")
+    right_pinky_proximal_target_contact = _target_contact_sensor("right_pinky_proximal")
+    right_pinky_distal_target_contact = _target_contact_sensor("right_pinky_distal")
     palm_contacts = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/left_arm/left_o6/left_hand_base_link", history_length=3
     )
@@ -216,9 +217,47 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
     # scene entries without changing that legacy asset.
     object_catalog: ObjectCatalog | None = None
     object_instances: tuple[ObjectInstance, ...] = ()
+    target_object_id: str | None = None
+    target_contact_prim_path: str = "{ENV_REGEX_NS}/Box"
 
     def __post_init__(self):
         super().__post_init__()
+        if self.target_object_id in (None, "box"):
+            self.target_contact_prim_path = "{ENV_REGEX_NS}/Box"
+        else:
+            select_target_and_obstacles(
+                self.object_instances,
+                self.target_object_id,
+            )
+            if self.object_catalog is None:
+                raise ValueError(
+                    "a non-box target_object_id requires a configured object catalog"
+                )
+            self.target_contact_prim_path = (
+                f"{{ENV_REGEX_NS}}/{self.target_object_id}"
+            )
+        for sensor_name in (
+            "left_thumb_distal_target_contact",
+            "left_index_proximal_target_contact",
+            "left_index_distal_target_contact",
+            "left_middle_proximal_target_contact",
+            "left_middle_distal_target_contact",
+            "left_ring_proximal_target_contact",
+            "left_ring_distal_target_contact",
+            "left_pinky_proximal_target_contact",
+            "left_pinky_distal_target_contact",
+            "right_thumb_distal_target_contact",
+            "right_index_proximal_target_contact",
+            "right_index_distal_target_contact",
+            "right_middle_proximal_target_contact",
+            "right_middle_distal_target_contact",
+            "right_ring_proximal_target_contact",
+            "right_ring_distal_target_contact",
+            "right_pinky_proximal_target_contact",
+            "right_pinky_distal_target_contact",
+        ):
+            sensor = getattr(self.scene, sensor_name)
+            sensor.filter_prim_paths_expr = [self.target_contact_prim_path]
         if self.object_catalog is not None:
             object_configs = build_object_scene_cfg(
                 self.object_catalog,
@@ -246,23 +285,23 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
             "platform_contacts",
             "base_contacts",
             "box_contacts",
-            "left_thumb_distal_box_contact",
-            "left_index_proximal_box_contact",
-            "left_index_distal_box_contact",
-            "left_middle_proximal_box_contact",
-            "left_middle_distal_box_contact",
-            "left_ring_proximal_box_contact",
-            "left_ring_distal_box_contact",
-            "left_pinky_proximal_box_contact",
-            "left_pinky_distal_box_contact",
-            "right_thumb_distal_box_contact",
-            "right_index_proximal_box_contact",
-            "right_index_distal_box_contact",
-            "right_middle_proximal_box_contact",
-            "right_middle_distal_box_contact",
-            "right_ring_proximal_box_contact",
-            "right_ring_distal_box_contact",
-            "right_pinky_proximal_box_contact",
-            "right_pinky_distal_box_contact",
+            "left_thumb_distal_target_contact",
+            "left_index_proximal_target_contact",
+            "left_index_distal_target_contact",
+            "left_middle_proximal_target_contact",
+            "left_middle_distal_target_contact",
+            "left_ring_proximal_target_contact",
+            "left_ring_distal_target_contact",
+            "left_pinky_proximal_target_contact",
+            "left_pinky_distal_target_contact",
+            "right_thumb_distal_target_contact",
+            "right_index_proximal_target_contact",
+            "right_index_distal_target_contact",
+            "right_middle_proximal_target_contact",
+            "right_middle_distal_target_contact",
+            "right_ring_proximal_target_contact",
+            "right_ring_distal_target_contact",
+            "right_pinky_proximal_target_contact",
+            "right_pinky_distal_target_contact",
         ):
             getattr(self.scene, sensor_name).update_period = PHYSICS_DT
