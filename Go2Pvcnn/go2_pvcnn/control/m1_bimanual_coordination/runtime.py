@@ -24,7 +24,12 @@ from .deformx_adapter import DualDloStepResult
 from .dlo_wire_goal import DloCenterlineState
 from .dlo_wire_trajectory import DloWireTrajectoryPlanner
 from .dlo_frame_provider import capture_palm_grasp_attachment
-from .wire_coupling import WireCouplingPhase, WireCouplingState, propose_wire_coupling
+from .wire_coupling import (
+    WireCouplingDiagnostics,
+    WireCouplingPhase,
+    WireCouplingState,
+    propose_wire_coupling,
+)
 from .hand_mpc import HandMpcInput, HandMpcSolution, O6HandMpc
 from .motion_primitives import BimanualMotionPrimitive, ManipulationTarget
 from .object_mpc import (
@@ -211,6 +216,8 @@ class BimanualRuntime:
         wire_geometry_provider=None,
         wire_coupling_state: WireCouplingState | None = None,
         wire_frame_provider=None,
+        wire_object_id: str = "wire_000",
+        wire_target_prim_path: str | None = None,
     ) -> None:
         if grasp_goal is not None and grasp_goal_provider is not None:
             raise ValueError("grasp_goal and grasp_goal_provider are mutually exclusive")
@@ -265,8 +272,16 @@ class BimanualRuntime:
         self.wire_geometry_provider = wire_geometry_provider
         self.wire_frame_provider = wire_frame_provider
         self.wire_coupling_state = wire_coupling_state or WireCouplingState.initial()
+        if not isinstance(wire_object_id, str) or not wire_object_id:
+            raise ValueError("wire_object_id must be a non-empty string")
+        if wire_target_prim_path is None:
+            wire_target_prim_path = f"{{ENV_REGEX_NS}}/{wire_object_id}"
+        if not isinstance(wire_target_prim_path, str) or not wire_target_prim_path:
+            raise ValueError("wire_target_prim_path must be a non-empty string")
+        self.wire_object_id = wire_object_id
+        self.wire_target_prim_path = wire_target_prim_path
         self._wire_attachment = None
-        self.latest_wire_diagnostics = None
+        self.latest_wire_diagnostics: WireCouplingDiagnostics | None = None
         self._auto_dlo_trajectory_planner = (
             (dlo_backend is not None or wire_geometry_provider is not None)
             and dlo_trajectory_planner is None
@@ -597,6 +612,7 @@ class BimanualRuntime:
 
     def _commit_wire(self, snapshot, geometry, proposal, failure_reason):
         """Commit only at a feasible WBC boundary; failures freeze accepted data."""
+        previous_phase = self.wire_coupling_state.phase
         next_state = self.wire_coupling_state if proposal is None else proposal.next_state
         if failure_reason is None:
             failure_reason = next_state.failure_reason
@@ -632,18 +648,40 @@ class BimanualRuntime:
             self._wire_attachment = attachment
             self.latest_dlo_step = dlo_step
         self.wire_coupling_state = next_state
-        self.latest_wire_diagnostics = {
-            "phase": next_state.phase.name,
-            "failure_reason": failure_reason,
-            "left_contact_ticks": next_state.left_contact_ticks,
-            "right_contact_ticks": next_state.right_contact_ticks,
-            "left_latched": next_state.left_latched,
-            "right_latched": next_state.right_latched,
-            "bind_count": next_state.bind_count,
-            "left_pinch_error_m": None if proposal is None else proposal.left_pinch_error_m,
-            "right_pinch_error_m": None if proposal is None else proposal.right_pinch_error_m,
-            "wire_goal_committed": failure_reason is None,
-        }
+        if geometry is not None and proposal is not None:
+            if failure_reason is not None:
+                transition_reason = failure_reason
+            elif next_state.phase is not previous_phase:
+                transition_reason = f"{previous_phase.name}->{next_state.phase.name}"
+            else:
+                transition_reason = "state_unchanged"
+            deformx_elapsed_time = (
+                float(dlo_step.elapsed_time)
+                if next_state.phase is WireCouplingPhase.COSSERAT_BOUND
+                and dlo_step is not None
+                else 0.0
+            )
+            self.latest_wire_diagnostics = WireCouplingDiagnostics(
+                object_id=self.wire_object_id,
+                target_prim_path=self.wire_target_prim_path,
+                state=next_state.phase.name,
+                transition_reason=transition_reason,
+                centerline_midpoint_b=geometry.center_b,
+                tangent_b=geometry.tangent_b,
+                radius_m=geometry.radius_m,
+                left_station_b=geometry.left_station_b,
+                right_station_b=geometry.right_station_b,
+                left_pinch_error_m=proposal.left_pinch_error_m,
+                right_pinch_error_m=proposal.right_pinch_error_m,
+                left_contact_mask=snapshot.left_hand.contact_mask,
+                right_contact_mask=snapshot.right_hand.contact_mask,
+                left_contact_ticks=next_state.left_contact_ticks,
+                right_contact_ticks=next_state.right_contact_ticks,
+                bind_count=next_state.bind_count,
+                deformx_elapsed_time=deformx_elapsed_time,
+                wbc_feasible=True,
+                wire_goal_committed=failure_reason is None,
+            )
         return failure_reason
 
     def compute(self, snapshot: BimanualSnapshot) -> BimanualCommand:

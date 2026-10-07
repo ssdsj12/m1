@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 from collections.abc import Sequence
 
 from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
     ObjectCatalog,
     ObjectInstance,
     load_catalog,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.wire_coupling import (
+    WireCouplingDiagnostics,
 )
 
 
@@ -32,6 +37,75 @@ _DEFAULT_OBJECT_POSES: dict[str, tuple[float, float, float]] = {
 _DEFAULT_OBJECT_IDS = frozenset(
     f"{object_class}_000" for object_class in _DEFAULT_OBJECT_POSES
 )
+
+
+class _WireReportRecorder:
+    """Retain state transitions and the latest immutable diagnostic snapshot."""
+
+    def __init__(self) -> None:
+        self._transitions: list[dict[str, object]] = []
+        self._final: dict[str, object] | None = None
+        self._last_state: str | None = None
+
+    def record(self, diagnostics: WireCouplingDiagnostics) -> None:
+        if not isinstance(diagnostics, WireCouplingDiagnostics):
+            raise TypeError("diagnostics must be WireCouplingDiagnostics")
+        if self._last_state is None and diagnostics.state != "SCENE_TRACKED":
+            initial = replace(
+                diagnostics,
+                state="SCENE_TRACKED",
+                transition_reason="runtime_initialized",
+                left_contact_ticks=0,
+                right_contact_ticks=0,
+                bind_count=0,
+                deformx_elapsed_time=0.0,
+                wire_goal_committed=False,
+            )
+            self._transitions.append(initial.to_json())
+            self._last_state = initial.state
+        payload = diagnostics.to_json()
+        if diagnostics.state != self._last_state:
+            self._transitions.append(payload)
+            self._last_state = diagnostics.state
+        self._final = payload
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "transitions": list(self._transitions),
+            "final": self._final,
+        }
+
+
+def _write_wire_report_atomic(path: Path, report: dict[str, object]) -> None:
+    """Write canonical finite JSON beside its destination, then replace atomically."""
+
+    path = Path(path)
+    encoded = json.dumps(
+        report,
+        allow_nan=False,
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _metadata_sha256(value: str) -> str:
@@ -87,6 +161,12 @@ def _parser() -> argparse.ArgumentParser:
         help="local prepared object asset root used with --object-catalog",
     )
     parser.add_argument("--diagnostics", action="store_true")
+    parser.add_argument(
+        "--wire-report",
+        type=Path,
+        default=None,
+        help="atomically write staged wire state transitions and the final record",
+    )
     parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
     parser.add_argument("--fingertip-prior-artifact", type=Path, default=None)
     parser.add_argument(
@@ -317,6 +397,7 @@ def _run_with_fingertip_prior(parser, binding) -> int:
         object_instances=object_instances,
     )
     env = gym.make("Isaac-M1-DualPanda-O6-Bimanual-Lift-v0", cfg=cfg)
+    wire_report = _WireReportRecorder()
     with M1DualPandaO6BimanualWrapper(
         env,
         mode=args.mode,
@@ -325,10 +406,18 @@ def _run_with_fingertip_prior(parser, binding) -> int:
         fingertip_prior_metadata_sha256=args.fingertip_prior_metadata_sha256,
         fingertip_prior_binding=binding,
     ) as wrapper:
+        if args.object_id is not None:
+            wrapper.runtime.wire_object_id = args.object_id
+            wrapper.runtime.wire_target_prim_path = cfg.target_contact_prim_path.replace(
+                "{ENV_REGEX_NS}", "/World/envs/env_0"
+            )
         wrapper.reset(seed=args.seed)
         previous_phase = wrapper.runtime.mission.phase.name
         for step in range(args.max_steps):
             wrapper.step()
+            wire_diagnostics = wrapper.runtime.latest_wire_diagnostics
+            if wire_diagnostics is not None:
+                wire_report.record(wire_diagnostics)
             phase = wrapper.runtime.mission.phase.name
             if args.diagnostics and (phase != previous_phase or phase in {"DONE", "TERMINATED"}):
                 latest = wrapper.runtime.latest_solutions
@@ -348,6 +437,8 @@ def _run_with_fingertip_prior(parser, binding) -> int:
             if not simulation_app.is_running():
                 break
         print(f"final_phase={wrapper.runtime.mission.phase.name}", flush=True)
+    if args.wire_report is not None:
+        _write_wire_report_atomic(args.wire_report, wire_report.to_json())
     return 0
 
 

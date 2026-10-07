@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 import math
+from typing import Any
 
+import numpy as np
 import torch
 
 from .contracts import BimanualSnapshot, SideHandState
@@ -22,6 +24,129 @@ class WireCouplingPhase(Enum):
     CONTACT_LATCHING = auto()
     COSSERAT_BOUND = auto()
     SAFE_HOLD = auto()
+
+
+def _finite_vector(value: Any, name: str) -> tuple[float, float, float]:
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu().numpy()
+    try:
+        array = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise TypeError(f"{name} must contain real values") from exc
+    if array.shape != (3,):
+        raise ValueError(f"{name} must have shape (3,)")
+    if not np.isfinite(array).all():
+        raise ValueError(f"{name} must be finite")
+    return tuple(float(item) for item in array)
+
+
+def _contact_mask(value: Any, name: str) -> tuple[bool, bool, bool, bool, bool]:
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu().numpy()
+    array = np.asarray(value)
+    if array.shape != (5,):
+        raise ValueError(f"{name} must have shape (5,)")
+    if array.dtype.kind != "b":
+        raise TypeError(f"{name} must contain booleans")
+    return tuple(bool(item) for item in array)
+
+
+@dataclass(frozen=True)
+class WireCouplingDiagnostics:
+    """Immutable, JSON-safe observation of one accepted wire control tick."""
+
+    object_id: str
+    target_prim_path: str
+    state: str
+    transition_reason: str
+    centerline_midpoint_b: tuple[float, float, float]
+    tangent_b: tuple[float, float, float]
+    radius_m: float
+    left_station_b: tuple[float, float, float]
+    right_station_b: tuple[float, float, float]
+    left_pinch_error_m: float
+    right_pinch_error_m: float
+    left_contact_mask: tuple[bool, bool, bool, bool, bool]
+    right_contact_mask: tuple[bool, bool, bool, bool, bool]
+    left_contact_ticks: int
+    right_contact_ticks: int
+    bind_count: int
+    deformx_elapsed_time: float
+    wbc_feasible: bool
+    wire_goal_committed: bool
+
+    def __post_init__(self) -> None:
+        for name in ("object_id", "target_prim_path", "state", "transition_reason"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"{name} must be a non-empty string")
+        for name in (
+            "centerline_midpoint_b",
+            "tangent_b",
+            "left_station_b",
+            "right_station_b",
+        ):
+            object.__setattr__(self, name, _finite_vector(getattr(self, name), name))
+        tangent_norm = math.sqrt(sum(value * value for value in self.tangent_b))
+        if not math.isclose(tangent_norm, 1.0, rel_tol=0.0, abs_tol=1.0e-9):
+            raise ValueError("tangent_b must be a unit vector")
+        for name in (
+            "radius_m",
+            "left_pinch_error_m",
+            "right_pinch_error_m",
+            "deformx_elapsed_time",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, (bool, np.bool_)):
+                raise TypeError(f"{name} must be a real scalar")
+            try:
+                normalized = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise TypeError(f"{name} must be a real scalar") from exc
+            if not math.isfinite(normalized):
+                raise ValueError(f"{name} must be finite")
+            if normalized < 0.0 or (name == "radius_m" and normalized == 0.0):
+                qualifier = "positive" if name == "radius_m" else "non-negative"
+                raise ValueError(f"{name} must be {qualifier}")
+            object.__setattr__(self, name, normalized)
+        for name in ("left_contact_mask", "right_contact_mask"):
+            object.__setattr__(self, name, _contact_mask(getattr(self, name), name))
+        for name in ("left_contact_ticks", "right_contact_ticks", "bind_count"):
+            value = getattr(self, name)
+            if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+                raise TypeError(f"{name} must be an integer")
+            if int(value) < 0:
+                raise ValueError(f"{name} must be non-negative")
+            object.__setattr__(self, name, int(value))
+        for name in ("wbc_feasible", "wire_goal_committed"):
+            if not isinstance(getattr(self, name), (bool, np.bool_)):
+                raise TypeError(f"{name} must be bool")
+            object.__setattr__(self, name, bool(getattr(self, name)))
+
+    def to_json(self) -> dict[str, object]:
+        """Return a detached mapping accepted by ``json.dumps(..., allow_nan=False)``."""
+
+        return {
+            "object_id": self.object_id,
+            "target_prim_path": self.target_prim_path,
+            "state": self.state,
+            "transition_reason": self.transition_reason,
+            "centerline_midpoint_b": list(self.centerline_midpoint_b),
+            "tangent_b": list(self.tangent_b),
+            "radius_m": self.radius_m,
+            "left_station_b": list(self.left_station_b),
+            "right_station_b": list(self.right_station_b),
+            "left_pinch_error_m": self.left_pinch_error_m,
+            "right_pinch_error_m": self.right_pinch_error_m,
+            "left_contact_mask": list(self.left_contact_mask),
+            "right_contact_mask": list(self.right_contact_mask),
+            "left_contact_ticks": self.left_contact_ticks,
+            "right_contact_ticks": self.right_contact_ticks,
+            "bind_count": self.bind_count,
+            "deformx_elapsed_time": self.deformx_elapsed_time,
+            "wbc_feasible": self.wbc_feasible,
+            "wire_goal_committed": self.wire_goal_committed,
+        }
 
 
 @dataclass(frozen=True)
@@ -180,6 +305,7 @@ def propose_wire_coupling(
 
 
 __all__ = [
+    "WireCouplingDiagnostics",
     "WireCouplingPhase",
     "WireCouplingProposal",
     "WireCouplingState",
