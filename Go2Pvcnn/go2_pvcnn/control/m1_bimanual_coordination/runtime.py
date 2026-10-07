@@ -288,7 +288,7 @@ class BimanualRuntime:
             and dlo_trajectory_planner is None
         )
         self.dlo_trajectory_planner = (
-            DloWireTrajectoryPlanner()
+            DloWireTrajectoryPlanner(track_pinch_center=wire_geometry_provider is not None)
             if self._auto_dlo_trajectory_planner
             else dlo_trajectory_planner
         )

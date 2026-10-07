@@ -119,3 +119,26 @@ def test_plan_state_uses_distinct_stations_and_explicit_palm_standoff():
         pose = getattr(plan.object_solution, f"{side}_palm_pose")
         np.testing.assert_allclose(pose[-1, :3], station - 0.08 * normal)
         torch.testing.assert_close(pose, getattr(compatible.object_solution, f"{side}_palm_pose"))
+
+
+def test_staged_wire_palm_translation_aligns_measured_pinch_centers():
+    snapshot = _snapshot()
+    # Physical O6 palms are held at their measured orientations: their pinch
+    # centers point mostly forward, not along the wire's +/-Y approach normal.
+    for side, offset in (("left", (.090, .014, -.010)), ("right", (.070, .045, -.040))):
+        palm = getattr(snapshot, f"{side}_arm").palm_pose_b[:3]
+        tips = (palm + torch.tensor(offset, dtype=torch.float64)).repeat(5, 1)
+        tips[0, 2] += .03
+        tips[1, 2] -= .03
+        snapshot = replace(snapshot, **{f"{side}_hand": replace(
+            getattr(snapshot, f"{side}_hand"), fingertip_positions_b=tips,
+        )})
+    planner = DloWireTrajectoryPlanner(palm_speed_m_s=10., track_pinch_center=True)
+    plan = planner.plan_state(snapshot, _object_solution(), _step().state)
+    for side, station in (("left", _step().state.positions[0]), ("right", _step().state.positions[-1])):
+        arm = getattr(snapshot, f"{side}_arm")
+        pinch = getattr(snapshot, f"{side}_hand").fingertip_positions_b[:2].mean(0)
+        pose = getattr(plan.object_solution, f"{side}_palm_pose")
+        predicted_pinch = pinch + pose[-1, :3] - arm.palm_pose_b[:3]
+        np.testing.assert_allclose(predicted_pinch, station, atol=1e-12)
+        torch.testing.assert_close(pose[:, 3:], arm.palm_pose_b[3:].repeat(25, 1))

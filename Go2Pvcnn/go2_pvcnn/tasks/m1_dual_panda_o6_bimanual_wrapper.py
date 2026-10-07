@@ -838,7 +838,7 @@ class M1DualPandaO6BimanualWrapper:
             for name, value in dlo_kwargs.items():
                 setattr(supplied_runtime, name, value)
             if supplied_runtime.dlo_trajectory_planner is None:
-                supplied_runtime.dlo_trajectory_planner = DloWireTrajectoryPlanner()
+                supplied_runtime.dlo_trajectory_planner = DloWireTrajectoryPlanner(track_pinch_center=True)
                 supplied_runtime._auto_dlo_trajectory_planner = True
         if not self._fingertip_priors:
             if supplied_runtime is None:

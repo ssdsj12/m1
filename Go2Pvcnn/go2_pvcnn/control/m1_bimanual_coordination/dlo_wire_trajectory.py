@@ -74,6 +74,7 @@ class DloWireTrajectoryPlanner:
         palm_speed_m_s: float = 0.04,
         palm_standoff_m: float = 0.08,
         contact_clearance_m: float = 0.003,
+        track_pinch_center: bool = False,
     ) -> None:
         self.dt = _positive_finite("dt", dt)
         self.palm_speed_m_s = _positive_finite("palm_speed_m_s", palm_speed_m_s)
@@ -81,6 +82,9 @@ class DloWireTrajectoryPlanner:
         self.contact_clearance_m = _positive_finite(
             "contact_clearance_m", contact_clearance_m
         )
+        if not isinstance(track_pinch_center, bool):
+            raise TypeError("track_pinch_center must be bool")
+        self.track_pinch_center = track_pinch_center
 
     def plan(
         self,
@@ -109,15 +113,28 @@ class DloWireTrajectoryPlanner:
         )
         horizon = object_solution.left_palm_pose.shape[0]
         max_step = self.dt * self.palm_speed_m_s
+
+        def palm_target(side: str) -> torch.Tensor:
+            targets = getattr(goal, f"{side}_contact_targets")
+            if self.track_pinch_center:
+                # Orientation is held below, so translate the observed pinch
+                # center onto its station instead of assuming a palm-local
+                # fingertip offset aligned with the wire's normal.
+                palm = getattr(snapshot, f"{side}_arm").palm_pose_b[:3]
+                pinch = getattr(snapshot, f"{side}_hand").fingertip_positions_b[:2].mean(0)
+                station = torch.tensor([target.position for target in targets], dtype=torch.float64).mean(0)
+                return palm + station - pinch
+            return _palm_target(targets, getattr(goal, f"{side}_palm_approach_normal"), self.palm_standoff_m)
+
         left_position = _bounded_position_horizon(
             snapshot.left_arm.palm_pose_b[:3],
-            _palm_target(goal.left_contact_targets, goal.left_palm_approach_normal, self.palm_standoff_m),
+            palm_target("left"),
             horizon_steps=horizon,
             max_step_m=max_step,
         )
         right_position = _bounded_position_horizon(
             snapshot.right_arm.palm_pose_b[:3],
-            _palm_target(goal.right_contact_targets, goal.right_palm_approach_normal, self.palm_standoff_m),
+            palm_target("right"),
             horizon_steps=horizon,
             max_step_m=max_step,
         )

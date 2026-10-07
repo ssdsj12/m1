@@ -191,6 +191,14 @@ def _wire_tick(runtime, tick, *, left=True, right=True):
 def test_staged_wire_plans_scene_geometry_without_precontact_backend_calls():
     runtime, backend = _staged_runtime()
     _wire_tick(runtime, 1, left=False, right=False)
+    # Already centered measured pinches must not be moved away by the old
+    # hard-coded palm standoff, even before contact has been registered.
+    snapshot = _contact_snapshot(left=False, right=False)
+    for side in ("left", "right"):
+        torch.testing.assert_close(
+            getattr(runtime.latest_solutions["object"], f"{side}_palm_pose")[-1, :3],
+            getattr(snapshot, f"{side}_arm").palm_pose_b[:3],
+        )
     assert backend.bind_calls == backend.step_calls == 0
     assert runtime.latest_dlo_step is None
     np.testing.assert_allclose(runtime.latest_wire_goal.center, _geometry().center_b)
