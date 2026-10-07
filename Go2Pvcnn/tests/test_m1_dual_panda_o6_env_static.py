@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +74,50 @@ def test_scene_has_fixed_box_table_and_all_contact_groups():
         "box_contacts",
     ):
         assert f"{name} = ContactSensorCfg(" in source
+
+
+@pytest.mark.parametrize("object_class", (None, "wire", "cup"))
+def test_wire_scene_omits_overlapping_legacy_box_only_for_selected_wire(object_class):
+    # Execute the real config method with lightweight Isaac config containers.
+    # The wire and legacy Box otherwise share the exact default spawn center.
+    tree = ast.parse(_source(ENV_CFG))
+    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+               and node.name == "M1DualPandaO6BimanualEnvCfg")
+    method = next(node for node in cls.body if isinstance(node, ast.FunctionDef)
+                  and node.name == "__post_init__")
+    class Base:
+        def __post_init__(self):
+            pass
+    class Scene(SimpleNamespace):
+        def __getattr__(self, name):
+            value = SimpleNamespace()
+            setattr(self, name, value)
+            return value
+    target = SimpleNamespace(object_id=f"{object_class}_000", object_class=object_class)
+    namespace = {
+        "Base": Base, "PHYSICS_DT": .005,
+        "select_target_and_obstacles": lambda *args: (target, ()),
+        "build_object_scene_cfg": lambda *args: {target.object_id: object()},
+        "validate_scene_object_ids": lambda *args: None,
+        "M1DualPandaO6BimanualEventsCfg": SimpleNamespace,
+    }
+    isolated = ast.Module(body=[ast.ClassDef(name="Config", bases=[ast.Name(id="Base", ctx=ast.Load())],
+                         keywords=[], body=[method], decorator_list=[])], type_ignores=[])
+    exec(compile(ast.fix_missing_locations(isolated), str(ENV_CFG), "exec"), namespace)
+    cfg = namespace["Config"]()
+    legacy_box = object()
+    cfg.scene = Scene(box=legacy_box, box_contacts=SimpleNamespace(prim_path="{ENV_REGEX_NS}/Box"))
+    cfg.sim = SimpleNamespace()
+    cfg.target_object_id = None if object_class is None else target.object_id
+    cfg.object_catalog = None if object_class is None else object()
+    cfg.object_instances = () if object_class is None else (target,)
+    cfg.__post_init__()
+    if object_class == "wire":
+        assert cfg.scene.box is None
+        assert cfg.scene.box_contacts.prim_path == "{ENV_REGEX_NS}/wire_000"
+    else:
+        assert cfg.scene.box is legacy_box
+        assert cfg.scene.box_contacts.prim_path == "{ENV_REGEX_NS}/Box"
 
 
 def test_registry_is_isolated():

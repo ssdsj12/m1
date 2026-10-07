@@ -214,7 +214,7 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
     )
     # ``None`` deliberately retains the historical single ``scene.box`` at
     # ``{ENV_REGEX_NS}/Box``.  A catalog is opt-in and adds object-ID-named
-    # scene entries without changing that legacy asset.
+    # scene entries. Explicit wire targets omit the overlapping legacy asset.
     object_catalog: ObjectCatalog | None = None
     object_instances: tuple[ObjectInstance, ...] = ()
     target_object_id: str | None = None
@@ -225,7 +225,7 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
         if self.target_object_id in (None, "box"):
             self.target_contact_prim_path = "{ENV_REGEX_NS}/Box"
         else:
-            select_target_and_obstacles(
+            target_instance, _ = select_target_and_obstacles(
                 self.object_instances,
                 self.target_object_id,
             )
@@ -236,6 +236,12 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
             self.target_contact_prim_path = (
                 f"{{ENV_REGEX_NS}}/{self.target_object_id}"
             )
+            if target_instance.object_class == "wire":
+                # The legacy box occupies the wire's default spawn pose and
+                # becomes an unmodeled moving support. Keep the fixed table,
+                # but do not spawn this unused overlapping target.
+                self.scene.box = None
+                self.scene.box_contacts.prim_path = self.target_contact_prim_path
         for sensor_name in (
             "left_thumb_distal_target_contact",
             "left_index_proximal_target_contact",
