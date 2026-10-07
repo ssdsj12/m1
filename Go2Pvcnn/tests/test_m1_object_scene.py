@@ -33,6 +33,7 @@ def _install_isaaclab_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
         "RigidBodyPropertiesCfg",
         "MassPropertiesCfg",
         "CollisionPropertiesCfg",
+        "ArticulationRootPropertiesCfg",
     ):
         setattr(sim, name, _Cfg)
     assets = types.ModuleType("isaaclab.assets")
