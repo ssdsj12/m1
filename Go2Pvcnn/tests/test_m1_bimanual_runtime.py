@@ -310,6 +310,64 @@ def test_nonfinite_backend_impulses_enter_safe_hold_without_publishing_step():
     assert runtime.wire_coupling_state.phase is WireCouplingPhase.SAFE_HOLD
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        pytest.param("left_linear_impulse", np.zeros(2), id="wrong-impulse-shape"),
+        pytest.param("elapsed_time", np.zeros(2), id="nonscalar-elapsed-time"),
+        pytest.param("elapsed_time", -1.0, id="negative-elapsed-time"),
+    ],
+)
+def test_malformed_backend_result_preserves_accepted_wire_state_and_sticks_safe_hold(
+    field, invalid_value,
+):
+    runtime, backend = _staged_runtime()
+    for tick in range(1, 6):
+        _wire_tick(runtime, tick)
+    accepted = (
+        runtime._last_command,
+        runtime.latest_wire_goal,
+        runtime.latest_dlo_step,
+        runtime._wire_attachment,
+    )
+
+    def malformed_step(**_frames):
+        backend.step_calls += 1
+        return replace(runtime.latest_dlo_step, **{field: invalid_value})
+
+    backend.step = malformed_step
+    result = _wire_tick(runtime, 6)
+
+    assert not result.feasible
+    assert runtime._last_command is accepted[0]
+    assert runtime.latest_wire_goal is accepted[1]
+    assert runtime.latest_dlo_step is accepted[2]
+    assert runtime._wire_attachment is accepted[3]
+    assert runtime.wire_coupling_state.phase is WireCouplingPhase.SAFE_HOLD
+    assert runtime.wire_coupling_state.failure_reason.startswith("wire_backend_failure:")
+    assert (backend.bind_calls, backend.step_calls) == (1, 1)
+
+    held_failure_reason = runtime.wire_coupling_state.failure_reason
+    held_result = _wire_tick(runtime, 7)
+
+    assert not held_result.feasible
+    assert runtime.wire_coupling_state.phase is WireCouplingPhase.SAFE_HOLD
+    assert runtime.wire_coupling_state.failure_reason == held_failure_reason
+    assert all(
+        actual is expected
+        for actual, expected in zip(
+            (
+                runtime._last_command,
+                runtime.latest_wire_goal,
+                runtime.latest_dlo_step,
+                runtime._wire_attachment,
+            ),
+            accepted,
+        )
+    )
+    assert (backend.bind_calls, backend.step_calls) == (1, 1)
+
+
 def test_invalid_backend_centerline_enters_safe_hold_without_publishing_step():
     runtime, backend = _staged_runtime()
     for tick in range(1, 6):

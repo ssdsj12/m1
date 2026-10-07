@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from numbers import Real
 from typing import Callable
 
 import torch
@@ -49,6 +50,41 @@ HandInputProvider = Callable[[BimanualSnapshot, str, torch.Tensor], HandMpcInput
 CollisionProvider = Callable[
     [BimanualSnapshot], tuple[torch.Tensor, torch.Tensor]
 ]
+
+
+def _validated_dual_dlo_step(result: DualDloStepResult) -> DualDloStepResult:
+    """Validate and normalize a staged wire backend result before publication."""
+
+    if not isinstance(result, DualDloStepResult):
+        raise TypeError("wire backend must return DualDloStepResult")
+    if not isinstance(result.state, DloCenterlineState):
+        raise TypeError("wire backend state must be DloCenterlineState")
+
+    impulses = {}
+    for field in (
+        "left_linear_impulse",
+        "left_angular_impulse",
+        "right_linear_impulse",
+        "right_angular_impulse",
+    ):
+        try:
+            value = np.asarray(getattr(result, field), dtype=np.float64)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TypeError(f"wire backend {field} must be float64-compatible") from exc
+        if value.shape != (3,):
+            raise ValueError(f"wire backend {field} must have shape (3,)")
+        if not np.isfinite(value).all():
+            raise ValueError(f"wire backend {field} must be finite")
+        impulses[field] = value
+
+    elapsed_time = result.elapsed_time
+    if isinstance(elapsed_time, (bool, np.bool_)) or not isinstance(elapsed_time, Real):
+        raise TypeError("wire backend elapsed_time must be a real scalar")
+    elapsed_time = float(elapsed_time)
+    if not np.isfinite(elapsed_time) or elapsed_time < 0.0:
+        raise ValueError("wire backend elapsed_time must be finite and nonnegative")
+
+    return replace(result, **impulses, elapsed_time=elapsed_time)
 
 
 def _current_contact_force_metrics(
@@ -583,16 +619,9 @@ class BimanualRuntime:
                     )
                 elif next_state.phase is WireCouplingPhase.COSSERAT_BOUND:
                     frames = self.wire_frame_provider(snapshot, attachment)
-                    dlo_step = self.dlo_backend.step(**frames)
-                    if not isinstance(dlo_step, DualDloStepResult):
-                        raise TypeError("wire backend must return DualDloStepResult")
-                    if not isinstance(dlo_step.state, DloCenterlineState):
-                        raise TypeError("wire backend state must be DloCenterlineState")
-                    values = (dlo_step.state.positions, dlo_step.left_linear_impulse,
-                              dlo_step.left_angular_impulse, dlo_step.right_linear_impulse,
-                              dlo_step.right_angular_impulse, dlo_step.elapsed_time)
-                    if not all(np.isfinite(value).all() for value in values):
-                        raise ValueError("nonfinite DeformX output")
+                    dlo_step = _validated_dual_dlo_step(
+                        self.dlo_backend.step(**frames)
+                    )
             except (ValueError, TypeError, RuntimeError, FloatingPointError) as exc:
                 failure_reason = f"wire_backend_failure: {exc}"
         if failure_reason is not None or next_state.phase is WireCouplingPhase.SAFE_HOLD:
