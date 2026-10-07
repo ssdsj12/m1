@@ -53,7 +53,9 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
 )
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
 from go2_pvcnn.control.m1_bimanual_coordination.deformx_adapter import DeformXDualWireBackend
-from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import dual_palm_frames
+from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import dual_palm_attached_grasp_frames
+from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_trajectory import DloWireTrajectoryPlanner
+from go2_pvcnn.control.m1_bimanual_coordination.wire_scene_geometry import build_wire_scene_geometry
 from go2_pvcnn.control.m1_bimanual_coordination.contact_summary import (
     ContactSummary,
     summarize_contacts,
@@ -737,6 +739,8 @@ class M1DualPandaO6BimanualWrapper:
             requested_object_id,
         )
         self._grasp_goal_provider = None
+        self._wire_geometry_provider = None
+        self._wire_record = None
         catalog = _configured_object_catalog(env)
         if catalog is not None and self.target_object_id not in (None, "box"):
             self._grasp_goal_provider = build_catalog_grasp_goal_provider(
@@ -746,6 +750,14 @@ class M1DualPandaO6BimanualWrapper:
                 geometry_provider=grasp_geometry_provider,
                 allow_default_dimensions=allow_default_grasp_dimensions,
             )
+            target = next(instance for instance in _configured_object_instances(env)
+                          if instance.object_id == self.target_object_id)
+            record = catalog.resolve(target.object_class)
+            if record.object_class == "wire":
+                self._wire_record = record
+                self._wire_geometry_provider = lambda snapshot: build_wire_scene_geometry(
+                    snapshot.box.pose_b, record
+                )
         self.lanes: list[BimanualLaneController] = []
         try:
             raw = self.env.unwrapped
@@ -804,17 +816,30 @@ class M1DualPandaO6BimanualWrapper:
         """Attach the two approved workers without a second artifact load."""
 
         dlo_kwargs = {}
-        if os.environ.get("M1_ENABLE_DEFORMX", "0") == "1":
+        wire_provider = getattr(self, "_wire_geometry_provider", None)
+        if wire_provider is not None:
+            dlo_kwargs = {
+                "wire_geometry_provider": wire_provider,
+                "wire_frame_provider": dual_palm_attached_grasp_frames,
+            }
+        if wire_provider is not None and os.environ.get("M1_ENABLE_DEFORMX", "0") == "1":
             raw_env = self.env.unwrapped if hasattr(self.env, "unwrapped") else self.env
             physics_dt = float(getattr(raw_env, "physics_dt", 0.005))
-            dlo_kwargs = {
+            dlo_kwargs.update({
                 "dlo_backend": DeformXDualWireBackend.from_config(
                     py_dt=float(os.environ.get("M1_DEFORMX_PY_DT", "1e-6")),
                     isaac_dt=physics_dt,
-                    base_radius=float(os.environ.get("M1_DEFORMX_RADIUS", "0.0025")),
+                    base_radius=0.5 * max(self._wire_record.dimensions[1:]),
                 ),
-                "dlo_frame_provider": dual_palm_frames,
-            }
+            })
+        if supplied_runtime is not None and wire_provider is not None:
+            if supplied_runtime.dlo_backend is not None or supplied_runtime.wire_geometry_provider is not None:
+                raise ValueError("supplied runtime already has wire/DLO configuration")
+            for name, value in dlo_kwargs.items():
+                setattr(supplied_runtime, name, value)
+            if supplied_runtime.dlo_trajectory_planner is None:
+                supplied_runtime.dlo_trajectory_planner = DloWireTrajectoryPlanner()
+                supplied_runtime._auto_dlo_trajectory_planner = True
         if not self._fingertip_priors:
             if supplied_runtime is None:
                 return BimanualRuntime(grasp_goal_provider=self._grasp_goal_provider, **dlo_kwargs)

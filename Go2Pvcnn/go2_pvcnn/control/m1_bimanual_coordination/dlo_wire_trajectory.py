@@ -10,7 +10,7 @@ import torch
 
 from .contracts import BimanualSnapshot
 from .deformx_adapter import DualDloStepResult
-from .dlo_wire_goal import WireLineContactGoal, build_wire_line_contact_goal
+from .dlo_wire_goal import DloCenterlineState, WireLineContactGoal, build_wire_station_contact_goal
 from .object_mpc import ObjectMpcSolution
 
 
@@ -31,13 +31,11 @@ def _positive_finite(name: str, value: object) -> float:
     return result
 
 
-def _palm_target(contact_targets, standoff_m: float) -> torch.Tensor:
+def _palm_target(contact_targets, approach_normal, standoff_m: float) -> torch.Tensor:
     positions = torch.tensor(
         [target.position for target in contact_targets], dtype=torch.float64
     )
-    inward = torch.tensor(
-        [target.normal for target in contact_targets], dtype=torch.float64
-    ).mean(dim=0)
+    inward = torch.tensor(approach_normal, dtype=torch.float64)
     inward /= torch.linalg.vector_norm(inward).clamp_min(1.0e-12)
     return positions.mean(dim=0) - standoff_m * inward
 
@@ -90,28 +88,36 @@ class DloWireTrajectoryPlanner:
         object_solution: ObjectMpcSolution,
         dlo_step: DualDloStepResult,
     ) -> DloWireTrajectoryPlan:
+        if not isinstance(dlo_step, DualDloStepResult):
+            raise TypeError("dlo_step must be DualDloStepResult")
+        return self.plan_state(snapshot, object_solution, dlo_step.state)
+
+    def plan_state(
+        self,
+        snapshot: BimanualSnapshot,
+        object_solution: ObjectMpcSolution,
+        state: DloCenterlineState,
+    ) -> DloWireTrajectoryPlan:
+        """Plan from scene geometry before bind or accepted Cosserat geometry after."""
         if not isinstance(snapshot, BimanualSnapshot):
             raise TypeError("snapshot must be BimanualSnapshot")
         if not isinstance(object_solution, ObjectMpcSolution):
             raise TypeError("object_solution must be ObjectMpcSolution")
-        if not isinstance(dlo_step, DualDloStepResult):
-            raise TypeError("dlo_step must be DualDloStepResult")
-
-        goal = build_wire_line_contact_goal(
-            dlo_step.state,
+        goal = build_wire_station_contact_goal(
+            state,
             clearance_m=self.contact_clearance_m,
         )
         horizon = object_solution.left_palm_pose.shape[0]
         max_step = self.dt * self.palm_speed_m_s
         left_position = _bounded_position_horizon(
             snapshot.left_arm.palm_pose_b[:3],
-            _palm_target(goal.left_contact_targets, self.palm_standoff_m),
+            _palm_target(goal.left_contact_targets, goal.left_palm_approach_normal, self.palm_standoff_m),
             horizon_steps=horizon,
             max_step_m=max_step,
         )
         right_position = _bounded_position_horizon(
             snapshot.right_arm.palm_pose_b[:3],
-            _palm_target(goal.right_contact_targets, self.palm_standoff_m),
+            _palm_target(goal.right_contact_targets, goal.right_palm_approach_normal, self.palm_standoff_m),
             horizon_steps=horizon,
             max_step_m=max_step,
         )

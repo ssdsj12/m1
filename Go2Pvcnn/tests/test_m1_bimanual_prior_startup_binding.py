@@ -144,6 +144,49 @@ def test_wrapper_attaches_catalog_grasp_goal_provider_to_supplied_runtime(monkey
     assert supplied_runtime._grasp_goal_provider is provider
 
 
+@pytest.mark.parametrize("object_class", ["wire", "cube", "box"])
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("supplied", [False, True])
+def test_wrapper_only_wires_selected_catalog_wire_lanes(monkeypatch, object_class, enabled, supplied):
+    from dataclasses import replace
+    from tests.test_m1_wire_scene_geometry import _wire_record
+    from tests.test_m1_bimanual_object_mpc import _snapshot
+    from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import ObjectCatalog, ObjectInstance
+    from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import dual_palm_attached_grasp_frames
+    module = _load_wrapper(monkeypatch)
+    monkeypatch.setenv("M1_ENABLE_DEFORMX", "1" if enabled else "0")
+    created = []
+    def backend_factory(**kwargs):
+        backend = SimpleNamespace(step=lambda **_k: None, bind=lambda *_a, **_k: None)
+        created.append((backend, kwargs))
+        return backend
+    monkeypatch.setattr(module.DeformXDualWireBackend, "from_config", backend_factory)
+    record = replace(_wire_record(), object_class=object_class)
+    cfg = SimpleNamespace(object_catalog=ObjectCatalog({object_class: record}, {}),
+                          object_instances=() if object_class == "box" else (
+                              ObjectInstance("selected", object_class, (0., 0., 0.)),))
+    env = SimpleNamespace(unwrapped=SimpleNamespace(num_envs=2, cfg=cfg, physics_dt=0.005))
+    initial = BimanualRuntime() if supplied else None
+    wrapper = module.M1DualPandaO6BimanualWrapper(
+        env, runtime=initial, target_object_id="box" if object_class == "box" else "selected"
+    )
+    if supplied:
+        assert wrapper.lanes[0].runtime is initial
+    for lane in wrapper.lanes:
+        runtime = lane.runtime
+        if object_class == "wire":
+            geometry = runtime.wire_geometry_provider(_snapshot())
+            torch.testing.assert_close(geometry.center_b, _snapshot().box.pose_b[:3])
+            assert runtime.wire_frame_provider is dual_palm_attached_grasp_frames
+            assert (runtime.dlo_backend is not None) == enabled
+        else:
+            assert runtime.wire_geometry_provider is None
+            assert runtime.dlo_backend is None
+    assert len(created) == (2 if object_class == "wire" and enabled else 0)
+    if len(created) == 2:
+        assert created[0][0] is not created[1][0]
+
+
 def test_prepared_binding_rejects_construction_pin_mismatch_and_reuse_after_close(production_artifact):
     cls = _binding_type()
     with pytest.raises(TypeError, match="from_artifact"):

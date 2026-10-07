@@ -33,6 +33,9 @@ from tests.test_m1_bimanual_dual_arm_mpc import (
 )
 from tests.test_m1_bimanual_hand_mpc import _input as _hand_input
 from tests.test_m1_bimanual_object_mpc import _snapshot
+from tests.test_m1_wire_coupling import _geometry, _contact_snapshot
+from go2_pvcnn.control.m1_bimanual_coordination.wire_coupling import WireCouplingPhase, WireCouplingState
+from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import dual_palm_attached_grasp_frames
 
 
 class _ObjectController:
@@ -143,6 +146,199 @@ def _runtime(wbc=None):
         right_hand_mpc=_HandController(),
         wbc=_WbcController() if wbc is None else wbc,
     )
+
+
+class _StagedBackend(_FixedDualDloBackend):
+    def __init__(self):
+        super().__init__()
+        self.bind_calls = 0
+        self.step_calls = 0
+        self.fail = None
+        self.on_bind = None
+
+    def bind(self, state, **frames):
+        self.bind_calls += 1
+        if self.on_bind:
+            self.on_bind()
+        if self.fail == "bind":
+            raise ValueError("bad bind geometry")
+        self.bound_state = state
+        self.bound_frames = frames
+
+    def step(self, **frames):
+        self.step_calls += 1
+        if self.fail == "step":
+            raise RuntimeError("integration failed")
+        return super().step(**frames)
+
+
+def _staged_runtime(wbc=None):
+    backend = _StagedBackend()
+    runtime = BimanualRuntime(
+        object_mpc=_ObjectController(), arm_mpc=_ArmController(),
+        left_hand_mpc=_RecordingHandController(), right_hand_mpc=_RecordingHandController(),
+        wbc=_WbcController() if wbc is None else wbc,
+        dlo_backend=backend, wire_geometry_provider=lambda _snapshot: _geometry(),
+        wire_frame_provider=dual_palm_attached_grasp_frames,
+    )
+    return runtime, backend
+
+
+def _wire_tick(runtime, tick, *, left=True, right=True):
+    return runtime.compute(replace(_contact_snapshot(left=left, right=right), timestamp_ns=tick))
+
+
+def test_staged_wire_plans_scene_geometry_without_precontact_backend_calls():
+    runtime, backend = _staged_runtime()
+    _wire_tick(runtime, 1, left=False, right=False)
+    assert backend.bind_calls == backend.step_calls == 0
+    assert runtime.latest_dlo_step is None
+    np.testing.assert_allclose(runtime.latest_wire_goal.center, _geometry().center_b)
+    assert runtime.wire_coupling_state.phase is WireCouplingPhase.APPROACH_ENDPOINTS
+    assert runtime.latest_wire_diagnostics is not None
+
+
+def test_fifth_wire_contact_binds_only_after_feasible_wbc_then_steps_cached_geometry():
+    runtime, backend = _staged_runtime()
+    for tick in range(1, 5):
+        _wire_tick(runtime, tick)
+    assert backend.bind_calls == backend.step_calls == 0
+    def check_boundary():
+        assert runtime.wbc.calls == 5
+        assert runtime.wire_coupling_state.phase is WireCouplingPhase.CONTACT_LATCHING
+    backend.on_bind = check_boundary
+    _wire_tick(runtime, 5)
+    assert backend.bind_calls == 1 and backend.step_calls == 0
+    assert runtime.wire_coupling_state.phase is WireCouplingPhase.COSSERAT_BOUND
+    np.testing.assert_allclose(runtime.latest_dlo_step.state.positions, _geometry().centerline.positions)
+    _wire_tick(runtime, 6)
+    assert backend.step_calls == 1
+    for tick in range(7, 10):
+        _wire_tick(runtime, tick)
+    np.testing.assert_allclose(runtime.latest_wire_goal.center, [0.5, 0., 1.2])
+    assert backend.bind_calls == 1
+
+
+@pytest.mark.parametrize("reject_tick", [1, 5, 9])
+def test_rejected_wire_wbc_preserves_every_accepted_wire_field(reject_tick):
+    runtime, backend = _staged_runtime(_WbcController(fail_at=reject_tick))
+    for tick in range(1, reject_tick):
+        _wire_tick(runtime, tick)
+    before = (runtime.wire_coupling_state, runtime.latest_dlo_step, runtime._wire_attachment,
+              runtime._last_command, runtime.latest_wire_goal, runtime.latest_wire_diagnostics,
+              runtime._active_wire_goal)
+    calls = backend.bind_calls, backend.step_calls
+    command = _wire_tick(runtime, reject_tick)
+    assert not command.feasible
+    after = (runtime.wire_coupling_state, runtime.latest_dlo_step, runtime._wire_attachment,
+             runtime._last_command, runtime.latest_wire_goal, runtime.latest_wire_diagnostics,
+             runtime._active_wire_goal)
+    assert all(a is b for a, b in zip(before, after))
+    assert (backend.bind_calls, backend.step_calls) == calls
+    _wire_tick(runtime, reject_tick + 1)
+    if reject_tick == 5:
+        assert backend.bind_calls == 1
+        assert runtime.wire_coupling_state.phase is WireCouplingPhase.COSSERAT_BOUND
+
+
+@pytest.mark.parametrize("failure", ["contact", "bind", "step", "geometry"])
+def test_wire_failure_safe_hold_keeps_last_command_goal_and_centerline(failure):
+    runtime, backend = _staged_runtime()
+    count = 4 if failure == "bind" else 6
+    for tick in range(1, count + 1):
+        _wire_tick(runtime, tick)
+    old_command, old_goal, old_step = runtime._last_command, runtime.latest_wire_goal, runtime.latest_dlo_step
+    backend.fail = failure
+    if failure == "geometry":
+        def invalid(_snapshot):
+            raise ValueError("nonfinite scene geometry")
+        runtime.wire_geometry_provider = invalid
+    result = _wire_tick(runtime, count + 1, right=failure != "contact")
+    assert not result.feasible
+    torch.testing.assert_close(result.effort, old_command.effort)
+    assert runtime._last_command is old_command
+    assert runtime.latest_wire_goal is old_goal
+    assert runtime.latest_dlo_step is old_step
+    assert runtime.wire_coupling_state.phase is WireCouplingPhase.SAFE_HOLD
+    assert runtime.wire_coupling_state.failure_reason
+    calls = backend.bind_calls, backend.step_calls
+    _wire_tick(runtime, count + 2)
+    assert (backend.bind_calls, backend.step_calls) == calls
+
+
+def test_staged_wire_reset_clears_all_wire_state_and_resets_backend_once():
+    runtime, backend = _staged_runtime()
+    for tick in range(1, 7):
+        _wire_tick(runtime, tick)
+    runtime.reset()
+    assert runtime.wire_coupling_state == WireCouplingState.initial()
+    assert runtime._wire_attachment is None
+    assert runtime.latest_dlo_step is None
+    assert runtime.latest_wire_goal is None
+    assert runtime._active_wire_goal is None
+    assert runtime.latest_wire_diagnostics is None
+    assert backend.reset_calls == 1
+
+
+def test_latched_wire_side_holds_accepted_targets_while_other_side_approaches():
+    runtime, backend = _staged_runtime()
+    for tick in range(1, 6):
+        _wire_tick(runtime, tick, right=False)
+    previous = runtime._last_object
+    goal = runtime.latest_wire_goal
+    moved = _geometry()
+    shift = np.array([0.05, 0., 0.])
+    moved = replace(moved, centerline=DloCenterlineState(moved.centerline.positions + shift, moved.radius_m))
+    runtime.wire_geometry_provider = lambda _snapshot: moved
+    for tick in range(6, 10):
+        _wire_tick(runtime, tick, right=False)
+    torch.testing.assert_close(runtime._last_object.left_palm_pose, previous.left_palm_pose)
+    assert runtime.latest_wire_goal.left_contact_targets == goal.left_contact_targets
+    assert runtime.latest_wire_goal.right_contact_targets != goal.right_contact_targets
+    assert backend.bind_calls == 0
+
+
+def test_nonfinite_backend_impulses_enter_safe_hold_without_publishing_step():
+    runtime, backend = _staged_runtime()
+    for tick in range(1, 6):
+        _wire_tick(runtime, tick)
+    before = runtime.latest_dlo_step
+    backend.step = lambda **_frames: replace(before, left_linear_impulse=np.full(3, np.nan))
+    result = _wire_tick(runtime, 6)
+    assert not result.feasible
+    assert runtime.latest_dlo_step is before
+    assert runtime.wire_coupling_state.phase is WireCouplingPhase.SAFE_HOLD
+
+
+def test_invalid_backend_centerline_enters_safe_hold_without_publishing_step():
+    runtime, backend = _staged_runtime()
+    for tick in range(1, 6):
+        _wire_tick(runtime, tick)
+    before = runtime.latest_dlo_step
+    old_command = runtime._last_command
+    backend.step = lambda **_frames: replace(before, state=None)
+
+    result = _wire_tick(runtime, 6)
+
+    assert not result.feasible
+    assert runtime.latest_dlo_step is before
+    assert runtime._last_command is old_command
+    assert runtime.wire_coupling_state.phase is WireCouplingPhase.SAFE_HOLD
+    assert "DloCenterlineState" in runtime.wire_coupling_state.failure_reason
+
+
+def test_rejected_contact_dropout_does_not_commit_safe_hold_or_step_backend():
+    runtime, backend = _staged_runtime(_WbcController(fail_at=6))
+    for tick in range(1, 6):
+        _wire_tick(runtime, tick)
+    before = runtime.wire_coupling_state
+    result = _wire_tick(runtime, 6, right=False)
+    assert not result.feasible
+    assert runtime.wire_coupling_state is before
+    assert backend.step_calls == 0
+    _wire_tick(runtime, 7)
+    assert runtime.wire_coupling_state.phase is WireCouplingPhase.COSSERAT_BOUND
+    assert backend.bind_calls == backend.step_calls == 1
 
 
 def test_runtime_cadence_is_25_50_100_200_hz_at_200_hz_physics():

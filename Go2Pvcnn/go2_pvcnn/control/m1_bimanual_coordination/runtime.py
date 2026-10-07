@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 import torch
+import numpy as np
 
 from go2_pvcnn.control.m1_panda_coordination.arm_mpc import ArmMpcInput
 
@@ -19,7 +20,10 @@ from .contracts import (
 )
 from .dual_arm_mpc import DualArmMpcCoordinator, DualArmMpcInput, DualArmMpcSolution
 from .deformx_adapter import DualDloStepResult
+from .dlo_wire_goal import DloCenterlineState
 from .dlo_wire_trajectory import DloWireTrajectoryPlanner
+from .dlo_frame_provider import capture_palm_grasp_attachment
+from .wire_coupling import WireCouplingPhase, WireCouplingState, propose_wire_coupling
 from .hand_mpc import HandMpcInput, HandMpcSolution, O6HandMpc
 from .motion_primitives import BimanualMotionPrimitive, ManipulationTarget
 from .object_mpc import (
@@ -168,6 +172,9 @@ class BimanualRuntime:
         dlo_backend=None,
         dlo_frame_provider=None,
         dlo_trajectory_planner=None,
+        wire_geometry_provider=None,
+        wire_coupling_state: WireCouplingState | None = None,
+        wire_frame_provider=None,
     ) -> None:
         if grasp_goal is not None and grasp_goal_provider is not None:
             raise ValueError("grasp_goal and grasp_goal_provider are mutually exclusive")
@@ -213,12 +220,24 @@ class BimanualRuntime:
             raise TypeError("dlo_trajectory_planner must expose plan()")
         self.dlo_backend = dlo_backend
         self.dlo_frame_provider = dlo_frame_provider
+        for name, provider in (("wire_geometry_provider", wire_geometry_provider),
+                               ("wire_frame_provider", wire_frame_provider)):
+            if provider is not None and not callable(provider):
+                raise TypeError(f"{name} must be callable")
+        if wire_coupling_state is not None and not isinstance(wire_coupling_state, WireCouplingState):
+            raise TypeError("wire_coupling_state must be WireCouplingState")
+        self.wire_geometry_provider = wire_geometry_provider
+        self.wire_frame_provider = wire_frame_provider
+        self.wire_coupling_state = wire_coupling_state or WireCouplingState.initial()
+        self._wire_attachment = None
+        self.latest_wire_diagnostics = None
         self._auto_dlo_trajectory_planner = (
-            dlo_backend is not None and dlo_trajectory_planner is None
+            (dlo_backend is not None or wire_geometry_provider is not None)
+            and dlo_trajectory_planner is None
         )
         self.dlo_trajectory_planner = (
             DloWireTrajectoryPlanner()
-            if dlo_backend is not None and dlo_trajectory_planner is None
+            if self._auto_dlo_trajectory_planner
             else dlo_trajectory_planner
         )
         self.latest_dlo_step = None
@@ -322,6 +341,9 @@ class BimanualRuntime:
         self.latest_wire_goal = None
         self._active_wire_goal = None
         self._initial_box_pose = None
+        self.wire_coupling_state = WireCouplingState.initial()
+        self._wire_attachment = None
+        self.latest_wire_diagnostics = None
         self._latest_motion_target = None
         self._latest_mission_state = None
         self._latest_solutions = {
@@ -374,18 +396,21 @@ class BimanualRuntime:
         return _default_arm_input(snapshot, "left"), _default_arm_input(snapshot, "right")
 
     def _hand_input(
-        self, snapshot: BimanualSnapshot, side: str, target: torch.Tensor
+        self, snapshot: BimanualSnapshot, side: str, target: torch.Tensor,
+        *, wire_goal=None,
     ) -> HandMpcInput:
         if self._hand_input_provider is not None:
             return self._hand_input_provider(snapshot, side, target)
         sample = _default_hand_input(snapshot, side, target)
         fingertip_targets = None
         fingertip_target_mask = None
-        if self._active_wire_goal is not None:
+        if wire_goal is None:
+            wire_goal = self._active_wire_goal
+        if wire_goal is not None:
             side_targets = (
-                self._active_wire_goal.left_contact_targets
+                wire_goal.left_contact_targets
                 if side == "left"
-                else self._active_wire_goal.right_contact_targets
+                else wire_goal.right_contact_targets
             )
             fingertip_targets = sample.fingertip_positions_b.clone()
             mapped = min(2, len(side_targets))
@@ -534,6 +559,64 @@ class BimanualRuntime:
             object_tilt_rad=object_tilt,
         )
 
+    def _commit_wire(self, snapshot, geometry, proposal, failure_reason):
+        """Commit only at a feasible WBC boundary; failures freeze accepted data."""
+        next_state = self.wire_coupling_state if proposal is None else proposal.next_state
+        if failure_reason is None:
+            failure_reason = next_state.failure_reason
+        attachment = self._wire_attachment
+        dlo_step = self.latest_dlo_step
+        if failure_reason is None and next_state.phase is not WireCouplingPhase.SAFE_HOLD:
+            try:
+                if proposal.bind_requested and self.dlo_backend is not None:
+                    attachment = capture_palm_grasp_attachment(snapshot)
+                    frames = self.wire_frame_provider(snapshot, attachment)
+                    self.dlo_backend.bind(geometry.centerline, **frames)
+                    next_state = replace(next_state, phase=WireCouplingPhase.COSSERAT_BOUND, bind_count=1)
+                    # bind() does not integrate. Seed the accepted cache from
+                    # its initial scene centerline without advancing the rod.
+                    dlo_step = DualDloStepResult(
+                        state=geometry.centerline,
+                        left_linear_impulse=np.zeros(3), left_angular_impulse=np.zeros(3),
+                        right_linear_impulse=np.zeros(3), right_angular_impulse=np.zeros(3),
+                        elapsed_time=0.0,
+                    )
+                elif next_state.phase is WireCouplingPhase.COSSERAT_BOUND:
+                    frames = self.wire_frame_provider(snapshot, attachment)
+                    dlo_step = self.dlo_backend.step(**frames)
+                    if not isinstance(dlo_step, DualDloStepResult):
+                        raise TypeError("wire backend must return DualDloStepResult")
+                    if not isinstance(dlo_step.state, DloCenterlineState):
+                        raise TypeError("wire backend state must be DloCenterlineState")
+                    values = (dlo_step.state.positions, dlo_step.left_linear_impulse,
+                              dlo_step.left_angular_impulse, dlo_step.right_linear_impulse,
+                              dlo_step.right_angular_impulse, dlo_step.elapsed_time)
+                    if not all(np.isfinite(value).all() for value in values):
+                        raise ValueError("nonfinite DeformX output")
+            except (ValueError, TypeError, RuntimeError, FloatingPointError) as exc:
+                failure_reason = f"wire_backend_failure: {exc}"
+        if failure_reason is not None or next_state.phase is WireCouplingPhase.SAFE_HOLD:
+            failure_reason = failure_reason or "wire_safe_hold"
+            next_state = replace(next_state, phase=WireCouplingPhase.SAFE_HOLD,
+                                 failure_reason=failure_reason)
+        else:
+            self._wire_attachment = attachment
+            self.latest_dlo_step = dlo_step
+        self.wire_coupling_state = next_state
+        self.latest_wire_diagnostics = {
+            "phase": next_state.phase.name,
+            "failure_reason": failure_reason,
+            "left_contact_ticks": next_state.left_contact_ticks,
+            "right_contact_ticks": next_state.right_contact_ticks,
+            "left_latched": next_state.left_latched,
+            "right_latched": next_state.right_latched,
+            "bind_count": next_state.bind_count,
+            "left_pinch_error_m": None if proposal is None else proposal.left_pinch_error_m,
+            "right_pinch_error_m": None if proposal is None else proposal.right_pinch_error_m,
+            "wire_goal_committed": failure_reason is None,
+        }
+        return failure_reason
+
     def compute(self, snapshot: BimanualSnapshot) -> BimanualCommand:
         if not isinstance(snapshot, BimanualSnapshot):
             raise TypeError("snapshot must be BimanualSnapshot")
@@ -542,12 +625,22 @@ class BimanualRuntime:
         # The active goal may be consumed by this cycle's hand QP, but it is
         # published as latest_wire_goal only after the WBC atomically accepts
         # the complete object/arm/hand command.
-        self._active_wire_goal = self.latest_wire_goal
+        active_wire_goal = self.latest_wire_goal
+        scene_geometry = None
+        proposal = None
+        wire_failure = None
+        staged_wire = self.wire_geometry_provider is not None
+        if staged_wire:
+            try:
+                scene_geometry = self.wire_geometry_provider(snapshot)
+                proposal = propose_wire_coupling(self.wire_coupling_state, snapshot, scene_geometry)
+            except (ValueError, TypeError, RuntimeError, FloatingPointError) as exc:
+                wire_failure = f"wire_geometry_failure: {exc}"
 
         # DeformX owns the fine-rate wire integration.  The frame provider is
         # intentionally injected by Isaac-facing code so the core runtime
         # remains independent of USD/Omniverse types.
-        if self.dlo_backend is not None:
+        if self.dlo_backend is not None and not staged_wire:
             if self.dlo_frame_provider is None:
                 raise RuntimeError("dlo_frame_provider is required with dlo_backend")
             frame = self.dlo_frame_provider(snapshot)
@@ -561,7 +654,33 @@ class BimanualRuntime:
         right_hand_solution = self._last_right_hand
         if self._step % self.OBJECT_PERIOD == 0 or object_solution is None:
             object_solution = self.object_mpc.plan(self._object_input(snapshot))
-            if (
+            if (staged_wire and wire_failure is None
+                    and proposal.next_state.phase is not WireCouplingPhase.SAFE_HOLD):
+                state = (self.latest_dlo_step.state
+                         if self.wire_coupling_state.phase is WireCouplingPhase.COSSERAT_BOUND
+                         else scene_geometry.centerline)
+                wire_plan = self.dlo_trajectory_planner.plan_state(snapshot, object_solution, state)
+                object_solution = wire_plan.object_solution
+                active_wire_goal = wire_plan.contact_goal
+                # A unilateral latch holds the last accepted references;
+                # only the unlatched hand continues tracking scene stations.
+                if (self.wire_coupling_state.phase is not WireCouplingPhase.COSSERAT_BOUND
+                        and self._last_object is not None and self.latest_wire_goal is not None):
+                    for side in ("left", "right"):
+                        if getattr(self.wire_coupling_state, f"{side}_latched"):
+                            pose_name = f"{side}_palm_pose"
+                            contacts_name = f"{side}_contact_targets"
+                            approach_name = f"{side}_palm_approach_normal"
+                            object_solution = replace(object_solution, **{
+                                pose_name: getattr(self._last_object, pose_name),
+                            })
+                            active_wire_goal = replace(active_wire_goal, **{
+                                contacts_name: getattr(self.latest_wire_goal, contacts_name),
+                                approach_name: getattr(self.latest_wire_goal, approach_name),
+                            })
+            elif (
+                not staged_wire
+                and
                 self.dlo_trajectory_planner is not None
                 and self.latest_dlo_step is not None
                 and (
@@ -575,7 +694,7 @@ class BimanualRuntime:
                     self.latest_dlo_step,
                 )
                 object_solution = wire_plan.object_solution
-                self._active_wire_goal = wire_plan.contact_goal
+                active_wire_goal = wire_plan.contact_goal
             self._counts["object"] += 1
         if self._step % self.ARM_PERIOD == 0 or arm_solution is None:
             left_input, right_input = self._arm_inputs(snapshot)
@@ -585,10 +704,10 @@ class BimanualRuntime:
             self._counts["arm"] += 1
         if self._step % self.HAND_PERIOD == 0 or left_hand_solution is None or right_hand_solution is None:
             left_hand_solution = self.left_hand_mpc.plan(
-                self._hand_input(snapshot, "left", object_solution.left_wrench[0])
+                self._hand_input(snapshot, "left", object_solution.left_wrench[0], wire_goal=active_wire_goal)
             )
             right_hand_solution = self.right_hand_mpc.plan(
-                self._hand_input(snapshot, "right", object_solution.right_wrench[0])
+                self._hand_input(snapshot, "right", object_solution.right_wrench[0], wire_goal=active_wire_goal)
             )
             self._counts["hand"] += 1
         distances, collision_jacobian = self._collision(snapshot)
@@ -610,7 +729,9 @@ class BimanualRuntime:
             "right_hand": right_hand_solution,
             "wbc": wbc_solution,
         }
-        if wbc_solution.feasible:
+        if wbc_solution.feasible and staged_wire:
+            wire_failure = self._commit_wire(snapshot, scene_geometry, proposal, wire_failure)
+        if wbc_solution.feasible and wire_failure is None:
             command = BimanualCommand(
                 timestamp_ns=snapshot.timestamp_ns,
                 effort=wbc_solution.effort,
@@ -622,9 +743,10 @@ class BimanualRuntime:
             self._last_left_hand = left_hand_solution
             self._last_right_hand = right_hand_solution
             self._last_command = command
-            self.latest_wire_goal = self._active_wire_goal
+            self.latest_wire_goal = active_wire_goal
+            self._active_wire_goal = active_wire_goal
         else:
-            reason = wbc_solution.diagnostics.fallback_reason or "wbc_infeasible"
+            reason = (wire_failure if wbc_solution.feasible else None) or wbc_solution.diagnostics.fallback_reason or "wbc_infeasible"
             effort = (
                 wbc_solution.effort
                 if self._last_command is None
@@ -637,6 +759,9 @@ class BimanualRuntime:
                 fallback_reasons=(reason,),
             )
         diagnostics = self._mission_diagnostics(snapshot, object_solution, wbc_solution)
+        if not command.feasible and wbc_solution.feasible:
+            diagnostics = replace(diagnostics, command_accepted=False,
+                                  subsystem_failure=command.fallback_reasons[0])
         self._latest_mission_state = self.mission.update(snapshot, diagnostics)
         self._last_snapshot = snapshot
         self._step += 1

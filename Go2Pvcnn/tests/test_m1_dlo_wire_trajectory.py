@@ -105,3 +105,17 @@ def test_wire_trajectory_preserves_object_mpc_solution_and_diagnostics():
     torch.testing.assert_close(planned.right_wrench, original.right_wrench)
     assert planned.diagnostics is original.diagnostics
     assert not torch.equal(planned.left_palm_pose, original.left_palm_pose)
+
+
+def test_plan_state_uses_distinct_stations_and_explicit_palm_standoff():
+    planner = DloWireTrajectoryPlanner(palm_speed_m_s=10.)
+    state = _step().state
+    plan = planner.plan_state(_snapshot(), _object_solution(), state)
+    compatible = planner.plan(_snapshot(), _object_solution(), _step())
+    for side, station in (("left", state.positions[0]), ("right", state.positions[-1])):
+        targets = getattr(plan.contact_goal, f"{side}_contact_targets")
+        normal = np.array(getattr(plan.contact_goal, f"{side}_palm_approach_normal"))
+        np.testing.assert_allclose(np.mean([t.position for t in targets], axis=0), station)
+        pose = getattr(plan.object_solution, f"{side}_palm_pose")
+        np.testing.assert_allclose(pose[-1, :3], station - 0.08 * normal)
+        torch.testing.assert_close(pose, getattr(compatible.object_solution, f"{side}_palm_pose"))

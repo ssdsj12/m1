@@ -58,6 +58,8 @@ class WireLineContactGoal:
     contact_half_gap_m: float
     left_contact_targets: tuple[ContactTarget, ...]
     right_contact_targets: tuple[ContactTarget, ...]
+    left_palm_approach_normal: tuple[float, float, float] | None = None
+    right_palm_approach_normal: tuple[float, float, float] | None = None
 
 
 def _orthogonal_frame(tangent: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -113,7 +115,51 @@ def build_wire_line_contact_goal(
         contact_half_gap_m=float(gap),
         left_contact_targets=make_side(-1.0),
         right_contact_targets=make_side(1.0),
+        left_palm_approach_normal=tuple(float(v) for v in normal),
+        right_palm_approach_normal=tuple(float(v) for v in -normal),
     )
 
 
-__all__ = ["DloCenterlineState", "WireLineContactGoal", "build_wire_line_contact_goal"]
+def build_wire_station_contact_goal(
+    state: DloCenterlineState,
+    *,
+    clearance_m: float = 0.003,
+) -> WireLineContactGoal:
+    """Place opposed thumb/index pinches at the held-span endpoints.
+
+    Palm approach normals are independent of the opposed finger normals,
+    whose mean is zero. Each pinch center remains exactly on its station.
+    """
+    if not isinstance(state, DloCenterlineState):
+        raise TypeError("state must be DloCenterlineState")
+    if not np.isfinite(clearance_m) or clearance_m <= 0.0:
+        raise ValueError("clearance_m must be positive and finite")
+    tangent = state.midpoint_tangent
+    normal, binormal = _orthogonal_frame(tangent)
+    gap = state.radius_m + float(clearance_m)
+    finger_offset = state.radius_m * 1.5
+
+    def make_side(center, sign):
+        offset = sign * gap * normal + finger_offset * binormal
+        return tuple(
+            ContactTarget(
+                position=tuple(float(v) for v in center + finger_sign * offset),
+                normal=tuple(float(v) for v in -finger_sign * offset / np.linalg.norm(offset)),
+                tangent=tuple(float(v) for v in tangent),
+            )
+            for finger_sign in (1.0, -1.0)
+        )
+
+    return WireLineContactGoal(
+        object_class="wire",
+        center=tuple(float(v) for v in state.midpoint),
+        tangent=tuple(float(v) for v in tangent),
+        contact_half_gap_m=float(gap),
+        left_contact_targets=make_side(state.positions[0], -1.0),
+        right_contact_targets=make_side(state.positions[-1], 1.0),
+        left_palm_approach_normal=tuple(float(v) for v in normal),
+        right_palm_approach_normal=tuple(float(v) for v in -normal),
+    )
+
+
+__all__ = ["DloCenterlineState", "WireLineContactGoal", "build_wire_line_contact_goal", "build_wire_station_contact_goal"]
