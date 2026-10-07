@@ -25,6 +25,7 @@ from .dlo_wire_goal import DloCenterlineState
 from .dlo_wire_trajectory import DloWireTrajectoryPlanner
 from .dlo_frame_provider import capture_palm_grasp_attachment
 from .wire_coupling import (
+    UNAVAILABLE_WIRE_DIAGNOSTICS,
     WireCouplingDiagnostics,
     WireCouplingPhase,
     WireCouplingState,
@@ -612,7 +613,6 @@ class BimanualRuntime:
 
     def _commit_wire(self, snapshot, geometry, proposal, failure_reason):
         """Commit only at a feasible WBC boundary; failures freeze accepted data."""
-        previous_phase = self.wire_coupling_state.phase
         next_state = self.wire_coupling_state if proposal is None else proposal.next_state
         if failure_reason is None:
             failure_reason = next_state.failure_reason
@@ -648,41 +648,56 @@ class BimanualRuntime:
             self._wire_attachment = attachment
             self.latest_dlo_step = dlo_step
         self.wire_coupling_state = next_state
-        if geometry is not None and proposal is not None:
-            if failure_reason is not None:
-                transition_reason = failure_reason
-            elif next_state.phase is not previous_phase:
-                transition_reason = f"{previous_phase.name}->{next_state.phase.name}"
+        return failure_reason
+
+    def _observe_wire(self, snapshot, geometry, proposal, previous_phase, wbc_solution, command):
+        """Publish diagnostics after control; observation failures cannot reject a tick."""
+        try:
+            state = self.wire_coupling_state
+            previous = self.latest_wire_diagnostics or UNAVAILABLE_WIRE_DIAGNOSTICS
+            if command.fallback_reasons:
+                transition_reason = command.fallback_reasons[0]
+            elif state.phase is not previous_phase:
+                transition_reason = f"{previous_phase.name}->{state.phase.name}"
             else:
                 transition_reason = "state_unchanged"
             deformx_elapsed_time = (
-                float(dlo_step.elapsed_time)
-                if next_state.phase is WireCouplingPhase.COSSERAT_BOUND
-                and dlo_step is not None
+                float(self.latest_dlo_step.elapsed_time)
+                if state.phase is WireCouplingPhase.COSSERAT_BOUND
+                and self.latest_dlo_step is not None
                 else 0.0
             )
             self.latest_wire_diagnostics = WireCouplingDiagnostics(
                 object_id=self.wire_object_id,
                 target_prim_path=self.wire_target_prim_path,
-                state=next_state.phase.name,
+                state=state.phase.name,
                 transition_reason=transition_reason,
-                centerline_midpoint_b=geometry.center_b,
-                tangent_b=geometry.tangent_b,
-                radius_m=geometry.radius_m,
-                left_station_b=geometry.left_station_b,
-                right_station_b=geometry.right_station_b,
-                left_pinch_error_m=proposal.left_pinch_error_m,
-                right_pinch_error_m=proposal.right_pinch_error_m,
+                centerline_midpoint_b=(geometry.center_b if geometry is not None
+                                       else previous.centerline_midpoint_b),
+                tangent_b=geometry.tangent_b if geometry is not None else previous.tangent_b,
+                radius_m=geometry.radius_m if geometry is not None else previous.radius_m,
+                left_station_b=(geometry.left_station_b if geometry is not None
+                                else previous.left_station_b),
+                right_station_b=(geometry.right_station_b if geometry is not None
+                                 else previous.right_station_b),
+                left_pinch_error_m=(proposal.left_pinch_error_m if proposal is not None
+                                    else UNAVAILABLE_WIRE_DIAGNOSTICS.left_pinch_error_m),
+                right_pinch_error_m=(proposal.right_pinch_error_m if proposal is not None
+                                     else UNAVAILABLE_WIRE_DIAGNOSTICS.right_pinch_error_m),
                 left_contact_mask=snapshot.left_hand.contact_mask,
                 right_contact_mask=snapshot.right_hand.contact_mask,
-                left_contact_ticks=next_state.left_contact_ticks,
-                right_contact_ticks=next_state.right_contact_ticks,
-                bind_count=next_state.bind_count,
+                left_contact_ticks=state.left_contact_ticks,
+                right_contact_ticks=state.right_contact_ticks,
+                bind_count=state.bind_count,
                 deformx_elapsed_time=deformx_elapsed_time,
-                wbc_feasible=True,
-                wire_goal_committed=failure_reason is None,
+                wbc_feasible=wbc_solution.feasible,
+                wire_goal_committed=command.feasible,
             )
-        return failure_reason
+        except Exception:
+            # This boundary contains observation only. Retain the last complete
+            # record (or a prebuilt finite sentinel); never alter accepted control.
+            if self.latest_wire_diagnostics is None:
+                self.latest_wire_diagnostics = UNAVAILABLE_WIRE_DIAGNOSTICS
 
     def compute(self, snapshot: BimanualSnapshot) -> BimanualCommand:
         if not isinstance(snapshot, BimanualSnapshot):
@@ -697,6 +712,7 @@ class BimanualRuntime:
         proposal = None
         wire_failure = None
         staged_wire = self.wire_geometry_provider is not None
+        previous_wire_phase = self.wire_coupling_state.phase
         if staged_wire:
             try:
                 scene_geometry = self.wire_geometry_provider(snapshot)
@@ -832,4 +848,8 @@ class BimanualRuntime:
         self._latest_mission_state = self.mission.update(snapshot, diagnostics)
         self._last_snapshot = snapshot
         self._step += 1
+        if staged_wire:
+            self._observe_wire(
+                snapshot, scene_geometry, proposal, previous_wire_phase, wbc_solution, command
+            )
         return command

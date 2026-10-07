@@ -53,7 +53,7 @@ def _contact_mask(value: Any, name: str) -> tuple[bool, bool, bool, bool, bool]:
 
 @dataclass(frozen=True)
 class WireCouplingDiagnostics:
-    """Immutable, JSON-safe observation of one accepted wire control tick."""
+    """Immutable, JSON-safe observation of one staged wire control tick."""
 
     object_id: str
     target_prim_path: str
@@ -147,6 +147,31 @@ class WireCouplingDiagnostics:
             "wbc_feasible": self.wbc_feasible,
             "wire_goal_committed": self.wire_goal_committed,
         }
+
+
+# Prebuilt so even a first-tick observer construction failure has a finite,
+# explicitly unavailable record. Its identity/counters cannot validate as a bind.
+UNAVAILABLE_WIRE_DIAGNOSTICS = WireCouplingDiagnostics(
+    object_id="unavailable",
+    target_prim_path="unavailable",
+    state="SAFE_HOLD",
+    transition_reason="wire_diagnostics_unavailable",
+    centerline_midpoint_b=(0.0, 0.0, 0.0),
+    tangent_b=(1.0, 0.0, 0.0),
+    radius_m=1.0,
+    left_station_b=(0.0, 0.0, 0.0),
+    right_station_b=(0.0, 0.0, 0.0),
+    left_pinch_error_m=1.0,
+    right_pinch_error_m=1.0,
+    left_contact_mask=(False,) * 5,
+    right_contact_mask=(False,) * 5,
+    left_contact_ticks=0,
+    right_contact_ticks=0,
+    bind_count=0,
+    deformx_elapsed_time=0.0,
+    wbc_feasible=False,
+    wire_goal_committed=False,
+)
 
 
 @dataclass(frozen=True)

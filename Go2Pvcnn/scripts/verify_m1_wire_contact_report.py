@@ -123,6 +123,10 @@ def validate_report(report: object) -> None:
             raise ValueError(f"{path}.target_prim_path must end with '/wire_000'")
         _nonnegative_integer(record, "left_contact_ticks", path)
         _nonnegative_integer(record, "right_contact_ticks", path)
+        if record["state"] == "COSSERAT_BOUND" and (
+            record["left_contact_ticks"] < 5 or record["right_contact_ticks"] < 5
+        ):
+            raise ValueError(f"{path} COSSERAT_BOUND contact_ticks must both be at least 5")
         bind_count = _nonnegative_integer(record, "bind_count", path)
         if bind_count > 1:
             raise ValueError(f"{path}.bind_count must never exceed 1")

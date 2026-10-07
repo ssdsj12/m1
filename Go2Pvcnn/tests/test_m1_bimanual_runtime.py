@@ -225,16 +225,21 @@ def test_rejected_wire_wbc_preserves_every_accepted_wire_field(reject_tick):
     for tick in range(1, reject_tick):
         _wire_tick(runtime, tick)
     before = (runtime.wire_coupling_state, runtime.latest_dlo_step, runtime._wire_attachment,
-              runtime._last_command, runtime.latest_wire_goal, runtime.latest_wire_diagnostics,
-              runtime._active_wire_goal)
+              runtime._last_command, runtime.latest_wire_goal,
+              runtime._active_wire_goal, runtime._last_object, runtime._last_arm,
+              runtime._last_left_hand, runtime._last_right_hand)
     calls = backend.bind_calls, backend.step_calls
     command = _wire_tick(runtime, reject_tick)
     assert not command.feasible
     after = (runtime.wire_coupling_state, runtime.latest_dlo_step, runtime._wire_attachment,
-             runtime._last_command, runtime.latest_wire_goal, runtime.latest_wire_diagnostics,
-             runtime._active_wire_goal)
+             runtime._last_command, runtime.latest_wire_goal,
+             runtime._active_wire_goal, runtime._last_object, runtime._last_arm,
+             runtime._last_left_hand, runtime._last_right_hand)
     assert all(a is b for a, b in zip(before, after))
     assert (backend.bind_calls, backend.step_calls) == calls
+    assert runtime.latest_wire_diagnostics is not None
+    assert not runtime.latest_wire_diagnostics.wbc_feasible
+    assert not runtime.latest_wire_diagnostics.wire_goal_committed
     _wire_tick(runtime, reject_tick + 1)
     if reject_tick == 5:
         assert backend.bind_calls == 1
