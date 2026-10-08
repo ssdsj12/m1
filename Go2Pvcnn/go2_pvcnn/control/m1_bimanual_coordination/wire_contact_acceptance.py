@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 import math
 
 import torch
@@ -102,9 +103,18 @@ class WireAcceptanceConfig:
     min_contact_force_n: float = 0.2
     min_contacts_per_hand: int = 2
     max_endpoint_slip_m: float = 0.02
+    required_bilateral_contact_s: float = 0.5
+    required_lift_m: float = 0.05
+    required_hold_s: float = 1.0
 
     def __post_init__(self) -> None:
-        for name in ("min_contact_force_n", "max_endpoint_slip_m"):
+        for name in (
+            "min_contact_force_n",
+            "max_endpoint_slip_m",
+            "required_bilateral_contact_s",
+            "required_lift_m",
+            "required_hold_s",
+        ):
             value = _real_scalar(name, getattr(self, name))
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and positive")
@@ -128,6 +138,213 @@ class WireContactEvaluation:
     bilateral_contact: bool
     finite: bool
     failure_reason: str | None
+
+
+class WireAcceptancePhase(str, Enum):
+    """Deterministic lifecycle for a physically evidenced wire grasp."""
+
+    CONTACT = "contact"
+    LIFT = "lift"
+    HOLD = "hold"
+    SUCCEEDED = "succeeded"
+    TERMINATED = "terminated"
+
+
+@dataclass(frozen=True)
+class WireAcceptanceState:
+    """Immutable acceptance result for the most recent simulation tick."""
+
+    phase: WireAcceptancePhase
+    bilateral_contact_elapsed_s: float
+    lift_elapsed_s: float
+    hold_elapsed_s: float
+    lift_permitted: bool
+    request_reclamp: bool
+    success: bool
+    terminal_reason: str | None
+
+
+class WireAcceptanceTracker:
+    """Accumulate real-contact grasp/lift acceptance in simulation time only."""
+
+    def __init__(self, config: WireAcceptanceConfig) -> None:
+        if not isinstance(config, WireAcceptanceConfig):
+            raise TypeError("config must be WireAcceptanceConfig")
+        self.config = config
+        self._reset_center_height_m = 0.0
+        self.reset(wire_center_height_m=0.0)
+
+    @property
+    def state(self) -> WireAcceptanceState:
+        return self._state
+
+    def reset(self, *, wire_center_height_m: float) -> None:
+        """Clear all episode state and establish the next lift-height baseline."""
+
+        self._reset_center_height_m = self._finite_scalar(
+            "wire_center_height_m", wire_center_height_m
+        )
+        self._state = WireAcceptanceState(
+            phase=WireAcceptancePhase.CONTACT,
+            bilateral_contact_elapsed_s=0.0,
+            lift_elapsed_s=0.0,
+            hold_elapsed_s=0.0,
+            lift_permitted=False,
+            request_reclamp=False,
+            success=False,
+            terminal_reason=None,
+        )
+
+    def update(
+        self,
+        evaluation: WireContactEvaluation,
+        *,
+        wire_center_height_m: float,
+        dt_s: float,
+        safety_feasible: bool,
+    ) -> WireAcceptanceState:
+        """Advance one accepted-control interval without consulting wall-clock time."""
+
+        if not isinstance(evaluation, WireContactEvaluation):
+            raise TypeError("evaluation must be WireContactEvaluation")
+        center_height_m = self._finite_scalar(
+            "wire_center_height_m", wire_center_height_m
+        )
+        elapsed_s = self._positive_scalar("dt_s", dt_s)
+        if not isinstance(safety_feasible, bool):
+            raise TypeError("safety_feasible must be a bool")
+
+        state = self._state
+        if state.phase in (
+            WireAcceptancePhase.SUCCEEDED,
+            WireAcceptancePhase.TERMINATED,
+        ):
+            return state
+        if not safety_feasible:
+            return self._terminate("safety_rejected")
+        if not evaluation.finite:
+            return self._terminate("non_finite_contact_observation")
+        if evaluation.failure_reason is not None and evaluation.failure_reason.startswith(
+            "endpoint_slip_exceeds_"
+        ):
+            return self._terminate("excessive_endpoint_slip")
+        if not evaluation.bilateral_contact:
+            return self._handle_contact_loss(state)
+
+        contact_elapsed_s = state.bilateral_contact_elapsed_s + elapsed_s
+        if state.phase is WireAcceptancePhase.CONTACT:
+            if not self._duration_reached(
+                contact_elapsed_s, self.config.required_bilateral_contact_s
+            ):
+                return self._set_state(
+                    phase=WireAcceptancePhase.CONTACT,
+                    bilateral_contact_elapsed_s=contact_elapsed_s,
+                )
+            return self._set_state(
+                phase=WireAcceptancePhase.LIFT,
+                bilateral_contact_elapsed_s=contact_elapsed_s,
+                lift_permitted=True,
+            )
+
+        if state.phase is WireAcceptancePhase.LIFT:
+            lift_elapsed_s = state.lift_elapsed_s + elapsed_s
+            if self._lifted(center_height_m):
+                return self._set_state(
+                    phase=WireAcceptancePhase.HOLD,
+                    bilateral_contact_elapsed_s=contact_elapsed_s,
+                    lift_elapsed_s=lift_elapsed_s,
+                    hold_elapsed_s=elapsed_s,
+                    lift_permitted=True,
+                )
+            return self._set_state(
+                phase=WireAcceptancePhase.LIFT,
+                bilateral_contact_elapsed_s=contact_elapsed_s,
+                lift_elapsed_s=lift_elapsed_s,
+                lift_permitted=True,
+            )
+
+        if state.phase is WireAcceptancePhase.HOLD:
+            if not self._lifted(center_height_m):
+                return self._set_state(
+                    phase=WireAcceptancePhase.LIFT,
+                    bilateral_contact_elapsed_s=contact_elapsed_s,
+                    lift_elapsed_s=state.lift_elapsed_s + elapsed_s,
+                    hold_elapsed_s=0.0,
+                    lift_permitted=True,
+                )
+            hold_elapsed_s = state.hold_elapsed_s + elapsed_s
+            if self._duration_reached(hold_elapsed_s, self.config.required_hold_s):
+                return self._set_state(
+                    phase=WireAcceptancePhase.SUCCEEDED,
+                    bilateral_contact_elapsed_s=contact_elapsed_s,
+                    lift_elapsed_s=state.lift_elapsed_s,
+                    hold_elapsed_s=hold_elapsed_s,
+                    lift_permitted=True,
+                    success=True,
+                )
+            return self._set_state(
+                phase=WireAcceptancePhase.HOLD,
+                bilateral_contact_elapsed_s=contact_elapsed_s,
+                lift_elapsed_s=state.lift_elapsed_s,
+                hold_elapsed_s=hold_elapsed_s,
+                lift_permitted=True,
+            )
+        raise RuntimeError(f"unsupported wire acceptance phase {state.phase!r}")
+
+    @staticmethod
+    def _finite_scalar(name: str, value: float) -> float:
+        scalar = _real_scalar(name, value)
+        if not math.isfinite(scalar):
+            raise ValueError(f"{name} must be finite")
+        return scalar
+
+    @classmethod
+    def _positive_scalar(cls, name: str, value: float) -> float:
+        scalar = cls._finite_scalar(name, value)
+        if scalar <= 0.0:
+            raise ValueError(f"{name} must be positive")
+        return scalar
+
+    def _lifted(self, center_height_m: float) -> bool:
+        return (
+            center_height_m - self._reset_center_height_m
+            >= self.config.required_lift_m
+        )
+
+    @staticmethod
+    def _duration_reached(elapsed_s: float, required_s: float) -> bool:
+        return elapsed_s > required_s or math.isclose(
+            elapsed_s, required_s, rel_tol=0.0, abs_tol=1.0e-12
+        )
+
+    def _handle_contact_loss(self, state: WireAcceptanceState) -> WireAcceptanceState:
+        if state.phase in (WireAcceptancePhase.LIFT, WireAcceptancePhase.HOLD):
+            return self._set_state(
+                phase=WireAcceptancePhase.CONTACT,
+                request_reclamp=True,
+            )
+        return self._set_state(phase=WireAcceptancePhase.CONTACT)
+
+    def _terminate(self, reason: str) -> WireAcceptanceState:
+        return self._set_state(
+            phase=WireAcceptancePhase.TERMINATED,
+            terminal_reason=reason,
+        )
+
+    def _set_state(self, **changes: object) -> WireAcceptanceState:
+        values = {
+            "phase": WireAcceptancePhase.CONTACT,
+            "bilateral_contact_elapsed_s": 0.0,
+            "lift_elapsed_s": 0.0,
+            "hold_elapsed_s": 0.0,
+            "lift_permitted": False,
+            "request_reclamp": False,
+            "success": False,
+            "terminal_reason": None,
+        }
+        values.update(changes)
+        self._state = WireAcceptanceState(**values)
+        return self._state
 
 
 def _observation_is_finite(observation: WireContactObservation) -> bool:
@@ -231,6 +448,9 @@ def evaluate_wire_contact(
 
 __all__ = [
     "WireAcceptanceConfig",
+    "WireAcceptancePhase",
+    "WireAcceptanceState",
+    "WireAcceptanceTracker",
     "WireContactEvaluation",
     "WireContactObservation",
     "evaluate_wire_contact",
