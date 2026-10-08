@@ -410,6 +410,34 @@ def _bound_acceptance_tick(wrapper, lane, snapshot):
     return _wire_command(wrapper, lane, snapshot)
 
 
+def test_backend_rejection_survives_rebuilt_teacher_command_and_suppresses_lift(monkeypatch):
+    wrapper, lane, snapshot, backend = _bound_acceptance_wrapper(monkeypatch)
+    backend.fail = "step"
+    snapshot = replace(snapshot, timestamp_ns=round(
+        (lane.runtime._step + 1) * wrapper.env.unwrapped.physics_dt * 1e9))
+
+    lane.baseline_command = lane.runtime.compute(snapshot)
+    assert not lane.baseline_command.feasible
+    runtime_reason = lane.baseline_command.fallback_reasons[0]
+    lane.teacher = SimpleNamespace(
+        fixed_base=True,
+        plan=lambda _input: SimpleNamespace(diagnostics=SimpleNamespace(feasible=True)),
+    )
+    wrapper.mode = "teacher"
+    wrapper._step = 0
+
+    rebuilt = wrapper._compute_lane_command(lane, snapshot, None, object())
+    command = wrapper._apply_wire_acceptance(lane, snapshot, None, rebuilt)
+
+    assert not rebuilt.feasible
+    assert runtime_reason in rebuilt.fallback_reasons
+    assert not command.feasible
+    assert runtime_reason in command.fallback_reasons
+    assert wrapper.wire_acceptance_state.terminal_reason == "safety_rejected"
+    assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+    assert command.effort.shape == (43,)
+
+
 @pytest.mark.parametrize("loss", ["mask", "force", "inconsistent"])
 def test_bound_backend_contact_loss_pauses_and_resumes_after_fresh_dwell(monkeypatch, loss):
     wrapper, lane, snapshot, backend = _bound_acceptance_wrapper(monkeypatch)

@@ -1542,6 +1542,13 @@ class M1DualPandaO6BimanualWrapper:
         if self._step % 8 == 0 or lane.last_teacher_solution is None:
             lane.last_teacher_solution = lane.teacher.plan(teacher_input)
         teacher_solution = lane.last_teacher_solution
+        # For wire lanes the runtime command carries the staged DLO backend's
+        # atomic acceptance result.  A teacher/safety rebuild must not erase a
+        # rejected backend cycle before wire acceptance can hold the arms.
+        preserve_runtime_status = lane.wire_acceptance_tracker is not None
+        baseline_feasible = (
+            lane.baseline_command.feasible if preserve_runtime_status else True
+        )
         candidate = (
             lane.baseline_command.effort
             if lane.teacher.fixed_base
@@ -1552,7 +1559,10 @@ class M1DualPandaO6BimanualWrapper:
         lane.last_safety_result = lane.safety.project(
             self._safety_input(lane, snapshot, dynamics, candidate)
         )
-        fallback_reasons: list[str] = []
+        fallback_reasons: list[str] = (
+            list(lane.baseline_command.fallback_reasons)
+            if preserve_runtime_status else []
+        )
         if not teacher_solution.diagnostics.feasible:
             fallback_reasons.append(
                 teacher_solution.diagnostics.fallback_reason or "teacher_infeasible"
@@ -1567,7 +1577,8 @@ class M1DualPandaO6BimanualWrapper:
             timestamp_ns=snapshot.timestamp_ns,
             effort=projected_effort,
             feasible=bool(
-                teacher_solution.diagnostics.feasible
+                baseline_feasible
+                and teacher_solution.diagnostics.feasible
                 and lane.last_safety_result.feasible
             ),
             fallback_reasons=tuple(fallback_reasons),
