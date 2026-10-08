@@ -572,10 +572,31 @@ class O6HandMpc:
         self._last_safe = self._clone(solution)
         return solution
 
+    def _precontact_untargeted_hold_axes(
+        self, sample: HandMpcInput
+    ) -> torch.Tensor:
+        hold = torch.zeros(HAND_ACTIVE_DOF, dtype=torch.bool)
+        if sample.fingertip_target_mask is None:
+            return hold
+        pending = (
+            sample.fingertip_target_mask
+            & ~self._fingertip_target_contact_latch
+        )
+        if not bool(pending.any()):
+            return hold
+        targeted_axes = torch.zeros(HAND_ACTIVE_DOF, dtype=torch.bool)
+        for finger, columns in enumerate(FINGER_ACTIVE_COLUMNS):
+            if bool(sample.fingertip_target_mask[finger]):
+                targeted_axes[list(columns)] = True
+        return ~targeted_axes
+
     def _precontact_solution(self, sample: HandMpcInput) -> HandMpcSolution:
         q_ref, qd_ref = self.precontact.reference(
             sample.q, sample.contact_mask, sample.phase
         )
+        hold_axes = self._precontact_untargeted_hold_axes(sample)
+        q_ref[hold_axes] = sample.q[hold_axes]
+        qd_ref[hold_axes] = 0.0
         forces = sample.fingertip_forces_b.clone()
         forces[~sample.contact_mask] = 0.0
         wrench = sample.wrench_map @ forces.reshape(-1)
@@ -629,13 +650,14 @@ class O6HandMpc:
             sample.qd_max, (sample.q_max - sample.q) / self.cfg.dt
         )
         latched_axes = torch.isfinite(self.precontact._latched_contact_q)
+        fixed_axes = latched_axes | self._precontact_untargeted_hold_axes(sample)
         if (
-            torch.any(lower[latched_axes] > 0.0).item()
-            or torch.any(upper[latched_axes] < 0.0).item()
+            torch.any(lower[fixed_axes] > 0.0).item()
+            or torch.any(upper[fixed_axes] < 0.0).item()
         ):
             return baseline
-        lower[latched_axes] = 0.0
-        upper[latched_axes] = 0.0
+        lower[fixed_axes] = 0.0
+        upper[fixed_axes] = 0.0
         problem = DenseQpProblem(
             hessian=hessian,
             gradient=gradient,
@@ -657,7 +679,7 @@ class O6HandMpc:
         if not result.success or not torch.isfinite(result.solution).all().item():
             return baseline
         rate = torch.maximum(lower, torch.minimum(upper, result.solution)).clone()
-        rate[latched_axes] = 0.0
+        rate[fixed_axes] = 0.0
         return HandMpcSolution(
             q_ref=sample.q + self.cfg.dt * rate,
             qd_ref=rate,
@@ -814,6 +836,7 @@ class O6HandMpc:
         _, mean, precision_values, _, _ = queried
         precision_values = precision_values.clone()
         latched_axes = torch.isfinite(self.precontact._latched_contact_q)
+        fixed_axes = latched_axes | self._precontact_untargeted_hold_axes(sample)
         latched_fingers = torch.zeros(HAND_FINGERTIP_COUNT, dtype=torch.bool)
         for finger, columns in enumerate(FINGER_ACTIVE_COLUMNS):
             latched_fingers[finger] = bool(latched_axes[list(columns)].any().item())
@@ -845,12 +868,12 @@ class O6HandMpc:
             sample.qd_max, (sample.q_max - sample.q) / self.cfg.dt
         )
         if (
-            torch.any(lower[latched_axes] > 0.0).item()
-            or torch.any(upper[latched_axes] < 0.0).item()
+            torch.any(lower[fixed_axes] > 0.0).item()
+            or torch.any(upper[fixed_axes] < 0.0).item()
         ):
             return None
-        lower[latched_axes] = 0.0
-        upper[latched_axes] = 0.0
+        lower[fixed_axes] = 0.0
+        upper[fixed_axes] = 0.0
         problem = DenseQpProblem(
             hessian=hessian,
             gradient=gradient,
@@ -874,7 +897,7 @@ class O6HandMpc:
         rate = torch.maximum(lower, torch.minimum(upper, result.solution)).clone()
         # The dense least-squares KKT solve may leave subnormal values on
         # equality-fixed bounds.  Contact-latched public axes are exactly zero.
-        rate[latched_axes] = 0.0
+        rate[fixed_axes] = 0.0
         projected = HandMpcSolution(
             q_ref=sample.q + self.cfg.dt * rate,
             qd_ref=rate,

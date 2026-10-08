@@ -202,6 +202,34 @@ def test_precontact_fingertip_target_softly_guides_only_selected_digits():
     torch.testing.assert_close(result.qd_ref[3:], baseline.qd_ref[3:])
 
 
+@pytest.mark.parametrize("phase", (BimanualPhase.APPROACH, BimanualPhase.PRELOAD))
+def test_wire_precontact_holds_untargeted_digits_at_measured_q(phase):
+    positions = torch.zeros(5, 3, dtype=DTYPE)
+    targets = positions.clone()
+    targets[:2, 2] = -0.01
+    jacobian = torch.zeros(15, 6, dtype=DTYPE)
+    # Real folded kinematics need not be block diagonal.  Even when the
+    # thumb/index target rows couple to every active axis, a wire target must
+    # not command the untargeted middle/ring/pinky digits toward a limit.
+    jacobian[2, :] = 1.0
+    jacobian[5, :] = 1.0
+    measured_q = torch.tensor([0.31, 0.27, 0.29, 0.26, 0.23, 0.21], dtype=DTYPE)
+    sample = _input(
+        phase=phase,
+        contact_mask=torch.zeros(5, dtype=torch.bool),
+        fingertip_positions_b=positions,
+        fingertip_target_positions_b=targets,
+        fingertip_target_mask=torch.tensor([True, True, False, False, False]),
+        contact_jacobian=jacobian,
+        q=measured_q,
+    )
+
+    result = O6HandMpc().plan(sample)
+
+    torch.testing.assert_close(result.q_ref[3:], measured_q[3:])
+    torch.testing.assert_close(result.qd_ref[3:], torch.zeros(3, dtype=DTYPE))
+
+
 def test_wire_fingertip_target_stays_latched_off_after_grasp_contact_dropout():
     positions = torch.zeros(5, 3, dtype=DTYPE)
     targets = positions.clone()
