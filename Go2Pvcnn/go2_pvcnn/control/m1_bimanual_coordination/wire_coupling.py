@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum, auto
 import math
 from typing import Any
@@ -24,6 +24,22 @@ class WireCouplingPhase(Enum):
     CONTACT_LATCHING = auto()
     COSSERAT_BOUND = auto()
     SAFE_HOLD = auto()
+    RECLAMPING = auto()
+
+
+@dataclass(frozen=True)
+class WireReclampStatus:
+    """Opt-in: current contacts and the last tick's final acceptance decision."""
+
+    bilateral_contact: bool
+    dwell_complete: bool
+    terminal_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.bilateral_contact, bool) or not isinstance(self.dwell_complete, bool):
+            raise TypeError("wire contact and dwell status must be bool")
+        if self.terminal_reason is not None and not isinstance(self.terminal_reason, str):
+            raise TypeError("terminal_reason must be str or None")
 
 
 def _finite_vector(value: Any, name: str) -> tuple[float, float, float]:
@@ -252,6 +268,8 @@ def propose_wire_coupling(
     state: WireCouplingState,
     snapshot: BimanualSnapshot,
     geometry: WireSceneGeometry,
+    *,
+    reclamp_status: WireReclampStatus | None = None,
 ) -> WireCouplingProposal:
     """Return the next candidate latch state without mutating accepted state."""
 
@@ -261,19 +279,35 @@ def propose_wire_coupling(
         raise TypeError("snapshot must be BimanualSnapshot")
     if not isinstance(geometry, WireSceneGeometry):
         raise TypeError("geometry must be WireSceneGeometry")
+    if reclamp_status is not None and not isinstance(reclamp_status, WireReclampStatus):
+        raise TypeError("reclamp_status must be WireReclampStatus or None")
 
     left_error = _pinch_error(snapshot.left_hand, geometry.left_station_b)
     right_error = _pinch_error(snapshot.right_hand, geometry.right_station_b)
 
     if state.phase is WireCouplingPhase.SAFE_HOLD:
         return WireCouplingProposal(state, False, left_error, right_error)
+    if reclamp_status is not None and reclamp_status.terminal_reason is not None:
+        failed = replace(state, phase=WireCouplingPhase.SAFE_HOLD,
+                         failure_reason=reclamp_status.terminal_reason)
+        return WireCouplingProposal(failed, False, left_error, right_error)
 
     left_contact = _contact_qualifies(snapshot.left_hand)
     right_contact = _contact_qualifies(snapshot.right_hand)
 
-    if state.phase is WireCouplingPhase.COSSERAT_BOUND:
-        if left_contact and right_contact:
-            return WireCouplingProposal(state, False, left_error, right_error)
+    if state.phase in (WireCouplingPhase.COSSERAT_BOUND, WireCouplingPhase.RECLAMPING):
+        qualified = (left_contact and right_contact if reclamp_status is None else
+                     reclamp_status.bilateral_contact)
+        ready = state.phase is WireCouplingPhase.COSSERAT_BOUND or (
+            reclamp_status is not None and reclamp_status.dwell_complete
+        )
+        if qualified and ready:
+            restored = (state if state.phase is WireCouplingPhase.COSSERAT_BOUND else
+                        replace(state, phase=WireCouplingPhase.COSSERAT_BOUND))
+            return WireCouplingProposal(restored, False, left_error, right_error)
+        if reclamp_status is not None:
+            paused = replace(state, phase=WireCouplingPhase.RECLAMPING)
+            return WireCouplingProposal(paused, False, left_error, right_error)
         failed = WireCouplingState(
             phase=WireCouplingPhase.SAFE_HOLD,
             left_contact_ticks=state.left_contact_ticks,
@@ -334,5 +368,6 @@ __all__ = [
     "WireCouplingPhase",
     "WireCouplingProposal",
     "WireCouplingState",
+    "WireReclampStatus",
     "propose_wire_coupling",
 ]

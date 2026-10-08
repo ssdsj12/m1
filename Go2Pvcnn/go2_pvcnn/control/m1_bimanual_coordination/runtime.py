@@ -220,6 +220,7 @@ class BimanualRuntime:
         wire_geometry_provider=None,
         wire_coupling_state: WireCouplingState | None = None,
         wire_frame_provider=None,
+        wire_reclamp_provider=None,
         wire_object_id: str = "wire_000",
         wire_target_prim_path: str | None = None,
     ) -> None:
@@ -268,13 +269,15 @@ class BimanualRuntime:
         self.dlo_backend = dlo_backend
         self.dlo_frame_provider = dlo_frame_provider
         for name, provider in (("wire_geometry_provider", wire_geometry_provider),
-                               ("wire_frame_provider", wire_frame_provider)):
+                               ("wire_frame_provider", wire_frame_provider),
+                               ("wire_reclamp_provider", wire_reclamp_provider)):
             if provider is not None and not callable(provider):
                 raise TypeError(f"{name} must be callable")
         if wire_coupling_state is not None and not isinstance(wire_coupling_state, WireCouplingState):
             raise TypeError("wire_coupling_state must be WireCouplingState")
         self.wire_geometry_provider = wire_geometry_provider
         self.wire_frame_provider = wire_frame_provider
+        self.wire_reclamp_provider = wire_reclamp_provider
         self.wire_coupling_state = wire_coupling_state or WireCouplingState.initial()
         if not isinstance(wire_object_id, str) or not wire_object_id:
             raise ValueError("wire_object_id must be a non-empty string")
@@ -733,7 +736,11 @@ class BimanualRuntime:
         if staged_wire:
             try:
                 scene_geometry = self.wire_geometry_provider(snapshot)
-                proposal = propose_wire_coupling(self.wire_coupling_state, snapshot, scene_geometry)
+                proposal = propose_wire_coupling(
+                    self.wire_coupling_state, snapshot, scene_geometry,
+                    reclamp_status=(None if self.wire_reclamp_provider is None else
+                                    self.wire_reclamp_provider(snapshot)),
+                )
             except (ValueError, TypeError, RuntimeError, FloatingPointError) as exc:
                 wire_failure = f"wire_geometry_failure: {exc}"
 
@@ -757,14 +764,16 @@ class BimanualRuntime:
             if (staged_wire and wire_failure is None
                     and proposal.next_state.phase is not WireCouplingPhase.SAFE_HOLD):
                 state = (self.latest_dlo_step.state
-                         if self.wire_coupling_state.phase is WireCouplingPhase.COSSERAT_BOUND
+                         if self.wire_coupling_state.phase in (
+                             WireCouplingPhase.COSSERAT_BOUND, WireCouplingPhase.RECLAMPING)
                          else scene_geometry.centerline)
                 wire_plan = self.dlo_trajectory_planner.plan_state(snapshot, object_solution, state)
                 object_solution = wire_plan.object_solution
                 active_wire_goal = wire_plan.contact_goal
                 # A unilateral latch holds the last accepted references;
                 # only the unlatched hand continues tracking scene stations.
-                if (self.wire_coupling_state.phase is not WireCouplingPhase.COSSERAT_BOUND
+                if (self.wire_coupling_state.phase not in (
+                        WireCouplingPhase.COSSERAT_BOUND, WireCouplingPhase.RECLAMPING)
                         and self._last_object is not None and self.latest_wire_goal is not None):
                     for side in ("left", "right"):
                         if getattr(self.wire_coupling_state, f"{side}_latched"):

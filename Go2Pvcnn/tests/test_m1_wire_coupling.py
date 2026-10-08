@@ -219,6 +219,59 @@ def test_bound_contact_loss_enters_sticky_safe_hold_without_rebind():
     assert not safe.bind_requested
 
 
+def test_opted_in_bound_reclamp_waits_for_qualified_dwell_without_rebind():
+    from go2_pvcnn.control.m1_bimanual_coordination.wire_coupling import WireReclampStatus
+
+    bound = replace(
+        WireCouplingState.initial(), phase=WireCouplingPhase.COSSERAT_BOUND,
+        left_contact_ticks=5, right_contact_ticks=5,
+        left_latched=True, right_latched=True, bind_count=1,
+    )
+    snapshot = _contact_snapshot(left=True, right=True)
+    # The force gate can reject contact even when both raw masks remain true.
+    lost = propose_wire_coupling(bound, snapshot, _geometry(),
+        reclamp_status=WireReclampStatus(bilateral_contact=False, dwell_complete=True))
+    assert lost.next_state.phase is WireCouplingPhase.RECLAMPING
+    assert lost.next_state.failure_reason is None
+    assert lost.next_state.bind_count == 1
+    assert not lost.bind_requested
+    waiting = propose_wire_coupling(lost.next_state, snapshot, _geometry(),
+        reclamp_status=WireReclampStatus(bilateral_contact=True, dwell_complete=False))
+    assert waiting.next_state.phase is WireCouplingPhase.RECLAMPING
+    assert not waiting.bind_requested
+    restored = propose_wire_coupling(waiting.next_state, snapshot, _geometry(),
+        reclamp_status=WireReclampStatus(bilateral_contact=True, dwell_complete=True))
+    assert restored.next_state.phase is WireCouplingPhase.COSSERAT_BOUND
+    assert restored.next_state.bind_count == 1
+    assert not restored.bind_requested
+    failed = propose_wire_coupling(waiting.next_state, snapshot, _geometry(),
+        reclamp_status=WireReclampStatus(bilateral_contact=True, dwell_complete=True,
+                                        terminal_reason="persistent_contact_loss"))
+    assert failed.next_state.phase is WireCouplingPhase.SAFE_HOLD
+    assert failed.next_state.failure_reason == "persistent_contact_loss"
+    sticky = propose_wire_coupling(failed.next_state, snapshot, _geometry(),
+        reclamp_status=WireReclampStatus(bilateral_contact=True, dwell_complete=True))
+    assert sticky.next_state is failed.next_state
+    assert not sticky.bind_requested
+
+
+def test_opted_in_recovery_uses_acceptance_contact_qualification():
+    from go2_pvcnn.control.m1_bimanual_coordination.wire_coupling import WireReclampStatus
+
+    recovering = replace(WireCouplingState.initial(), phase=WireCouplingPhase.RECLAMPING,
+                         left_latched=True, right_latched=True, bind_count=1)
+    snapshot = _contact_snapshot(left=True, right=True)
+    snapshot = replace(snapshot, right_hand=replace(snapshot.right_hand,
+        contact_mask=torch.tensor([True, False, True, False, False])))
+    # Acceptance qualifies any configured number of force-bearing digits;
+    # its post-bind recovery gate is independent of the initial pinch latch.
+    restored = propose_wire_coupling(recovering, snapshot, _geometry(),
+        reclamp_status=WireReclampStatus(bilateral_contact=True, dwell_complete=True))
+    assert restored.next_state.phase is WireCouplingPhase.COSSERAT_BOUND
+    assert not restored.bind_requested
+    assert restored.next_state.bind_count == 1
+
+
 def test_station_error_above_five_millimetres_never_requests_bind():
     geometry = _geometry()
     snapshot = _contact_snapshot(left=True, right=True)

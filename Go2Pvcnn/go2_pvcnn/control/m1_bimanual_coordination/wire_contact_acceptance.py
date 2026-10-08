@@ -184,6 +184,7 @@ class WireAcceptanceTracker:
         self._reset_center_height_m = self._finite_scalar(
             "wire_center_height_m", wire_center_height_m
         )
+        self._contact_loss_elapsed_s = 0.0
         self._state = WireAcceptanceState(
             phase=WireAcceptancePhase.CONTACT,
             bilateral_contact_elapsed_s=0.0,
@@ -202,6 +203,7 @@ class WireAcceptanceTracker:
         wire_center_height_m: float,
         dt_s: float,
         safety_feasible: bool,
+        reclamp_required: bool = False,
     ) -> WireAcceptanceState:
         """Advance one accepted-control interval without consulting wall-clock time.
 
@@ -214,6 +216,8 @@ class WireAcceptanceTracker:
             raise TypeError("evaluation must be WireContactEvaluation")
         if not isinstance(safety_feasible, bool):
             raise TypeError("safety_feasible must be a bool")
+        if not isinstance(reclamp_required, bool):
+            raise TypeError("reclamp_required must be a bool")
 
         state = self._state
         if state.phase in (
@@ -239,8 +243,9 @@ class WireAcceptanceTracker:
         ):
             return self._terminate("excessive_endpoint_slip")
         if not evaluation.bilateral_contact:
-            return self._handle_contact_loss(state)
+            return self._handle_contact_loss(state, elapsed_s, reclamp_required)
 
+        self._contact_loss_elapsed_s = 0.0
         contact_elapsed_s = state.bilateral_contact_elapsed_s + elapsed_s
         if state.phase is WireAcceptancePhase.CONTACT:
             if not self._duration_reached(
@@ -249,6 +254,7 @@ class WireAcceptanceTracker:
                 return self._set_state(
                     phase=WireAcceptancePhase.CONTACT,
                     bilateral_contact_elapsed_s=contact_elapsed_s,
+                    request_reclamp=state.request_reclamp,
                 )
             return self._set_state(
                 phase=WireAcceptancePhase.LIFT,
@@ -327,8 +333,16 @@ class WireAcceptanceTracker:
             elapsed_s, required_s, rel_tol=0.0, abs_tol=1.0e-12
         )
 
-    def _handle_contact_loss(self, state: WireAcceptanceState) -> WireAcceptanceState:
-        if state.phase in (WireAcceptancePhase.LIFT, WireAcceptancePhase.HOLD):
+    def _handle_contact_loss(
+        self, state: WireAcceptanceState, elapsed_s: float, reclamp_required: bool
+    ) -> WireAcceptanceState:
+        if (state.phase in (WireAcceptancePhase.LIFT, WireAcceptancePhase.HOLD)
+                or state.request_reclamp or reclamp_required):
+            self._contact_loss_elapsed_s += elapsed_s
+            if self._duration_reached(
+                self._contact_loss_elapsed_s, self.config.required_bilateral_contact_s
+            ):
+                return self._terminate("persistent_contact_loss")
             return self._set_state(
                 phase=WireAcceptancePhase.CONTACT,
                 request_reclamp=True,

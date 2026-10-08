@@ -275,6 +275,49 @@ def test_contact_loss_during_lift_requests_reclamp() -> None:
     assert state.bilateral_contact_elapsed_s == 0.0
 
 
+@pytest.mark.parametrize("budget_s", [0.3, 0.5])
+def test_persistent_contact_loss_uses_configured_dwell_budget(budget_s) -> None:
+    tracker = WireAcceptanceTracker(WireAcceptanceConfig(required_bilateral_contact_s=budget_s))
+    _advance_contact(tracker, duration_s=budget_s)
+    lost = replace(_accepted_evaluation(), bilateral_contact=False)
+    for _ in range(round(budget_s / 0.1) - 1):
+        state = tracker.update(lost, wire_center_height_m=1.2, dt_s=0.1, safety_feasible=True)
+        assert state.request_reclamp
+        assert state.terminal_reason is None
+    state = tracker.update(lost, wire_center_height_m=1.2, dt_s=0.1, safety_feasible=True)
+    assert state.phase is WireAcceptancePhase.TERMINATED
+    assert state.terminal_reason == "persistent_contact_loss"
+    assert not state.success
+    assert not state.lift_permitted
+    assert _advance_contact(tracker, duration_s=1.0) is state
+
+
+def test_recovery_requires_fresh_dwell_and_reset_clears_loss_budget() -> None:
+    tracker = WireAcceptanceTracker(WireAcceptanceConfig())
+    _advance_contact(tracker, duration_s=0.5)
+    lost = replace(_accepted_evaluation(), bilateral_contact=False)
+    for _ in range(4):
+        tracker.update(lost, wire_center_height_m=1.2, dt_s=0.1, safety_feasible=True)
+    state = _advance_contact(tracker, duration_s=0.4)
+    assert state.request_reclamp
+    assert not state.lift_permitted
+    # A restored contact interrupts continuous loss, but another dropout
+    # restarts the entire qualification dwell.
+    state = tracker.update(lost, wire_center_height_m=1.2, dt_s=0.1, safety_feasible=True)
+    assert state.terminal_reason is None
+    state = _advance_contact(tracker, duration_s=0.4)
+    assert not state.lift_permitted
+    state = _advance_contact(tracker, duration_s=0.1)
+    assert state.lift_permitted
+    assert not state.request_reclamp
+    tracker.reset(wire_center_height_m=1.2)
+    # Initial acquisition can wait for contact without spending recovery time.
+    for _ in range(6):
+        state = tracker.update(lost, wire_center_height_m=1.2, dt_s=0.1, safety_feasible=True)
+    assert state.terminal_reason is None
+    assert not state.request_reclamp
+
+
 def test_required_lift_followed_by_one_second_stable_hold_succeeds() -> None:
     tracker = WireAcceptanceTracker(WireAcceptanceConfig())
     tracker.reset(wire_center_height_m=1.20)
