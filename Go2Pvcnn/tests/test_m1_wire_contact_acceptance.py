@@ -20,12 +20,12 @@ def _observation() -> WireContactObservation:
         left_contact_mask=torch.tensor([True, True, False, False, False]),
         right_contact_mask=torch.tensor([True, True, False, False, False]),
         left_fingertip_forces_b=torch.tensor(
-            [[0.20, 0.0, 0.0], [0.21, 0.0, 0.0], [0.0, 0.0, 0.0],
+            [[0.21, 0.0, 0.0], [0.22, 0.0, 0.0], [0.0, 0.0, 0.0],
              [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
             dtype=torch.float64,
         ),
         right_fingertip_forces_b=torch.tensor(
-            [[0.20, 0.0, 0.0], [0.21, 0.0, 0.0], [0.0, 0.0, 0.0],
+            [[0.21, 0.0, 0.0], [0.22, 0.0, 0.0], [0.0, 0.0, 0.0],
              [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
             dtype=torch.float64,
         ),
@@ -47,7 +47,9 @@ def test_contacts_below_minimum_force_do_not_count() -> None:
     evaluation = evaluate_wire_contact(
         replace(
             observation,
-            left_fingertip_forces_b=torch.full((5, 3), 0.0, dtype=torch.float64),
+            left_fingertip_forces_b=torch.tensor(
+                [[0.199, 0.0, 0.0]] * 5, dtype=torch.float64
+            ),
             right_fingertip_forces_b=torch.tensor(
                 [[0.199, 0.0, 0.0]] * 5, dtype=torch.float64
             ),
@@ -59,6 +61,47 @@ def test_contacts_below_minimum_force_do_not_count() -> None:
     assert evaluation.right_valid_contacts == 0
     assert not evaluation.bilateral_contact
     assert evaluation.failure_reason == "insufficient_valid_contacts"
+
+
+def test_contacts_equal_to_minimum_force_do_not_count() -> None:
+    observation = _observation()
+    evaluation = evaluate_wire_contact(
+        replace(
+            observation,
+            left_fingertip_forces_b=torch.tensor(
+                [[0.2, 0.0, 0.0]] * 5, dtype=torch.float64
+            ),
+            right_fingertip_forces_b=torch.tensor(
+                [[0.2, 0.0, 0.0]] * 5, dtype=torch.float64
+            ),
+        ),
+        WireAcceptanceConfig(),
+    )
+
+    assert evaluation.left_valid_contacts == 0
+    assert evaluation.right_valid_contacts == 0
+    assert not evaluation.bilateral_contact
+    assert evaluation.failure_reason == "insufficient_valid_contacts"
+
+
+def test_contacts_above_minimum_force_count() -> None:
+    observation = _observation()
+    evaluation = evaluate_wire_contact(
+        replace(
+            observation,
+            left_fingertip_forces_b=torch.tensor(
+                [[0.2001, 0.0, 0.0]] * 5, dtype=torch.float64
+            ),
+            right_fingertip_forces_b=torch.tensor(
+                [[0.2001, 0.0, 0.0]] * 5, dtype=torch.float64
+            ),
+        ),
+        WireAcceptanceConfig(),
+    )
+
+    assert evaluation.left_valid_contacts == 2
+    assert evaluation.right_valid_contacts == 2
+    assert evaluation.bilateral_contact
 
 
 def test_two_qualified_contacts_per_hand_are_accepted() -> None:
@@ -73,14 +116,29 @@ def test_two_qualified_contacts_per_hand_are_accepted() -> None:
     assert evaluation.failure_reason is None
 
 
-def test_endpoint_slip_above_limit_is_rejected() -> None:
+def test_endpoint_slip_is_relative_to_palm_not_fingertip_contact_centroid() -> None:
     observation = _observation()
     shifted_positions = observation.left_fingertip_positions_b.clone()
-    shifted_positions[:2] += torch.tensor([0.0201, 0.0, 0.0], dtype=torch.float64)
+    shifted_positions[:2] += torch.tensor([0.50, 0.0, 0.0], dtype=torch.float64)
     evaluation = evaluate_wire_contact(
         replace(
             observation,
             left_fingertip_positions_b=shifted_positions,
+        ),
+        WireAcceptanceConfig(),
+    )
+
+    assert evaluation.left_slip_m == pytest.approx(0.0)
+    assert evaluation.bilateral_contact
+
+
+def test_endpoint_slip_above_limit_is_rejected_when_palm_moves() -> None:
+    observation = _observation()
+    evaluation = evaluate_wire_contact(
+        replace(
+            observation,
+            left_palm_position_b=observation.left_palm_position_b
+            + torch.tensor([0.0201, 0.0, 0.0], dtype=torch.float64),
         ),
         WireAcceptanceConfig(),
     )

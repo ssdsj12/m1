@@ -51,7 +51,13 @@ def _real_scalar(name: str, value: float) -> float:
 
 @dataclass(frozen=True)
 class WireContactObservation:
-    """One deterministic simulation contact observation for both O6 hands."""
+    """One deterministic simulation contact observation for both O6 hands.
+
+    Public caller obligation: ``*_contact_mask`` and ``*_fingertip_forces_b``
+    must already represent physical, selected-wire contacts filtered to the
+    target wire. This evaluator does not perform contact-pair filtering or
+    infer contact from fingertip proximity.
+    """
 
     left_contact_mask: torch.Tensor
     right_contact_mask: torch.Tensor
@@ -142,18 +148,14 @@ def _observation_is_finite(observation: WireContactObservation) -> bool:
 def _qualifying_contact_mask(
     mask: torch.Tensor, forces_b: torch.Tensor, threshold_n: float
 ) -> torch.Tensor:
-    return mask & (torch.linalg.vector_norm(forces_b, dim=1) >= threshold_n)
+    return mask & (torch.linalg.vector_norm(forces_b, dim=1) > threshold_n)
 
 
 def _endpoint_slip_m(
-    fingertip_positions_b: torch.Tensor,
-    qualifying_mask: torch.Tensor,
+    palm_position_b: torch.Tensor,
     endpoint_position_b: torch.Tensor,
 ) -> float:
-    if not bool(qualifying_mask.any()):
-        return 0.0
-    contact_center_b = fingertip_positions_b[qualifying_mask].mean(dim=0)
-    return float(torch.linalg.vector_norm(contact_center_b - endpoint_position_b).item())
+    return float(torch.linalg.vector_norm(palm_position_b - endpoint_position_b).item())
 
 
 def evaluate_wire_contact(
@@ -162,8 +164,8 @@ def evaluate_wire_contact(
 ) -> WireContactEvaluation:
     """Evaluate one observation without mutating it or retaining any history.
 
-    Endpoint slip is the distance from each hand's qualifying fingertip centre
-    to its assigned wire endpoint (left endpoint first, right endpoint second).
+    Endpoint slip is the distance from each palm to its assigned wire endpoint
+    (left endpoint first, right endpoint second).
     """
 
     if not isinstance(observation, WireContactObservation):
@@ -196,13 +198,11 @@ def evaluate_wire_contact(
     left_valid = int(left_qualifying.sum().item())
     right_valid = int(right_qualifying.sum().item())
     left_slip = _endpoint_slip_m(
-        observation.left_fingertip_positions_b,
-        left_qualifying,
+        observation.left_palm_position_b,
         observation.wire_endpoint_positions_b[0],
     )
     right_slip = _endpoint_slip_m(
-        observation.right_fingertip_positions_b,
-        right_qualifying,
+        observation.right_palm_position_b,
         observation.wire_endpoint_positions_b[1],
     )
 
