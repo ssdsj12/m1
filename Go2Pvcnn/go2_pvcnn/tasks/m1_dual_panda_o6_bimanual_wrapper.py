@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import os
 from pathlib import Path
 from collections.abc import Sequence
@@ -52,6 +52,7 @@ from go2_pvcnn.control.m1_bimanual_coordination import (
     build_catalog_grasp_goal_provider,
 )
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
+from go2_pvcnn.control.m1_bimanual_coordination.runtime import _default_arm_input
 from go2_pvcnn.control.m1_bimanual_coordination.deformx_adapter import DeformXDualWireBackend
 from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import dual_palm_attached_grasp_frames
 from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_trajectory import DloWireTrajectoryPlanner
@@ -782,6 +783,8 @@ class M1DualPandaO6BimanualWrapper:
                 )
                 for index in range(raw.num_envs)
             ]
+            for lane in self.lanes:
+                self._configure_wire_arm_limits(lane)
             selected_artifact = latent_artifact or os.environ.get(
                 "M1_BIMANUAL_LATENT_ARTIFACT"
             )
@@ -809,6 +812,30 @@ class M1DualPandaO6BimanualWrapper:
         except BaseException:
             self._close_partial_resources()
             raise
+
+    def _configure_wire_arm_limits(self, lane: BimanualLaneController) -> None:
+        """Keep staged-wire Arm MPC inside the downstream safety domain."""
+        if self._wire_geometry_provider is None:
+            return
+        upstream = lane.runtime._arm_input_provider
+
+        def bounded_inputs(snapshot):
+            samples = (
+                upstream(snapshot) if upstream is not None else
+                (_default_arm_input(snapshot, "left"), _default_arm_input(snapshot, "right"))
+            )
+            bounded = []
+            for side, sample in zip(("left", "right"), samples):
+                ids = list(getattr(lane.adapter, f"{side}_arm_ids"))
+                limits = _cpu64(lane.adapter.robot.data.soft_joint_pos_limits[lane.env_index, ids])
+                lower, upper = lane.safety.joint_position_bounds(limits[:, 0], limits[:, 1])
+                bounded.append(replace(
+                    sample, q_min=torch.maximum(sample.q_min, lower),
+                    q_max=torch.minimum(sample.q_max, upper),
+                ))
+            return tuple(bounded)
+
+        lane.runtime._arm_input_provider = bounded_inputs
 
     def _runtime_for_lane(
         self, supplied_runtime: BimanualRuntime | None

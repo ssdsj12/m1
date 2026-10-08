@@ -168,6 +168,16 @@ class SafetyProjection:
             dynamics_residual=0.0,
         )
 
+    def joint_position_bounds(
+        self, q_min: torch.Tensor, q_max: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the effective position domain shared with upstream planners."""
+        margin = torch.minimum(
+            self.joint_position_margin_rad * torch.ones_like(q_min),
+            0.25 * (q_max - q_min),
+        )
+        return q_min + margin, q_max - margin
+
     def project(self, sample: SafetyInput) -> SafetyResult:
         if not isinstance(sample, SafetyInput):
             raise TypeError("sample must be SafetyInput")
@@ -181,12 +191,7 @@ class SafetyProjection:
         qdd_map = reduced.qdd_from_effort[ids]
         position_offset = sample.active_q + self.dt * sample.active_qd + 0.5 * self.dt**2 * qdd_offset
         position_map = 0.5 * self.dt**2 * qdd_map
-        joint_margin = torch.minimum(
-            self.joint_position_margin_rad * torch.ones(43, dtype=torch.float64),
-            0.25 * (sample.q_max - sample.q_min),
-        )
-        safe_q_min = sample.q_min + joint_margin
-        safe_q_max = sample.q_max - joint_margin
+        safe_q_min, safe_q_max = self.joint_position_bounds(sample.q_min, sample.q_max)
         velocity_offset = sample.active_qd + self.dt * qdd_offset
         velocity_map = self.dt * qdd_map
         safe_qd_max = (
