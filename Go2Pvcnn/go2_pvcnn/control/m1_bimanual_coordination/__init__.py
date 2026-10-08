@@ -99,6 +99,12 @@ from .wire_coupling import (
     WireCouplingState,
     propose_wire_coupling,
 )
+from .wire_contact_acceptance import (
+    WireAcceptanceConfig,
+    WireContactEvaluation,
+    WireContactObservation,
+    evaluate_wire_contact,
+)
 from .dlo_frame_provider import (
     PalmGraspAttachment,
     capture_palm_grasp_attachment,
@@ -204,6 +210,10 @@ __all__ = [
     "WireCouplingProposal",
     "WireCouplingState",
     "propose_wire_coupling",
+    "WireAcceptanceConfig",
+    "WireContactEvaluation",
+    "WireContactObservation",
+    "evaluate_wire_contact",
     "PalmGraspAttachment",
     "capture_palm_grasp_attachment",
     "dual_palm_attached_grasp_frames",
