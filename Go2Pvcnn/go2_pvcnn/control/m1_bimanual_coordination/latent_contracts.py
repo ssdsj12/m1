@@ -1,4 +1,4 @@
-"""Frozen feature, normalization, and artifact contracts for z16 control."""
+"""Frozen feature, normalization, and artifact contracts for z15 control."""
 
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ STATE_DIM = 111
 ACTION_DIM = 43
 HORIZON = 25
 TASK_FEATURE_DIM = 50
-LATENT_DIM = 16
+LATENT_DIM = 15
 MODEL_FORMAT_VERSION = 1
 LATENT_GROUPS = {
     "support": (0, 4),
     "palms": (4, 10),
     "hands": (10, 14),
-    "platform": (14, 16),
+    "platform": (14, 15),
 }
 
 

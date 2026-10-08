@@ -48,7 +48,7 @@ def test_latent_model_shapes_and_group_contract() -> None:
 
     z = model.encode(state, teacher_action, teacher_task)
 
-    assert z.shape == (2, 16)
+    assert z.shape == (2, 15)
     assert model.decode_trajectory(state, z).shape == (2, 25, 43)
     assert model.decode_task_trajectory(state, z).shape == (2, 25, 50)
     assert model.body_action(
@@ -61,7 +61,7 @@ def test_latent_model_shapes_and_group_contract() -> None:
         "support": (0, 4),
         "palms": (4, 10),
         "hands": (10, 14),
-        "platform": (14, 16),
+            "platform": (14, 15),
     }
     assert torch.all(z.abs() <= 1.0)
 

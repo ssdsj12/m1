@@ -37,7 +37,7 @@ def test_composite_loss_contains_every_design_term() -> None:
         "decoded_action": torch.ones(2, 25, 43),
         "decoded_task": torch.ones(2, 25, 50),
         "body_action": torch.ones(2, 43),
-        "latent": torch.ones(2, 16),
+        "latent": torch.ones(2, 15),
     }
 
     losses = composite_loss(batch, outputs)
@@ -88,6 +88,5 @@ def test_synthetic_smoke_writes_versioned_artifact(tmp_path: Path) -> None:
         assert (tmp_path / name).is_file()
     metadata = json.loads((tmp_path / "metadata.json").read_text())
     metrics = json.loads((tmp_path / "metrics.json").read_text())
-    assert metadata["latent_dim"] == 16
+    assert metadata["latent_dim"] == 15
     assert np.isfinite(metrics["validation_total"])
-

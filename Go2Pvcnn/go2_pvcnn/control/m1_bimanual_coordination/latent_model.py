@@ -15,7 +15,7 @@ from .latent_contracts import (
 
 
 class LatentActionModel(nn.Module):
-    """Compress a full teacher trajectory to z16 and reproduce its actions."""
+    """Compress a full teacher trajectory to z15 and reproduce its actions."""
 
     def __init__(self) -> None:
         super().__init__()

@@ -1,4 +1,4 @@
-"""Collect fixed-base full-action teacher rows for z16 training."""
+"""Collect fixed-base full-action teacher rows for z15 training."""
 
 from __future__ import annotations
 

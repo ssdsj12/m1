@@ -1,4 +1,4 @@
-"""Train and serialize the deterministic M1 bimanual z16 action model."""
+"""Train and serialize the deterministic M1 bimanual z15 action model."""
 
 from __future__ import annotations
 

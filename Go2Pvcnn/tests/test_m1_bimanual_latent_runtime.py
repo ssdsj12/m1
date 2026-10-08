@@ -43,7 +43,7 @@ def _teacher_input_solution(sample):
 
 class _Model:
     def encode(self, state, teacher_action, teacher_task):
-        return torch.zeros((state.shape[0], 16), dtype=torch.float32)
+        return torch.zeros((state.shape[0], 15), dtype=torch.float32)
 
     def body_action(self, state, latent, phase, last_effort):
         return 0.1 * torch.ones((state.shape[0], 43), dtype=torch.float32)
@@ -138,4 +138,3 @@ def test_out_of_distribution_state_is_rejected_before_body_control() -> None:
     assert not command.feasible
     assert command.fallback_reasons == ("state_out_of_distribution",)
     assert runtime.counts["body"] == 0
-
