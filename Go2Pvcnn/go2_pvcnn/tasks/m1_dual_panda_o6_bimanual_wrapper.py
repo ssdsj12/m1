@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from copy import deepcopy
 import os
 from pathlib import Path
 from collections.abc import Sequence
@@ -57,6 +58,10 @@ from go2_pvcnn.control.m1_bimanual_coordination.deformx_adapter import DeformXDu
 from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import dual_palm_attached_grasp_frames
 from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_trajectory import DloWireTrajectoryPlanner
 from go2_pvcnn.control.m1_bimanual_coordination.wire_scene_geometry import build_wire_scene_geometry
+from go2_pvcnn.control.m1_bimanual_coordination.wire_contact_acceptance import (
+    WireAcceptanceConfig, WireAcceptancePhase, WireAcceptanceState,
+    WireAcceptanceTracker, WireContactObservation, evaluate_wire_contact,
+)
 from go2_pvcnn.control.m1_bimanual_coordination.contact_summary import (
     ContactSummary,
     summarize_contacts,
@@ -638,6 +643,14 @@ class BimanualLaneController:
     last_command: BimanualCommand | None = None
     base_reference_w: torch.Tensor | None = None
     preload_arm_q: torch.Tensor | None = None
+    wire_acceptance_tracker: WireAcceptanceTracker | None = None
+    wire_acceptance_started: bool = False
+    wire_hold_arm_q: torch.Tensor | None = None
+    wire_last_safe_command: BimanualCommand | None = None
+    wire_last_safe_hand_targets: tuple[torch.Tensor, torch.Tensor] | None = None
+    wire_acceptance_diagnostics: dict[str, object] | None = None
+    wire_mission_phase: BimanualPhase | None = None
+    wire_mission_elapsed_s: float = 0.0
     left_hand_contact_q: torch.Tensor = field(
         default_factory=lambda: torch.full((6,), torch.nan, dtype=torch.float64)
     )
@@ -785,6 +798,9 @@ class M1DualPandaO6BimanualWrapper:
             ]
             for lane in self.lanes:
                 self._configure_wire_arm_limits(lane)
+                if self._wire_geometry_provider is not None:
+                    lane.wire_acceptance_tracker = WireAcceptanceTracker(WireAcceptanceConfig())
+                    self._configure_wire_hand_reclamp(lane)
             selected_artifact = latent_artifact or os.environ.get(
                 "M1_BIMANUAL_LATENT_ARTIFACT"
             )
@@ -993,6 +1009,197 @@ class M1DualPandaO6BimanualWrapper:
             fallback_reasons=command.fallback_reasons,
         )
 
+    @property
+    def wire_acceptance_state(self) -> WireAcceptanceState | None:
+        """Lane-zero real-contact acceptance; other lanes own independent trackers."""
+        tracker = self.lanes[0].wire_acceptance_tracker
+        return None if tracker is None else tracker.state
+
+    @property
+    def wire_acceptance_diagnostics(self) -> dict[str, object] | None:
+        return deepcopy(self.lanes[0].wire_acceptance_diagnostics)
+
+    def _configure_wire_hand_reclamp(self, lane: BimanualLaneController) -> None:
+        """Keep Hand MPC's historical latches consistent with live wire contacts."""
+        upstream = lane.runtime._hand_input
+        for side in ("left", "right"):
+            getattr(lane.runtime, f"{side}_hand_mpc").precontact.release_uncontacted = True
+
+        def contact_inputs(snapshot, side, target, *, wire_goal=None):
+            sample = upstream(snapshot, side, target, wire_goal=wire_goal)
+            controller = getattr(lane.runtime, f"{side}_hand_mpc")
+            controller._fingertip_target_contact_latch &= sample.contact_mask
+            tracker = lane.wire_acceptance_tracker
+            bilateral = all(
+                int((hand.contact_mask & (torch.linalg.vector_norm(hand.fingertip_forces_b, dim=1)
+                     > tracker.config.min_contact_force_n)).sum()) >= tracker.config.min_contacts_per_hand
+                for hand in (snapshot.left_hand, snapshot.right_hand)
+            )
+            if sample.phase in (BimanualPhase.LIFT, BimanualPhase.HOLD) and (
+                not tracker.state.lift_permitted or not bilateral
+            ):
+                sample = replace(sample, phase=BimanualPhase.PRELOAD)
+            return sample
+
+        lane.runtime._hand_input = contact_inputs
+
+    def _reset_wire_acceptance(self, lane, snapshot) -> None:
+        if lane.wire_acceptance_tracker is None:
+            return
+        geometry = self._wire_geometry_provider(snapshot)
+        lane.wire_acceptance_tracker.reset(wire_center_height_m=float(geometry.center_b[2]))
+        lane.wire_acceptance_started = False
+        lane.wire_hold_arm_q = None
+        lane.wire_last_safe_command = None
+        lane.wire_last_safe_hand_targets = None
+        lane.wire_acceptance_diagnostics = None
+        lane.wire_mission_phase = None
+        lane.wire_mission_elapsed_s = 0.0
+
+    def _prepare_wire_reclamp(self, lane, snapshot) -> None:
+        """Request PRELOAD before the catalog mission treats contact loss as fatal."""
+        tracker = lane.wire_acceptance_tracker
+        if tracker is None or lane.runtime.mission.phase not in (BimanualPhase.LIFT, BimanualPhase.HOLD):
+            return
+        bilateral = all(
+            int((hand.contact_mask & (torch.linalg.vector_norm(hand.fingertip_forces_b, dim=1)
+                 > tracker.config.min_contact_force_n)).sum()) >= tracker.config.min_contacts_per_hand
+            for hand in (snapshot.left_hand, snapshot.right_hand)
+        )
+        if not bilateral:
+            if lane.wire_hold_arm_q is None:
+                lane.wire_hold_arm_q = torch.cat((snapshot.left_arm.q, snapshot.right_arm.q))
+            lane.runtime.mission._transition(BimanualPhase.PRELOAD)
+
+    def _apply_wire_acceptance(self, lane, snapshot, dynamics, command):
+        """Gate wire lift and commit acceptance only after the final safety check.
+
+        Snapshot forces/masks come from the adapter's selected-target summaries;
+        all geometry and force vectors here are already in the common M1 frame.
+        """
+        tracker = lane.wire_acceptance_tracker
+        if tracker is None:
+            return command
+        geometry = self._wire_geometry_provider(snapshot)
+        dt = float(self.env.unwrapped.physics_dt)
+        observation = WireContactObservation(
+            left_contact_mask=snapshot.left_hand.contact_mask,
+            right_contact_mask=snapshot.right_hand.contact_mask,
+            left_fingertip_forces_b=snapshot.left_hand.fingertip_forces_b,
+            right_fingertip_forces_b=snapshot.right_hand.fingertip_forces_b,
+            left_fingertip_positions_b=snapshot.left_hand.fingertip_positions_b,
+            right_fingertip_positions_b=snapshot.right_hand.fingertip_positions_b,
+            left_palm_position_b=snapshot.left_arm.palm_pose_b[:3],
+            right_palm_position_b=snapshot.right_arm.palm_pose_b[:3],
+            wire_endpoint_positions_b=torch.stack((geometry.left_station_b, geometry.right_station_b)),
+            dt_s=dt,
+        )
+        evaluation = evaluate_wire_contact(observation, tracker.config)
+        # Approach error is not grasp slip. Once both palms reach their assigned
+        # stations, slip checks remain armed until reset, including re-clamping.
+        slip_exceeded = max(evaluation.left_slip_m, evaluation.right_slip_m) > tracker.config.max_endpoint_slip_m
+        if evaluation.finite and not slip_exceeded:
+            lane.wire_acceptance_started = True
+        phase = lane.runtime.mission.phase
+        lane.wire_mission_elapsed_s = (
+            lane.wire_mission_elapsed_s + dt if lane.wire_mission_phase is phase else dt
+        )
+        lane.wire_mission_phase = phase
+        solutions = lane.runtime.latest_solutions
+        feasibility = {}
+        for name in ("object", "arm", "left_hand", "right_hand", "wbc"):
+            solution = solutions.get(name)
+            diagnostic = getattr(solution, "diagnostics", solution)
+            feasibility[name] = bool(
+                getattr(solution, "both_feasible", False) if name == "arm"
+                else getattr(diagnostic, "feasible", getattr(solution, "feasible", False))
+            )
+        feasibility["safety"] = bool(lane.last_safety_result.feasible)
+        accepted = command.feasible and all(feasibility.values())
+        terminal = tracker.state.phase is WireAcceptancePhase.TERMINATED
+        lift_allowed = tracker.state.lift_permitted and evaluation.bilateral_contact
+        lift_active = (
+            phase in (BimanualPhase.LIFT, BimanualPhase.HOLD)
+            or tracker.state.phase in (WireAcceptancePhase.LIFT, WireAcceptancePhase.HOLD)
+            or lane.wire_hold_arm_q is not None
+        )
+        contact_rejected = not evaluation.finite or (lane.wire_acceptance_started and slip_exceeded)
+        hold = terminal or contact_rejected or not accepted or (lift_active and not lift_allowed)
+        effort = command.effort.clone()
+        if hold:
+            if lane.wire_hold_arm_q is None:
+                lane.wire_hold_arm_q = torch.cat((snapshot.left_arm.q, snapshot.right_arm.q))
+            for output, target_slice, arm in (
+                (slice(17, 24), slice(0, 7), snapshot.left_arm),
+                (slice(24, 31), slice(7, 14), snapshot.right_arm),
+            ):
+                effort[output] = arm.bias + 20.0 * (lane.wire_hold_arm_q[target_slice] - arm.q) - 8.0 * arm.qd
+            lane.last_safety_result = lane.safety.project(
+                self._safety_input(lane, snapshot, dynamics, effort)
+            )
+            feasibility["safety"] = bool(lane.last_safety_result.feasible)
+            accepted = accepted and feasibility["safety"]
+            effort = lane.last_safety_result.effort.clone()
+        else:
+            lane.wire_hold_arm_q = None
+        if lane.wire_acceptance_started or not accepted or not evaluation.finite:
+            state = tracker.update(evaluation, wire_center_height_m=float(geometry.center_b[2]),
+                                   dt_s=dt, safety_feasible=bool(accepted))
+        else:
+            state = tracker.state
+        rejected = not accepted or state.phase is WireAcceptancePhase.TERMINATED
+        reasons = command.fallback_reasons
+        if rejected:
+            reason = state.terminal_reason or "safety_rejected"
+            reasons = (*reasons, reason)
+            if not accepted and lane.wire_last_safe_command is not None:
+                effort = lane.wire_last_safe_command.effort.clone()
+            elif not accepted:
+                effort = torch.zeros(43, dtype=torch.float64)
+        effort[31:43] = 0.0  # O6 position servos remain the hand command authority.
+        result = BimanualCommand(command.timestamp_ns, effort, not rejected, reasons)
+        if result.feasible:
+            lane.wire_last_safe_command = result
+        diagnostics = {
+            "frame": "m1_base", "mission_phase": phase.name,
+            "mission_phase_elapsed_s": lane.wire_mission_elapsed_s,
+            "acceptance_phase": state.phase.value,
+            "bilateral_contact_elapsed_s": state.bilateral_contact_elapsed_s,
+            "lift_elapsed_s": state.lift_elapsed_s, "hold_elapsed_s": state.hold_elapsed_s,
+            "lift_permitted": state.lift_permitted, "request_reclamp": state.request_reclamp,
+            "success": state.success, "wire_center_height_m": float(geometry.center_b[2]),
+            "feasibility": feasibility, "rejection_reason": (state.terminal_reason or "safety_rejected") if rejected else None,
+            "contact_failure_reason": evaluation.failure_reason,
+            "fallback_reasons": list(result.fallback_reasons),
+            "normal_source": "normalized_target_contact_force",
+        }
+        start, end = geometry.left_station_b, geometry.right_station_b
+        record = getattr(self, "_wire_record", None)
+        if record is not None:
+            half_span = 0.5 * float(record.dimensions[0]) * geometry.tangent_b
+            start, end = geometry.center_b - half_span, geometry.center_b + half_span
+        segment = end - start
+        for side in ("left", "right"):
+            hand, arm = getattr(snapshot, f"{side}_hand"), getattr(snapshot, f"{side}_arm")
+            forces = hand.fingertip_forces_b
+            norms = torch.linalg.vector_norm(forces, dim=1)
+            normals = forces / norms.clamp_min(1e-12)[:, None]
+            fraction = ((hand.fingertip_positions_b - start) @ segment / torch.dot(segment, segment)).clamp(0., 1.)
+            distances = (torch.linalg.vector_norm(hand.fingertip_positions_b - start - fraction[:, None] * segment, dim=1) - geometry.radius_m).clamp_min(0.)
+            object_solution = solutions.get("object")
+            palm_target = getattr(object_solution, f"{side}_palm_pose", arm.palm_pose_b[None])[-1, :3]
+            diagnostics.update({
+                f"{side}_fingertip_distance_m": distances.tolist(),
+                f"{side}_fingertip_forces_b": forces.tolist(),
+                f"{side}_contact_normals_b": normals.tolist(),
+                f"{side}_contact_mask": hand.contact_mask.tolist(),
+                f"{side}_valid_contacts": getattr(evaluation, f"{side}_valid_contacts"),
+                f"{side}_slip_m": getattr(evaluation, f"{side}_slip_m"),
+                f"{side}_palm_error_m": float(torch.linalg.vector_norm(palm_target - arm.palm_pose_b[:3])),
+            })
+        lane.wire_acceptance_diagnostics = diagnostics
+        return result
+
     def _active_q_qd(
         self, lane: BimanualLaneController
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1128,6 +1335,7 @@ class M1DualPandaO6BimanualWrapper:
             lane.preload_arm_q = None
             lane.left_hand_contact_q.fill_(torch.nan)
             lane.right_hand_contact_q.fill_(torch.nan)
+            self._reset_wire_acceptance(lane, lane.last_snapshot)
         self.startup_complete = True
         self._step = 0
         self.last_actions = None
@@ -1168,6 +1376,8 @@ class M1DualPandaO6BimanualWrapper:
             lane.preload_arm_q = None
             lane.left_hand_contact_q.fill_(torch.nan)
             lane.right_hand_contact_q.fill_(torch.nan)
+            if lane.wire_acceptance_tracker is not None:
+                self._reset_wire_acceptance(lane, lane.adapter.snapshot())
         self._sync_legacy_aliases()
 
     def _legacy_step(self):
@@ -1328,18 +1538,23 @@ class M1DualPandaO6BimanualWrapper:
         if lane.runtime.mission.phase is BimanualPhase.APPROACH:
             lane.left_hand_contact_q.fill_(torch.nan)
             lane.right_hand_contact_q.fill_(torch.nan)
-        elif lane.runtime.mission.phase is BimanualPhase.PRELOAD:
+        elif lane.runtime.mission.phase is BimanualPhase.PRELOAD or (
+            lane.wire_acceptance_tracker is not None
+            and lane.runtime.mission.phase in (BimanualPhase.GRASP, BimanualPhase.LIFT, BimanualPhase.HOLD)
+        ):
             lane.left_hand_contact_q, left_target = latch_contact_joint_targets(
                 snapshot.left_hand.q,
                 snapshot.left_hand.contact_mask,
                 lane.left_hand_contact_q,
                 left_target,
+                release_uncontacted=lane.wire_acceptance_tracker is not None,
             )
             lane.right_hand_contact_q, right_target = latch_contact_joint_targets(
                 snapshot.right_hand.q,
                 snapshot.right_hand.contact_mask,
                 lane.right_hand_contact_q,
                 right_target,
+                release_uncontacted=lane.wire_acceptance_tracker is not None,
             )
         return left_target, right_target
 
@@ -1359,6 +1574,7 @@ class M1DualPandaO6BimanualWrapper:
         for lane in self.lanes:
             snapshot = lane.adapter.snapshot()
             dynamics = lane.adapter.dynamics()
+            self._prepare_wire_reclamp(lane, snapshot)
             lane.baseline_command = self._stabilize_preload_arms(
                 lane, snapshot, lane.runtime.compute(snapshot)
             )
@@ -1373,7 +1589,15 @@ class M1DualPandaO6BimanualWrapper:
             command = self._compute_lane_command(
                 lane, snapshot, dynamics, teacher_input
             )
+            command = self._apply_wire_acceptance(lane, snapshot, dynamics, command)
             left_target, right_target = self._lane_hand_targets(lane, snapshot)
+            if lane.wire_acceptance_tracker is not None:
+                if command.feasible:
+                    lane.wire_last_safe_hand_targets = (left_target.clone(), right_target.clone())
+                elif lane.wire_last_safe_hand_targets is not None:
+                    left_target, right_target = lane.wire_last_safe_hand_targets
+                else:
+                    left_target, right_target = snapshot.left_hand.q, snapshot.right_hand.q
             commands.append(command)
             left_targets.append(left_target)
             right_targets.append(right_target)

@@ -10,12 +10,33 @@ from go2_pvcnn.control.m1_bimanual_coordination.hand_mpc import O6HandMpc
 from go2_pvcnn.control.m1_bimanual_coordination.o6_contact_kinematics import (
     PrecontactHandController,
     fold_o6_fingertip_jacobians,
+    latch_contact_joint_targets,
 )
 from tests.test_m1_bimanual_hand_mpc import _input
 from go2_pvcnn.control.m1_bimanual_coordination.contracts import SideHandState
 
 
 DTYPE = torch.float64
+
+
+def test_reclamp_releases_only_lost_digits_and_recaptures_measured_contact():
+    q = torch.arange(6, dtype=DTYPE) / 10
+    old_latch = q.clone()
+    target = torch.full((6,), 0.9, dtype=DTYPE)
+    mask = torch.tensor([True, False, True, False, False])
+    latch, actual = latch_contact_joint_targets(
+        q + 0.05, mask, old_latch, target, release_uncontacted=True
+    )
+    assert torch.equal(actual[[0, 1, 3]], old_latch[[0, 1, 3]])
+    assert torch.equal(actual[[2, 4, 5]], target[[2, 4, 5]])
+    assert torch.isnan(latch[[2, 4, 5]]).all()
+    mask[1] = True
+    latch, actual = latch_contact_joint_targets(
+        q + 0.1, mask, latch, target, release_uncontacted=True
+    )
+    assert actual[2] == q[2] + 0.1
+    assert torch.equal(old_latch, q)
+    assert torch.equal(target, torch.full((6,), 0.9, dtype=DTYPE))
 
 
 def test_mimic_columns_fold_into_six_active_columns() -> None:

@@ -20,6 +20,8 @@ def latch_contact_joint_targets(
     contact_mask: torch.Tensor,
     latched_q: torch.Tensor,
     target: torch.Tensor,
+    *,
+    release_uncontacted: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Capture first-contact joint angles and impose them on a position target."""
 
@@ -27,6 +29,8 @@ def latch_contact_joint_targets(
     updated_target = target.clone()
     for finger, active_columns in enumerate(FINGER_ACTIVE_COLUMNS):
         for column in active_columns:
+            if release_uncontacted and not bool(contact_mask[finger]):
+                updated_latch[column] = torch.nan
             if bool(contact_mask[finger]) and torch.isnan(updated_latch[column]):
                 updated_latch[column] = q[column]
             if torch.isfinite(updated_latch[column]):
@@ -76,6 +80,7 @@ class PrecontactHandController:
         preload_dt: float = 0.04,
         open_q: torch.Tensor | None = None,
         preload_q: torch.Tensor | None = None,
+        release_uncontacted: bool = False,
     ) -> None:
         if not math.isfinite(close_rate) or close_rate <= 0.0:
             raise ValueError("close_rate must be finite and positive")
@@ -83,6 +88,7 @@ class PrecontactHandController:
             raise ValueError("preload_dt must be finite and positive")
         self.close_rate = float(close_rate)
         self.preload_dt = float(preload_dt)
+        self.release_uncontacted = bool(release_uncontacted)
         self.open_q = (
             torch.tensor([0.25, 0.25, 0.25, 0.25, 0.25, 0.25], dtype=torch.float64)
             if open_q is None
@@ -124,7 +130,8 @@ class PrecontactHandController:
             max=self.close_rate,
         )
         self._latched_contact_q, target = latch_contact_joint_targets(
-            q, contact_mask, self._latched_contact_q, target
+            q, contact_mask, self._latched_contact_q, target,
+            release_uncontacted=self.release_uncontacted,
         )
         rate[torch.isfinite(self._latched_contact_q)] = 0.0
         return target, rate

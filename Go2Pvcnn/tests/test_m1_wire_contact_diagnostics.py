@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
+import torch
+from types import SimpleNamespace
 
 from go2_pvcnn.control.m1_bimanual_coordination.wire_coupling import (
     WireCouplingDiagnostics,
@@ -16,10 +18,280 @@ from scripts.m1_dual_panda_o6_bimanual_play import (
 )
 from tests.test_m1_bimanual_runtime import _WbcController, _staged_runtime, _wire_tick
 from tests.test_m1_wire_coupling import _contact_snapshot
+from tests.test_m1_wire_coupling import _geometry
+from tests.test_m1_bimanual_prior_startup_binding import _load_wrapper
+from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualCommand, BimanualPhase
+from go2_pvcnn.control.m1_bimanual_coordination.wire_contact_acceptance import (
+    WireAcceptanceConfig, WireAcceptanceTracker, WireAcceptancePhase,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 VERIFIER_PATH = ROOT / "scripts" / "verify_m1_wire_contact_report.py"
+
+
+def _acceptance_wrapper(monkeypatch):
+    module = _load_wrapper(monkeypatch)
+    wrapper = object.__new__(module.M1DualPandaO6BimanualWrapper)
+    geometry = _geometry()
+    snapshot = _contact_snapshot(left=True, right=True)
+    for side, endpoint in (("left", geometry.left_station_b), ("right", geometry.right_station_b)):
+        arm = getattr(snapshot, f"{side}_arm")
+        hand = getattr(snapshot, f"{side}_hand")
+        pose = arm.palm_pose_b.clone()
+        pose[:3] = endpoint
+        forces = torch.zeros((5, 3), dtype=torch.float64)
+        forces[:2, 2] = 0.4
+        snapshot = replace(snapshot, **{
+            f"{side}_arm": replace(arm, palm_pose_b=pose),
+            f"{side}_hand": replace(hand, fingertip_forces_b=forces),
+        })
+    good = SimpleNamespace(feasible=True)
+    hand_solution = SimpleNamespace(q_ref=torch.full((6,), 0.7, dtype=torch.float64), diagnostics=good)
+    runtime = SimpleNamespace(
+        mission=SimpleNamespace(phase=BimanualPhase.LIFT),
+        latest_solutions={"object": SimpleNamespace(diagnostics=good,
+            left_palm_pose=snapshot.left_arm.palm_pose_b[None],
+            right_palm_pose=snapshot.right_arm.palm_pose_b[None]),
+            "arm": SimpleNamespace(both_feasible=True), "left_hand": hand_solution,
+            "right_hand": hand_solution, "wbc": SimpleNamespace(feasible=True)},
+        reset=lambda: None,
+    )
+    lane = module.BimanualLaneController(0, SimpleNamespace(), runtime, None, None)
+    lane.wire_acceptance_tracker = WireAcceptanceTracker(WireAcceptanceConfig())
+    lane.wire_acceptance_tracker.reset(wire_center_height_m=1.2)
+    lane.last_safety_result = SimpleNamespace(feasible=True)
+    lane.baseline_command = BimanualCommand(1, torch.ones(43, dtype=torch.float64), True, ())
+    wrapper.lanes = [lane]
+    wrapper._wire_geometry_provider = lambda _snapshot: geometry
+    wrapper.env = SimpleNamespace(unwrapped=SimpleNamespace(physics_dt=0.1))
+    # The only substitute here is the Isaac-dependent safety-input builder;
+    # gate logic, tracker, contracts, and contact evaluation run unchanged.
+    wrapper._safety_input = lambda lane, snap, dynamics, candidate: candidate
+    lane.safety = SimpleNamespace(project=lambda candidate: SimpleNamespace(
+        effort=candidate.clone(), feasible=True, fallback_reason=None))
+    return module, wrapper, lane, snapshot
+
+
+def _wire_command(wrapper, lane, snapshot):
+    return wrapper._apply_wire_acceptance(lane, snapshot, None, lane.baseline_command)
+
+
+def test_wrapper_requires_continuous_real_contact_before_lift(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    for _ in range(4):
+        command = _wire_command(wrapper, lane, snapshot)
+        assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+        assert not wrapper.wire_acceptance_state.lift_permitted
+    _wire_command(wrapper, lane, snapshot)
+    assert wrapper.wire_acceptance_state.lift_permitted
+    command = _wire_command(wrapper, lane, snapshot)
+    assert torch.equal(command.effort[17:31], torch.ones(14, dtype=torch.float64))
+    assert command.effort.shape == (43,)
+
+
+def test_contact_loss_holds_arms_and_reclamps_only_uncontacted_digits(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    for _ in range(6):
+        _wire_command(wrapper, lane, snapshot)
+    wrapper._lane_hand_targets(lane, snapshot)
+    lost = replace(snapshot, right_hand=replace(snapshot.right_hand,
+        contact_mask=torch.tensor([True, False, False, False, False])))
+    command = _wire_command(wrapper, lane, lost)
+    left, right = wrapper._lane_hand_targets(lane, lost)
+    assert wrapper.wire_acceptance_state.request_reclamp
+    assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+    assert torch.equal(left[:3], snapshot.left_hand.q[:3])
+    assert torch.equal(right[:2], snapshot.right_hand.q[:2])
+    assert torch.equal(right[2:], torch.full((4,), 0.7, dtype=torch.float64))
+
+
+def test_proximity_without_filtered_force_cannot_advance_acceptance(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    snapshot = replace(snapshot, left_hand=replace(snapshot.left_hand,
+        fingertip_forces_b=torch.zeros((5, 3), dtype=torch.float64)))
+    for _ in range(7):
+        _wire_command(wrapper, lane, snapshot)
+    assert not wrapper.wire_acceptance_state.lift_permitted
+    assert wrapper.wire_acceptance_diagnostics["left_valid_contacts"] == 0
+
+
+def test_acceptance_diagnostics_include_base_frame_measurements_and_timers(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    _wire_command(wrapper, lane, snapshot)
+    result = wrapper.wire_acceptance_diagnostics
+    assert result["frame"] == "m1_base"
+    assert result["wire_center_height_m"] == pytest.approx(1.2)
+    assert result["bilateral_contact_elapsed_s"] == pytest.approx(0.1)
+    assert result["left_slip_m"] == 0
+    assert result["left_palm_error_m"] == 0
+    assert len(result["left_fingertip_distance_m"]) == 5
+    assert result["left_fingertip_forces_b"] == snapshot.left_hand.fingertip_forces_b.tolist()
+    assert result["left_contact_normals_b"][:2] == [[0., 0., 1.]] * 2
+    assert result["feasibility"]["safety"]
+    assert result["rejection_reason"] is None
+    json.dumps(result, allow_nan=False)
+
+
+def test_approach_outside_slip_tolerance_does_not_terminate_before_grasp(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    lane.runtime.mission.phase = BimanualPhase.APPROACH
+    pose = snapshot.left_arm.palm_pose_b.clone()
+    pose[0] += 0.2
+    snapshot = replace(snapshot, left_arm=replace(snapshot.left_arm, palm_pose_b=pose))
+    command = _wire_command(wrapper, lane, snapshot)
+    assert wrapper.wire_acceptance_state.phase is WireAcceptancePhase.CONTACT
+    assert wrapper.wire_acceptance_state.terminal_reason is None
+    assert command.feasible
+
+
+def test_final_hold_safety_rejection_is_atomic_and_clears_acceptance(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    _wire_command(wrapper, lane, snapshot)
+    safe = lane.wire_last_safe_command.effort.clone()
+    lane.safety.project = lambda candidate: SimpleNamespace(
+        effort=torch.full((43,), 99., dtype=torch.float64), feasible=False,
+        fallback_reason="hold_rejected")
+    command = _wire_command(wrapper, lane, snapshot)
+    assert not command.feasible
+    assert wrapper.wire_acceptance_state.phase is WireAcceptancePhase.TERMINATED
+    assert torch.equal(command.effort, safe)
+    assert torch.equal(lane.wire_last_safe_command.effort, safe)
+    assert wrapper.wire_acceptance_diagnostics["rejection_reason"] == "safety_rejected"
+
+
+def test_lane_reset_clears_acceptance_and_contact_latches(monkeypatch):
+    module, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    for _ in range(6):
+        _wire_command(wrapper, lane, snapshot)
+    wrapper._lane_hand_targets(lane, snapshot)
+    wrapper.target_object_id, wrapper.obstacle_object_ids = "wire_000", ()
+    robot = SimpleNamespace(data=SimpleNamespace(root_state_w=torch.zeros((1, 13))))
+    wrapper.env.unwrapped.scene = {"robot": robot}
+    monkeypatch.setattr(module, "M1DualPandaO6SnapshotAdapter", lambda *_a, **_k: SimpleNamespace(snapshot=lambda: snapshot))
+    wrapper.reset_lanes(torch.tensor([True]))
+    assert wrapper.wire_acceptance_state.phase is WireAcceptancePhase.CONTACT
+    assert wrapper.wire_acceptance_state.bilateral_contact_elapsed_s == 0
+    assert torch.isnan(lane.left_hand_contact_q).all()
+    assert torch.isnan(lane.right_hand_contact_q).all()
+    assert lane.wire_last_safe_command is None
+    assert lane.wire_hold_arm_q is None
+    assert wrapper.wire_acceptance_diagnostics is None
+
+
+def test_wire_hand_mpc_releases_historical_contact_and_returns_closing_target(monkeypatch):
+    from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    lane.runtime = BimanualRuntime()
+    wrapper._configure_wire_hand_reclamp(lane)
+    lane.runtime.mission.phase = BimanualPhase.PRELOAD
+    first = lane.runtime._hand_input(snapshot, "right", torch.zeros(6, dtype=torch.float64))
+    lane.runtime.right_hand_mpc.plan(first)
+    assert torch.isfinite(lane.runtime.right_hand_mpc.precontact._latched_contact_q[:3]).all()
+    lane.runtime.mission.phase = BimanualPhase.LIFT
+    lost = replace(snapshot, right_hand=replace(snapshot.right_hand,
+        contact_mask=torch.tensor([True, False, False, False, False])))
+    second = lane.runtime._hand_input(lost, "right", torch.zeros(6, dtype=torch.float64))
+    assert second.phase is BimanualPhase.PRELOAD
+    solution = lane.runtime.right_hand_mpc.plan(second)
+    assert solution.diagnostics.feasible
+    assert torch.equal(solution.q_ref[:2], snapshot.right_hand.q[:2])
+    assert solution.q_ref[2] > snapshot.right_hand.q[2]
+
+
+def test_wire_gate_is_applied_before_environment_submission(monkeypatch):
+    module, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    submitted = []
+    targets = []
+    robot = SimpleNamespace(set_joint_position_target=lambda target, **kwargs: targets.append(target.clone()))
+    lane.adapter = SimpleNamespace(snapshot=lambda: snapshot, dynamics=lambda: None,
+        teacher_task_jacobian=lambda: None, robot=robot, left_hand_ids=tuple(range(6)),
+        right_hand_ids=tuple(range(6, 12)))
+    lane.runtime.compute = lambda snap: lane.baseline_command
+    wrapper._compute_lane_command = lambda *args: lane.baseline_command
+    monkeypatch.setattr(module, "build_teacher_input", lambda **kwargs: None)
+    wrapper.env.unwrapped.device = "cpu"
+    wrapper.env.step = lambda action: submitted.append(action.clone())
+    wrapper.startup_complete, wrapper._step = True, 0
+    wrapper._effort_limits = torch.ones(43, dtype=torch.float64)
+    wrapper._step_impl()
+    assert len(submitted) == 1
+    assert submitted[0].shape == (1, 43)
+    assert torch.equal(submitted[0][0, 17:31], torch.zeros(14))
+    assert targets[0].shape == targets[1].shape == (1, 6)
+    assert wrapper.wire_acceptance_state.bilateral_contact_elapsed_s == pytest.approx(0.1)
+
+
+def test_non_wire_gate_leaves_command_and_hand_behavior_unchanged(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    lane.wire_acceptance_tracker = None
+    assert _wire_command(wrapper, lane, snapshot) is lane.baseline_command
+    assert wrapper.wire_acceptance_state is None
+    left, right = wrapper._lane_hand_targets(lane, snapshot)
+    assert torch.equal(left, torch.full((6,), 0.7, dtype=torch.float64))
+    assert torch.equal(right, left)
+
+
+def test_lift_loss_returns_to_preload_and_keeps_arm_hold_until_contact_dwell(monkeypatch):
+    from go2_pvcnn.control.m1_bimanual_coordination.state_machine import BimanualMission
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    lane.runtime.mission = BimanualMission()
+    lane.runtime.mission.phase = BimanualPhase.LIFT
+    for _ in range(6):
+        _wire_command(wrapper, lane, snapshot)
+    lost = replace(snapshot, right_hand=replace(snapshot.right_hand,
+        contact_mask=torch.tensor([True, False, False, False, False])))
+    wrapper._prepare_wire_reclamp(lane, lost)
+    assert lane.runtime.mission.phase is BimanualPhase.PRELOAD
+    command = _wire_command(wrapper, lane, lost)
+    assert wrapper.wire_acceptance_state.request_reclamp
+    assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+    command = _wire_command(wrapper, lane, lost)
+    assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+    for _ in range(4):
+        command = _wire_command(wrapper, lane, snapshot)
+        assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+    _wire_command(wrapper, lane, snapshot)
+    command = _wire_command(wrapper, lane, snapshot)
+    assert lane.wire_hold_arm_q is None
+
+
+def test_terminal_slip_does_not_publish_previous_upward_command(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    for _ in range(6):
+        _wire_command(wrapper, lane, snapshot)
+    previous = lane.wire_last_safe_command.effort.clone()
+    pose = snapshot.left_arm.palm_pose_b.clone()
+    pose[0] += 0.03
+    slipped = replace(snapshot, left_arm=replace(snapshot.left_arm, palm_pose_b=pose))
+    command = _wire_command(wrapper, lane, slipped)
+    assert not command.feasible
+    assert wrapper.wire_acceptance_state.terminal_reason == "excessive_endpoint_slip"
+    assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+    assert torch.equal(lane.wire_last_safe_command.effort, previous)
+
+
+@pytest.mark.parametrize("phase", [BimanualPhase.APPROACH, BimanualPhase.PRELOAD, BimanualPhase.GRASP])
+def test_non_finite_contact_holds_arms_on_first_rejected_tick(monkeypatch, phase):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    lane.runtime.mission.phase = phase
+    snapshot.left_hand.fingertip_forces_b[0, 0] = float("nan")
+    command = _wire_command(wrapper, lane, snapshot)
+    assert not command.feasible
+    assert wrapper.wire_acceptance_state.terminal_reason == "non_finite_contact_observation"
+    assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+    assert lane.wire_last_safe_command is None
+
+
+def test_slip_during_grasp_holds_arms_on_first_rejected_tick(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    lane.runtime.mission.phase = BimanualPhase.GRASP
+    _wire_command(wrapper, lane, snapshot)
+    snapshot.left_arm.palm_pose_b[0] += 0.03
+    command = _wire_command(wrapper, lane, snapshot)
+    assert not command.feasible
+    assert wrapper.wire_acceptance_state.terminal_reason == "excessive_endpoint_slip"
+    assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
 
 
 def _load_verifier():
