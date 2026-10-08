@@ -48,6 +48,21 @@ def deterministic_split(groups: Sequence[object], *, seed: int) -> DatasetSplit:
     )
 
 
+def sample_split(count: int, *, seed: int) -> DatasetSplit:
+    """Deterministic sample split for a single-trial warm-start dataset."""
+    indices = list(range(int(count)))
+    random.Random(int(seed)).shuffle(indices)
+    train_end = max(1, int(0.8 * len(indices)))
+    validation_end = min(len(indices), train_end + max(1, int(0.1 * len(indices))))
+    if validation_end >= len(indices) and len(indices) > 2:
+        validation_end = len(indices) - 1
+    return DatasetSplit(
+        train=tuple(indices[:train_end]),
+        validation=tuple(indices[train_end:validation_end]),
+        test=tuple(indices[validation_end:]),
+    )
+
+
 def composite_loss(
     batch: dict[str, torch.Tensor], outputs: dict[str, torch.Tensor]
 ) -> dict[str, torch.Tensor]:
@@ -119,12 +134,30 @@ def _synthetic_dataset(output_dir: Path, seed: int) -> dict[str, np.ndarray]:
     return data
 
 
-def _load_dataset(dataset_dir: Path) -> dict[str, np.ndarray]:
+def _load_dataset(dataset_dir: Path, *, include_feasible_windows: bool = False) -> tuple[dict[str, np.ndarray], str]:
     path = dataset_dir / "teacher_success.npz"
     if not path.is_file():
         raise FileNotFoundError(f"teacher dataset not found: {path}")
     with np.load(path, allow_pickle=False) as archive:
-        return {name: archive[name] for name in archive.files}
+        data = {name: archive[name] for name in archive.files}
+    if data["state"].shape[0] > 0:
+        return data, "successful_episodes"
+    if not include_feasible_windows:
+        raise ValueError("teacher_success.npz contains no successful rows; rerun with --include-feasible-windows only for warm-start")
+    failure_path = dataset_dir / "teacher_failures.npz"
+    if not failure_path.is_file():
+        raise FileNotFoundError(f"feasible-window source not found: {failure_path}")
+    with np.load(failure_path, allow_pickle=False) as archive:
+        reasons = archive["reason"]
+        mask = reasons == "mission_not_done"
+        if not np.any(mask):
+            raise ValueError("no feasible mission_not_done windows available")
+        data = {
+            name: archive[name][mask]
+            for name in ("state", "teacher_action", "teacher_task", "phase", "seed", "trial")
+        }
+        data["action_order"] = archive["action_order"]
+    return data, "feasible_partial_windows"
 
 
 def _indices(data: dict[str, np.ndarray], groups: tuple[object, ...]) -> np.ndarray:
@@ -171,6 +204,11 @@ def main() -> int:
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--synthetic-smoke", action="store_true")
+    parser.add_argument(
+        "--include-feasible-windows",
+        action="store_true",
+        help="use only mission_not_done teacher-feasible windows as an explicitly marked warm-start dataset",
+    )
     args = parser.parse_args()
     if args.epochs <= 0:
         parser.error("--epochs must be positive")
@@ -184,7 +222,9 @@ def main() -> int:
     else:
         if args.dataset_dir is None:
             parser.error("--dataset-dir is required without --synthetic-smoke")
-        data = _load_dataset(args.dataset_dir)
+        data, dataset_provenance = _load_dataset(
+            args.dataset_dir, include_feasible_windows=args.include_feasible_windows
+        )
         dataset_path = args.dataset_dir / "teacher_success.npz"
         failure_source = args.dataset_dir / "teacher_failures.npz"
         if failure_source.is_file():
@@ -198,13 +238,24 @@ def main() -> int:
                 args.output_dir / "teacher_success.npz",
                 **{name: archive[name] for name in archive.files},
             )
+    if args.synthetic_smoke:
+        dataset_provenance = "synthetic_smoke"
     groups = list(zip(data["seed"].tolist(), data["trial"].tolist()))
-    split = deterministic_split(groups, seed=args.seed)
-    split_json = {name: [list(value) for value in getattr(split, name)] for name in ("train", "validation", "test")}
+    unique_groups = list(dict.fromkeys(groups))
+    split = deterministic_split(groups, seed=args.seed) if len(unique_groups) >= 3 else sample_split(len(groups), seed=args.seed)
+    split_json = {
+        name: [list(value) if isinstance(value, (tuple, list)) else int(value) for value in getattr(split, name)]
+        for name in ("train", "validation", "test")
+    }
     (args.output_dir / "split.json").write_text(json.dumps(split_json, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    train_indices = _indices(data, split.train)
-    validation_indices = _indices(data, split.validation)
-    test_indices = _indices(data, split.test)
+    if len(unique_groups) >= 3:
+        train_indices = _indices(data, split.train)
+        validation_indices = _indices(data, split.validation)
+        test_indices = _indices(data, split.test)
+    else:
+        train_indices = np.asarray(split.train, dtype=np.int64)
+        validation_indices = np.asarray(split.validation, dtype=np.int64)
+        test_indices = np.asarray(split.test, dtype=np.int64)
     train_state = torch.from_numpy(data["state"][train_indices]).to(dtype=torch.float32)
     scale = train_state.std(dim=0, unbiased=False).clamp_min(1.0e-6)
     normalizer = LatentNormalizer(mean=train_state.mean(dim=0), scale=scale)
@@ -249,6 +300,10 @@ def main() -> int:
     )
     (args.output_dir / "metadata.json").write_text(json.dumps(asdict(metadata), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (args.output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (args.output_dir / "dataset_provenance.json").write_text(
+        json.dumps({"provenance": dataset_provenance, "rows": int(data["state"].shape[0])}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(json.dumps(metrics, sort_keys=True), flush=True)
     return 0
 
