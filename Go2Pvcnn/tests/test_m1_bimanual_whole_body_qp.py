@@ -147,6 +147,34 @@ def test_nominal_effort_actively_holds_m1_standing_posture():
     assert torch.allclose(effort[12:16], torch.full((4,), -6.0, dtype=DTYPE))
 
 
+@pytest.mark.parametrize("side, offset", [("left", 17), ("right", 24)])
+def test_arm_feedback_damps_low_inertia_wrist_at_physics_rate(side, offset):
+    request = _request()
+    state = getattr(request.snapshot, f"{side}_arm")
+    solution = getattr(request.arm_solution, side)
+    # Measured Panda/O6 inertias span three orders of magnitude. A small
+    # wrist disturbance must decay at 200 Hz instead of changing sign and
+    # growing under the same feedback used for the heavier shoulder joints.
+    mass = torch.diag(torch.tensor([.738, 1.42, .85, 1.07, .0265, .0328, .00127], dtype=DTYPE))
+    q = state.q.clone()
+    qd = torch.zeros(7, dtype=DTYPE)
+    qd[-1] = .01
+    held = replace(solution, q_ref=q.clone(), qd_ref=torch.zeros_like(qd), qdd=torch.zeros_like(solution.qdd))
+    previous_energy = float(qd @ mass @ qd)
+    for _ in range(20):
+        current = replace(state, q=q, qd=qd, mass_matrix=mass)
+        sample = replace(request, snapshot=replace(request.snapshot, **{f"{side}_arm": current}),
+                         arm_solution=replace(request.arm_solution, **{side: held}))
+        torque = _nominal_effort(sample, BimanualWholeBodyQp().cfg)[offset:offset + 7]
+        qdd = torch.linalg.solve(mass, torque - current.bias)
+        qd = qd + .005 * qdd
+        q = q + .005 * qd
+        energy = float(qd @ mass @ qd)
+        assert energy < previous_energy
+        assert 0.0 < float(qd[-1]) < .01
+        previous_energy = energy
+
+
 def test_request_rejects_nonfinite_or_wrong_collision_contract():
     with pytest.raises(ValueError, match="finite"):
         _request(collision_distances=torch.tensor([float("nan")], dtype=DTYPE), collision_jacobian=torch.zeros(1, 43, dtype=DTYPE))

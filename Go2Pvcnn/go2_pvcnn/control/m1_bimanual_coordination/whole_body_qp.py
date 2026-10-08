@@ -125,10 +125,15 @@ def _nominal_effort(request: BimanualWbcRequest, cfg: BimanualWbcCfg) -> torch.T
         (24, request.snapshot.right_arm, request.arm_solution.right),
     ):
         effort[offset : offset + 7] = (
-            state.mass_matrix @ solution.qdd[0]
+            # Feedback specifies an acceleration correction. Mapping the
+            # complete correction through inertia keeps the light wrist
+            # joints stable at the 200 Hz physics/control rate.
+            state.mass_matrix @ (
+                solution.qdd[0]
+                + cfg.arm_kp * (solution.q_ref - state.q)
+                + cfg.arm_kd * (solution.qd_ref - state.qd)
+            )
             + state.bias
-            + cfg.arm_kp * (solution.q_ref - state.q)
-            + cfg.arm_kd * (solution.qd_ref - state.qd)
         )
     for offset, state, solution in (
         (31, request.snapshot.left_hand, request.left_hand_solution),
