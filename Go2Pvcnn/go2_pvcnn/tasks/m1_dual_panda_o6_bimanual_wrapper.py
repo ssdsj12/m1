@@ -1538,17 +1538,10 @@ class M1DualPandaO6BimanualWrapper:
             command = lane.latent_runtime.compute(snapshot, dynamics, teacher_input)
             lane.last_teacher_solution = lane.latent_runtime.last_teacher_solution
             lane.last_safety_result = lane.latent_runtime.last_safety_result
-            return command
+            return self._preserve_wire_runtime_status(lane, command)
         if self._step % 8 == 0 or lane.last_teacher_solution is None:
             lane.last_teacher_solution = lane.teacher.plan(teacher_input)
         teacher_solution = lane.last_teacher_solution
-        # For wire lanes the runtime command carries the staged DLO backend's
-        # atomic acceptance result.  A teacher/safety rebuild must not erase a
-        # rejected backend cycle before wire acceptance can hold the arms.
-        preserve_runtime_status = lane.wire_acceptance_tracker is not None
-        baseline_feasible = (
-            lane.baseline_command.feasible if preserve_runtime_status else True
-        )
         candidate = (
             lane.baseline_command.effort
             if lane.teacher.fixed_base
@@ -1559,10 +1552,7 @@ class M1DualPandaO6BimanualWrapper:
         lane.last_safety_result = lane.safety.project(
             self._safety_input(lane, snapshot, dynamics, candidate)
         )
-        fallback_reasons: list[str] = (
-            list(lane.baseline_command.fallback_reasons)
-            if preserve_runtime_status else []
-        )
+        fallback_reasons: list[str] = []
         if not teacher_solution.diagnostics.feasible:
             fallback_reasons.append(
                 teacher_solution.diagnostics.fallback_reason or "teacher_infeasible"
@@ -1573,15 +1563,35 @@ class M1DualPandaO6BimanualWrapper:
             )
         projected_effort = lane.last_safety_result.effort.clone()
         projected_effort[31:43] = 0.0
-        return BimanualCommand(
-            timestamp_ns=snapshot.timestamp_ns,
-            effort=projected_effort,
-            feasible=bool(
-                baseline_feasible
-                and teacher_solution.diagnostics.feasible
-                and lane.last_safety_result.feasible
+        return self._preserve_wire_runtime_status(
+            lane,
+            BimanualCommand(
+                timestamp_ns=snapshot.timestamp_ns,
+                effort=projected_effort,
+                feasible=bool(
+                    teacher_solution.diagnostics.feasible
+                    and lane.last_safety_result.feasible
+                ),
+                fallback_reasons=tuple(fallback_reasons),
             ),
-            fallback_reasons=tuple(fallback_reasons),
+        )
+
+    @staticmethod
+    def _preserve_wire_runtime_status(
+        lane: BimanualLaneController, command: BimanualCommand
+    ) -> BimanualCommand:
+        """Keep an atomic staged-wire runtime rejection through wrapper modes."""
+        if lane.wire_acceptance_tracker is None:
+            return command
+        baseline = lane.baseline_command
+        return BimanualCommand(
+            timestamp_ns=command.timestamp_ns,
+            effort=command.effort,
+            feasible=bool(baseline.feasible and command.feasible),
+            fallback_reasons=(
+                *baseline.fallback_reasons,
+                *command.fallback_reasons,
+            ),
         )
 
     def _lane_hand_targets(

@@ -16,14 +16,22 @@ from scripts.m1_dual_panda_o6_bimanual_play import (
     _WireReportRecorder,
     _write_wire_report_atomic,
 )
-from tests.test_m1_bimanual_runtime import _WbcController, _staged_runtime, _wire_tick
+from tests.test_m1_bimanual_runtime import (
+    _HandController, _WbcController, _staged_runtime, _wire_tick,
+)
 from tests.test_m1_wire_coupling import _contact_snapshot
 from tests.test_m1_wire_coupling import _geometry
 from tests.test_m1_bimanual_prior_startup_binding import _load_wrapper
 from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualCommand, BimanualPhase
+from go2_pvcnn.control.m1_bimanual_coordination.latent_contracts import (
+    LatentNormalizer,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.latent_runtime import LatentRuntime
 from go2_pvcnn.control.m1_bimanual_coordination.wire_contact_acceptance import (
     WireAcceptanceConfig, WireAcceptanceTracker, WireAcceptancePhase,
 )
+from tests.test_m1_bimanual_full_action_teacher import _input as _teacher_input
+from tests.test_m1_bimanual_latent_runtime import _Model, _Safety, _Teacher
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -412,6 +420,11 @@ def _bound_acceptance_tick(wrapper, lane, snapshot):
 
 def test_backend_rejection_survives_rebuilt_teacher_command_and_suppresses_lift(monkeypatch):
     wrapper, lane, snapshot, backend = _bound_acceptance_wrapper(monkeypatch)
+    lane.runtime.left_hand_mpc = _HandController()
+    lane.runtime.right_hand_mpc = _HandController()
+    lane.runtime.left_hand_mpc._fingertip_target_contact_latch = torch.zeros(5, dtype=torch.bool)
+    lane.runtime.right_hand_mpc._fingertip_target_contact_latch = torch.zeros(5, dtype=torch.bool)
+    lane.runtime._last_left_hand = lane.runtime._last_right_hand = None
     backend.fail = "step"
     snapshot = replace(snapshot, timestamp_ns=round(
         (lane.runtime._step + 1) * wrapper.env.unwrapped.physics_dt * 1e9))
@@ -419,6 +432,11 @@ def test_backend_rejection_survives_rebuilt_teacher_command_and_suppresses_lift(
     lane.baseline_command = lane.runtime.compute(snapshot)
     assert not lane.baseline_command.feasible
     runtime_reason = lane.baseline_command.fallback_reasons[0]
+    assert lane.runtime.latest_solutions["object"].diagnostics.feasible
+    assert lane.runtime.latest_solutions["arm"].both_feasible
+    assert lane.runtime.latest_solutions["left_hand"].diagnostics.feasible
+    assert lane.runtime.latest_solutions["right_hand"].diagnostics.feasible
+    assert lane.runtime.latest_solutions["wbc"].feasible
     lane.teacher = SimpleNamespace(
         fixed_base=True,
         plan=lambda _input: SimpleNamespace(diagnostics=SimpleNamespace(feasible=True)),
@@ -430,9 +448,57 @@ def test_backend_rejection_survives_rebuilt_teacher_command_and_suppresses_lift(
     command = wrapper._apply_wire_acceptance(lane, snapshot, None, rebuilt)
 
     assert not rebuilt.feasible
-    assert runtime_reason in rebuilt.fallback_reasons
+    assert rebuilt.fallback_reasons == (runtime_reason,)
     assert not command.feasible
-    assert runtime_reason in command.fallback_reasons
+    assert command.fallback_reasons == (runtime_reason, "safety_rejected")
+    assert wrapper.wire_acceptance_state.terminal_reason == "safety_rejected"
+    assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
+    assert command.effort.shape == (43,)
+
+
+def test_backend_rejection_survives_real_latent_command_and_suppresses_lift(monkeypatch):
+    wrapper, lane, snapshot, backend = _bound_acceptance_wrapper(monkeypatch)
+    lane.runtime.left_hand_mpc = _HandController()
+    lane.runtime.right_hand_mpc = _HandController()
+    lane.runtime.left_hand_mpc._fingertip_target_contact_latch = torch.zeros(5, dtype=torch.bool)
+    lane.runtime.right_hand_mpc._fingertip_target_contact_latch = torch.zeros(5, dtype=torch.bool)
+    lane.runtime._last_left_hand = lane.runtime._last_right_hand = None
+    backend.fail = "step"
+    snapshot = replace(snapshot, timestamp_ns=round(
+        (lane.runtime._step + 1) * wrapper.env.unwrapped.physics_dt * 1e9))
+
+    lane.baseline_command = lane.runtime.compute(snapshot)
+    assert not lane.baseline_command.feasible
+    runtime_reason = lane.baseline_command.fallback_reasons[0]
+    assert lane.runtime.latest_solutions["object"].diagnostics.feasible
+    assert lane.runtime.latest_solutions["arm"].both_feasible
+    assert lane.runtime.latest_solutions["left_hand"].diagnostics.feasible
+    assert lane.runtime.latest_solutions["right_hand"].diagnostics.feasible
+    assert lane.runtime.latest_solutions["wbc"].feasible
+
+    lane.latent_runtime = LatentRuntime(
+        model=_Model(),
+        normalizer=LatentNormalizer(
+            mean=torch.zeros(111), scale=torch.ones(111)
+        ),
+        teacher=_Teacher(),
+        safety=_Safety(),
+        effort_limits=100.0 * torch.ones(43, dtype=torch.float64),
+        safety_input_provider=lambda _snapshot, _dynamics, candidate: {
+            "candidate": candidate
+        },
+    )
+    wrapper.mode = "latent"
+
+    rebuilt = wrapper._compute_lane_command(
+        lane, snapshot, _teacher_input().dynamics, _teacher_input()
+    )
+    command = wrapper._apply_wire_acceptance(lane, snapshot, None, rebuilt)
+
+    assert not rebuilt.feasible
+    assert rebuilt.fallback_reasons == (runtime_reason,)
+    assert not command.feasible
+    assert command.fallback_reasons == (runtime_reason, "safety_rejected")
     assert wrapper.wire_acceptance_state.terminal_reason == "safety_rejected"
     assert torch.equal(command.effort[17:31], torch.zeros(14, dtype=torch.float64))
     assert command.effort.shape == (43,)
