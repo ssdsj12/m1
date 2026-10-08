@@ -21,7 +21,10 @@ from go2_pvcnn.control.m1_bimanual_coordination.deformx_adapter import (
     DloStepResult,
     DualDloStepResult,
 )
-from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_goal import DloCenterlineState
+from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_goal import (
+    DloCenterlineState,
+    build_wire_station_contact_goal,
+)
 from go2_pvcnn.control.m1_bimanual_coordination.whole_body_qp import (
     BimanualWbcDiagnostics,
     BimanualWbcSolution,
@@ -720,6 +723,45 @@ def test_catalog_diagnostics_project_current_fingertip_forces_on_goal_normals():
     assert diagnostics.right_normal_alignment == pytest.approx(
         2.0 / (13.0**0.5)
     )
+
+
+def test_staged_wire_diagnostics_use_outward_station_normals_not_catalog_obb_normals():
+    generic_goal = generate_bimanual_grasp_goal(
+        (0.5, 0.0, 1.2),
+        dimensions=(0.08, 0.01, 0.01),
+        grasp_profile="cylindrical",
+        object_class="wire",
+    )
+    wire_goal = build_wire_station_contact_goal(_geometry().centerline)
+    runtime = BimanualRuntime(grasp_goal=generic_goal)
+    snapshot = _snapshot()
+    contact_mask = torch.tensor([True, True, False, False, False])
+    hands = {}
+    for side in ("left", "right"):
+        normals = torch.tensor(
+            [target.normal for target in getattr(wire_goal, f"{side}_contact_targets")],
+            dtype=torch.float64,
+        )
+        forces = torch.zeros((5, 3), dtype=torch.float64)
+        forces[:2] = 2.0 * normals
+        hands[f"{side}_hand"] = replace(
+            getattr(snapshot, f"{side}_hand"),
+            fingertip_forces_b=forces,
+            contact_mask=contact_mask,
+        )
+    snapshot = replace(snapshot, **hands)
+
+    diagnostics = runtime._mission_diagnostics(
+        snapshot,
+        _object_solution(),
+        _WbcController().solve(None),
+        wire_goal=wire_goal,
+    )
+
+    assert diagnostics.left_normal_force_n == pytest.approx(4.0)
+    assert diagnostics.right_normal_force_n == pytest.approx(4.0)
+    assert diagnostics.left_normal_alignment == pytest.approx(1.0)
+    assert diagnostics.right_normal_alignment == pytest.approx(1.0)
 
 
 def test_runtime_queries_independent_hand_priors_with_their_own_side_measurements():

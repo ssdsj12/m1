@@ -50,8 +50,8 @@ def test_station_goal_centers_each_opposed_pinch_on_its_endpoint():
         np.testing.assert_allclose(np.mean([t.position for t in targets], axis=0), station)
         np.testing.assert_allclose(targets[0].normal, -np.array(targets[1].normal))
         for target in targets:
-            inward = station - target.position
-            np.testing.assert_allclose(target.normal, inward / np.linalg.norm(inward))
+            outward = np.array(target.position) - station
+            np.testing.assert_allclose(target.normal, outward / np.linalg.norm(outward))
         assert np.isclose(np.linalg.norm(np.array(targets[0].position) - station),
                           np.hypot(0.007, 0.006))
     np.testing.assert_allclose(goal.center, state.midpoint)

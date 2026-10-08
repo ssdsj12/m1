@@ -144,7 +144,9 @@ def build_wire_station_contact_goal(
         return tuple(
             ContactTarget(
                 position=tuple(float(v) for v in center + finger_sign * offset),
-                normal=tuple(float(v) for v in -finger_sign * offset / np.linalg.norm(offset)),
+                # Isaac reports the reaction force acting on the fingertip,
+                # which points away from the wire surface at this target.
+                normal=tuple(float(v) for v in finger_sign * offset / np.linalg.norm(offset)),
                 tangent=tuple(float(v) for v in tangent),
             )
             for finger_sign in (1.0, -1.0)

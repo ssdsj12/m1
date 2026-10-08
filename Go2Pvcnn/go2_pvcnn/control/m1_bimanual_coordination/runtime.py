@@ -21,7 +21,7 @@ from .contracts import (
 )
 from .dual_arm_mpc import DualArmMpcCoordinator, DualArmMpcInput, DualArmMpcSolution
 from .deformx_adapter import DualDloStepResult
-from .dlo_wire_goal import DloCenterlineState
+from .dlo_wire_goal import DloCenterlineState, WireLineContactGoal
 from .dlo_wire_trajectory import DloWireTrajectoryPlanner
 from .dlo_frame_provider import capture_palm_grasp_attachment
 from .wire_coupling import (
@@ -99,7 +99,10 @@ def _current_contact_force_metrics(
 ) -> tuple[float, float, float]:
     """Measure normal force/alignment and vertical load from current sensors."""
 
-    forces = hand.fingertip_forces_b
+    target_count = len(contact_targets)
+    if target_count < 1 or target_count > hand.fingertip_forces_b.shape[0]:
+        raise ValueError("contact target count must match available fingertips")
+    forces = hand.fingertip_forces_b[:target_count]
     normals = torch.tensor(
         [target.normal for target in contact_targets],
         dtype=torch.float64,
@@ -110,7 +113,7 @@ def _current_contact_force_metrics(
     normal_force = torch.clamp_min(projected, 0.0)
     force_norm = torch.linalg.vector_norm(forces, dim=1)
     alignment = projected / force_norm.clamp_min(1.0e-12)
-    active = hand.contact_mask
+    active = hand.contact_mask[:target_count]
     if bool(active.any()):
         measured_normal_force = float(normal_force[active].sum().item())
         measured_alignment = float(alignment[active].min().item())
@@ -506,6 +509,7 @@ class BimanualRuntime:
         wbc_solution: BimanualWbcSolution,
         *,
         wire_proposal=None,
+        wire_goal: WireLineContactGoal | None = None,
     ) -> BimanualMissionDiagnostics:
         palm_errors = (
             torch.linalg.vector_norm(
@@ -548,8 +552,10 @@ class BimanualRuntime:
         )
         slip_speed = 0.0 if elapsed_s <= 0.0 else slip / elapsed_s
         reason = wbc_solution.diagnostics.fallback_reason
-        grasp_goal = self.mission.grasp_goal or self._grasp_goal
-        if grasp_goal is None:
+        if wire_goal is not None and not isinstance(wire_goal, WireLineContactGoal):
+            raise TypeError("wire_goal must be WireLineContactGoal or None")
+        contact_goal = wire_goal or self.mission.grasp_goal or self._grasp_goal
+        if contact_goal is None:
             left_forces = (
                 torch.zeros((5, 3), dtype=torch.float64)
                 if self._last_left_hand is None
@@ -568,12 +574,12 @@ class BimanualRuntime:
         else:
             left_normal_force, left_normal_alignment, left_vertical = (
                 _current_contact_force_metrics(
-                    snapshot.left_hand, grasp_goal.left_contact_targets
+                    snapshot.left_hand, contact_goal.left_contact_targets
                 )
             )
             right_normal_force, right_normal_alignment, right_vertical = (
                 _current_contact_force_metrics(
-                    snapshot.right_hand, grasp_goal.right_contact_targets
+                    snapshot.right_hand, contact_goal.right_contact_targets
                 )
             )
             vertical_force = left_vertical + right_vertical
@@ -853,7 +859,11 @@ class BimanualRuntime:
                 fallback_reasons=(reason,),
             )
         diagnostics = self._mission_diagnostics(
-            snapshot, object_solution, wbc_solution, wire_proposal=proposal
+            snapshot,
+            object_solution,
+            wbc_solution,
+            wire_proposal=proposal,
+            wire_goal=active_wire_goal if staged_wire else None,
         )
         if not command.feasible and wbc_solution.feasible:
             diagnostics = replace(diagnostics, command_accepted=False,
