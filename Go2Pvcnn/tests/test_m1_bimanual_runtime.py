@@ -584,6 +584,32 @@ def test_mission_reach_check_uses_final_palm_goal_not_first_waypoint():
     assert not diagnostics.palms_reached
 
 
+@pytest.mark.parametrize("near_sides", ((False, False), (True, False), (False, True), (True, True)))
+def test_wire_mission_reach_requires_both_true_stations_not_receding_waypoints(near_sides):
+    runtime, _backend = _staged_runtime()
+    planner = runtime.dlo_trajectory_planner
+    original_plan = planner.plan_state
+
+    def nearby_waypoints(snapshot, object_solution, state):
+        plan = original_plan(snapshot, object_solution, state)
+        return replace(plan, object_solution=replace(plan.object_solution,
+            left_palm_pose=snapshot.left_arm.palm_pose_b.repeat(25, 1),
+            right_palm_pose=snapshot.right_arm.palm_pose_b.repeat(25, 1)))
+
+    planner.plan_state = nearby_waypoints
+    snapshot = _contact_snapshot(left=False, right=False)
+    for side, near in zip(("left", "right"), near_sides):
+        hand = getattr(snapshot, f"{side}_hand")
+        shifted = hand.fingertip_positions_b.clone()
+        if not near:
+            shifted[:2, 0] += .20
+        snapshot = replace(snapshot, **{f"{side}_hand": replace(hand, fingertip_positions_b=shifted)})
+    for tick in range(runtime.mission.cfg.approach_dwell_steps + 1):
+        runtime.compute(replace(snapshot, timestamp_ns=tick + 1))
+    expected = BimanualPhase.PRELOAD if all(near_sides) else BimanualPhase.APPROACH
+    assert runtime.mission.phase is expected
+
+
 def test_runtime_uses_bounded_closed_loop_lift_target():
     runtime = _runtime()
     runtime.mission.phase = BimanualPhase.LIFT

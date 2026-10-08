@@ -504,6 +504,8 @@ class BimanualRuntime:
         snapshot: BimanualSnapshot,
         object_solution: ObjectMpcSolution,
         wbc_solution: BimanualWbcSolution,
+        *,
+        wire_proposal=None,
     ) -> BimanualMissionDiagnostics:
         palm_errors = (
             torch.linalg.vector_norm(
@@ -513,6 +515,15 @@ class BimanualRuntime:
                 snapshot.right_arm.palm_pose_b[:3] - object_solution.right_palm_pose[-1, :3]
             ),
         )
+        if self.wire_geometry_provider is not None:
+            # Wire palm horizons end at a speed-limited local waypoint, not
+            # the grasp station. Require simultaneous measured station reach
+            # before either mission approach dwell may advance.
+            wire_reached = wire_proposal is not None and max(
+                wire_proposal.left_pinch_error_m,
+                wire_proposal.right_pinch_error_m,
+            ) <= self.mission.cfg.palm_position_tolerance_m
+            palm_errors = (0.0, 0.0) if wire_reached else (float("inf"), float("inf"))
         left_contact = bool(snapshot.left_hand.contact_mask.any())
         right_contact = bool(snapshot.right_hand.contact_mask.any())
         bilateral_contact = left_contact and right_contact
@@ -841,7 +852,9 @@ class BimanualRuntime:
                 feasible=False,
                 fallback_reasons=(reason,),
             )
-        diagnostics = self._mission_diagnostics(snapshot, object_solution, wbc_solution)
+        diagnostics = self._mission_diagnostics(
+            snapshot, object_solution, wbc_solution, wire_proposal=proposal
+        )
         if not command.feasible and wbc_solution.feasible:
             diagnostics = replace(diagnostics, command_accepted=False,
                                   subsystem_failure=command.fallback_reasons[0])
