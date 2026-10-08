@@ -203,14 +203,15 @@ class WireAcceptanceTracker:
         dt_s: float,
         safety_feasible: bool,
     ) -> WireAcceptanceState:
-        """Advance one accepted-control interval without consulting wall-clock time."""
+        """Advance one accepted-control interval without consulting wall-clock time.
+
+        Non-finite runtime measurements fail closed by latching ``TERMINATED``;
+        invalid runtime types and nonpositive finite timesteps remain caller
+        contract errors.
+        """
 
         if not isinstance(evaluation, WireContactEvaluation):
             raise TypeError("evaluation must be WireContactEvaluation")
-        center_height_m = self._finite_scalar(
-            "wire_center_height_m", wire_center_height_m
-        )
-        elapsed_s = self._positive_scalar("dt_s", dt_s)
         if not isinstance(safety_feasible, bool):
             raise TypeError("safety_feasible must be a bool")
 
@@ -220,12 +221,21 @@ class WireAcceptanceTracker:
             WireAcceptancePhase.TERMINATED,
         ):
             return state
+        center_height_m = _real_scalar("wire_center_height_m", wire_center_height_m)
+        elapsed_s = _real_scalar("dt_s", dt_s)
+        if not math.isfinite(center_height_m):
+            return self._terminate("non_finite_wire_center_height")
+        if not math.isfinite(elapsed_s):
+            return self._terminate("non_finite_dt_s")
+        if elapsed_s <= 0.0:
+            raise ValueError("dt_s must be positive")
         if not safety_feasible:
             return self._terminate("safety_rejected")
         if not evaluation.finite:
             return self._terminate("non_finite_contact_observation")
-        if evaluation.failure_reason is not None and evaluation.failure_reason.startswith(
-            "endpoint_slip_exceeds_"
+        if (
+            evaluation.left_slip_m > self.config.max_endpoint_slip_m
+            or evaluation.right_slip_m > self.config.max_endpoint_slip_m
         ):
             return self._terminate("excessive_endpoint_slip")
         if not evaluation.bilateral_contact:

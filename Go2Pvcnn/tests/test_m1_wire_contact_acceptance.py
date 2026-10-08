@@ -8,6 +8,7 @@ import torch
 from go2_pvcnn.control.m1_bimanual_coordination.wire_contact_acceptance import (
     WireAcceptanceConfig,
     WireAcceptancePhase,
+    WireAcceptanceState,
     WireAcceptanceTracker,
     WireContactObservation,
     evaluate_wire_contact,
@@ -320,6 +321,137 @@ def test_slip_and_safety_rejection_terminate_with_distinct_reasons(
     assert state.phase is WireAcceptancePhase.TERMINATED
     assert state.terminal_reason == reason
     assert not state.success
+
+
+def test_contact_loss_with_excessive_numeric_slip_terminates_and_stays_terminal() -> None:
+    tracker = WireAcceptanceTracker(WireAcceptanceConfig())
+    tracker.reset(wire_center_height_m=1.20)
+    _advance_contact(tracker, duration_s=0.5)
+    observation = _observation()
+    lost_and_slipping = evaluate_wire_contact(
+        replace(
+            observation,
+            left_contact_mask=torch.zeros(5, dtype=torch.bool),
+            left_palm_position_b=observation.left_palm_position_b
+            + torch.tensor([0.0201, 0.0, 0.0], dtype=torch.float64),
+        ),
+        WireAcceptanceConfig(),
+    )
+    assert not lost_and_slipping.bilateral_contact
+    assert lost_and_slipping.left_slip_m > WireAcceptanceConfig().max_endpoint_slip_m
+    assert lost_and_slipping.failure_reason == "insufficient_valid_contacts"
+
+    failed = tracker.update(
+        lost_and_slipping,
+        wire_center_height_m=1.20,
+        dt_s=0.1,
+        safety_feasible=True,
+    )
+    later = tracker.update(
+        _accepted_evaluation(),
+        wire_center_height_m=1.25,
+        dt_s=10.0,
+        safety_feasible=True,
+    )
+
+    assert failed.phase is WireAcceptancePhase.TERMINATED
+    assert failed.terminal_reason == "excessive_endpoint_slip"
+    assert not failed.lift_permitted
+    assert later == failed
+    assert not later.success
+
+
+@pytest.mark.parametrize(
+    ("wire_center_height_m", "dt_s", "reason"),
+    [
+        (float("nan"), 0.1, "non_finite_wire_center_height"),
+        (1.20, float("inf"), "non_finite_dt_s"),
+    ],
+)
+def test_non_finite_runtime_input_latches_terminal_failure_after_progress(
+    wire_center_height_m: float, dt_s: float, reason: str
+) -> None:
+    tracker = WireAcceptanceTracker(WireAcceptanceConfig())
+    tracker.reset(wire_center_height_m=1.20)
+    _advance_contact(tracker, duration_s=0.5)
+
+    state = tracker.update(
+        _accepted_evaluation(),
+        wire_center_height_m=wire_center_height_m,
+        dt_s=dt_s,
+        safety_feasible=True,
+    )
+
+    assert state.phase is WireAcceptancePhase.TERMINATED
+    assert state.terminal_reason == reason
+    assert not state.lift_permitted
+    assert not state.success
+
+
+@pytest.mark.parametrize(
+    "phase",
+    [
+        WireAcceptancePhase.HOLD,
+        WireAcceptancePhase.SUCCEEDED,
+        WireAcceptancePhase.TERMINATED,
+        WireAcceptancePhase.CONTACT,
+    ],
+)
+def test_reset_clears_each_reachable_latch_phase(phase: WireAcceptancePhase) -> None:
+    tracker = WireAcceptanceTracker(WireAcceptanceConfig())
+    tracker.reset(wire_center_height_m=1.20)
+    _advance_contact(tracker, duration_s=0.5)
+
+    if phase is WireAcceptancePhase.HOLD:
+        state = tracker.update(
+            _accepted_evaluation(),
+            wire_center_height_m=1.25,
+            dt_s=0.1,
+            safety_feasible=True,
+        )
+    elif phase is WireAcceptancePhase.SUCCEEDED:
+        tracker.update(
+            _accepted_evaluation(),
+            wire_center_height_m=1.25,
+            dt_s=0.1,
+            safety_feasible=True,
+        )
+        state = _advance_contact(
+            tracker, duration_s=0.9, wire_center_height_m=1.25
+        )
+    elif phase is WireAcceptancePhase.TERMINATED:
+        state = tracker.update(
+            _slipping_evaluation(),
+            wire_center_height_m=1.20,
+            dt_s=0.1,
+            safety_feasible=True,
+        )
+    else:
+        lost_contact = evaluate_wire_contact(
+            replace(_observation(), left_contact_mask=torch.zeros(5, dtype=torch.bool)),
+            WireAcceptanceConfig(),
+        )
+        state = tracker.update(
+            lost_contact,
+            wire_center_height_m=1.20,
+            dt_s=0.1,
+            safety_feasible=True,
+        )
+        assert state.request_reclamp
+
+    assert state.phase is phase
+    tracker.reset(wire_center_height_m=0.80)
+
+    assert tracker.state == WireAcceptanceState(
+        phase=WireAcceptancePhase.CONTACT,
+        bilateral_contact_elapsed_s=0.0,
+        lift_elapsed_s=0.0,
+        hold_elapsed_s=0.0,
+        lift_permitted=False,
+        request_reclamp=False,
+        success=False,
+        terminal_reason=None,
+    )
 
 
 def test_reset_clears_timers_lift_permission_and_success() -> None:
