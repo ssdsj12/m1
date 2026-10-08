@@ -76,8 +76,7 @@ def test_scene_has_fixed_box_table_and_all_contact_groups():
         assert f"{name} = ContactSensorCfg(" in source
 
 
-@pytest.mark.parametrize("object_class", (None, "wire", "cup"))
-def test_wire_scene_omits_overlapping_legacy_box_only_for_selected_wire(object_class):
+def _configured_catalog_scene(object_class):
     # Execute the real config method with lightweight Isaac config containers.
     # The wire and legacy Box otherwise share the exact default spawn center.
     tree = ast.parse(_source(ENV_CFG))
@@ -94,12 +93,15 @@ def test_wire_scene_omits_overlapping_legacy_box_only_for_selected_wire(object_c
             setattr(self, name, value)
             return value
     target = SimpleNamespace(object_id=f"{object_class}_000", object_class=object_class)
+    target_cfg = SimpleNamespace(spawn=SimpleNamespace(rigid_props=None, activate_contact_sensors=True))
+    obstacle_cfg = SimpleNamespace(spawn=SimpleNamespace(rigid_props=None, activate_contact_sensors=True))
     namespace = {
         "Base": Base, "PHYSICS_DT": .005,
         "select_target_and_obstacles": lambda *args: (target, ()),
-        "build_object_scene_cfg": lambda *args: {target.object_id: object()},
+        "build_object_scene_cfg": lambda *args: {target.object_id: target_cfg, "wire_obstacle": obstacle_cfg},
         "validate_scene_object_ids": lambda *args: None,
         "M1DualPandaO6BimanualEventsCfg": SimpleNamespace,
+        "sim_utils": SimpleNamespace(RigidBodyPropertiesCfg=SimpleNamespace),
     }
     isolated = ast.Module(body=[ast.ClassDef(name="Config", bases=[ast.Name(id="Base", ctx=ast.Load())],
                          keywords=[], body=[method], decorator_list=[])], type_ignores=[])
@@ -112,12 +114,31 @@ def test_wire_scene_omits_overlapping_legacy_box_only_for_selected_wire(object_c
     cfg.object_catalog = None if object_class is None else object()
     cfg.object_instances = () if object_class is None else (target,)
     cfg.__post_init__()
+    return cfg, legacy_box, target_cfg, obstacle_cfg
+
+
+@pytest.mark.parametrize("object_class", (None, "wire", "cup"))
+def test_wire_scene_omits_overlapping_legacy_box_only_for_selected_wire(object_class):
+    cfg, legacy_box, _, _ = _configured_catalog_scene(object_class)
     if object_class == "wire":
         assert cfg.scene.box is None
         assert cfg.scene.box_contacts.prim_path == "{ENV_REGEX_NS}/wire_000"
     else:
         assert cfg.scene.box is legacy_box
         assert cfg.scene.box_contacts.prim_path == "{ENV_REGEX_NS}/Box"
+
+
+@pytest.mark.parametrize("object_class", ("wire", "cup"))
+def test_contact_stage_fixes_only_selected_wire_and_preserves_contact_reporting(object_class):
+    cfg, _, target, obstacle = _configured_catalog_scene(object_class)
+    if object_class == "wire":
+        assert target.spawn.rigid_props is not None
+        assert target.spawn.rigid_props.kinematic_enabled is True
+        assert cfg.scene.left_thumb_distal_target_contact.filter_prim_paths_expr == ["{ENV_REGEX_NS}/wire_000"]
+    else:
+        assert target.spawn.rigid_props is None
+    assert target.spawn.activate_contact_sensors is True
+    assert obstacle.spawn.rigid_props is None
 
 
 def test_registry_is_isolated():

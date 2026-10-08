@@ -222,6 +222,7 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
+        fixed_wire_target = None
         if self.target_object_id in (None, "box"):
             self.target_contact_prim_path = "{ENV_REGEX_NS}/Box"
         else:
@@ -237,6 +238,7 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
                 f"{{ENV_REGEX_NS}}/{self.target_object_id}"
             )
             if target_instance.object_class == "wire":
+                fixed_wire_target = self.target_object_id
                 # The legacy box occupies the wire's default spawn pose and
                 # becomes an unmodeled moving support. Keep the fixed table,
                 # but do not spawn this unused overlapping target.
@@ -272,6 +274,12 @@ class M1DualPandaO6BimanualEnvCfg(M1SmokeEnvCfg):
             )
             validate_scene_object_ids(self.scene, object_configs)
             for object_id, object_cfg in object_configs.items():
+                if object_id == fixed_wire_target:
+                    # Contact-only stage: retain the configured wire pose and
+                    # collision sensing until sliding is explicitly enabled.
+                    object_cfg.spawn.rigid_props = sim_utils.RigidBodyPropertiesCfg(
+                        kinematic_enabled=True
+                    )
                 setattr(self.scene, object_id, object_cfg)
         self.sim.dt = PHYSICS_DT
         self.decimation = 1
