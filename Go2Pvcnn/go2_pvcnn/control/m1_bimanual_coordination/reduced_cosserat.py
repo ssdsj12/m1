@@ -7,6 +7,7 @@ keeps a small sampled centerline for MPC and safety checks.
 
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import dataclass
 import math
 from numbers import Real
@@ -237,17 +238,23 @@ class ReducedCosseratPredictor:
             raise ValueError("dt must be positive and finite")
         if not math.isfinite(float(radius)) or float(radius) <= 0.0:
             raise ValueError("radius_m must be positive and finite")
-        self._apply_material(material)
+        # Build and validate every derived value privately. A failed reset must
+        # preserve the accepted state as well as material, time step and radius.
+        candidate = copy(self)
+        candidate._apply_material(material)
         positions = np.asarray(source.positions, dtype=np.float64)
-        self._state = None
-        self._dt = float(dt)
-        self._radius = float(radius)
-        self._rest_length = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
-        tangent = self._tangents(positions)
-        self._state = self._make_state(
+        candidate._state = None
+        candidate._dt = float(dt)
+        candidate._radius = float(radius)
+        candidate._rest_length = float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum())
+        if not math.isfinite(candidate._rest_length) or candidate._rest_length <= 0.0:
+            raise ValueError("rest_length_m must be positive and finite")
+        tangent = candidate._tangents(positions)
+        candidate._state = candidate._make_state(
             positions, tangent, np.stack((positions[0], positions[-1])), np.zeros((2, 3)),
             np.zeros((2, 3)), (np.array([0., 0., 1.]), np.array([0., 0., 1.])), 0.0,
         )
+        self.__dict__.update(candidate.__dict__)
         return self._state
 
     def _apply_material(self, material: Mapping[str, Any] | Any | None) -> None:
@@ -299,7 +306,10 @@ class ReducedCosseratPredictor:
         return pose_arr[:3].copy(), twist_arr[:3].copy(), normal_arr
 
     @staticmethod
-    def _wrench_pair(value: Any) -> tuple[tuple[np.ndarray, np.ndarray | None], tuple[np.ndarray, np.ndarray | None]]:
+    def _wrench_pair(value: Any) -> tuple[
+        tuple[np.ndarray, np.ndarray | None, np.ndarray],
+        tuple[np.ndarray, np.ndarray | None, np.ndarray],
+    ]:
         if isinstance(value, Mapping):
             values = (value.get("left", value.get("left_wrench")), value.get("right", value.get("right_wrench")))
         elif isinstance(value, (tuple, list)) and len(value) == 2:
@@ -323,20 +333,24 @@ class ReducedCosseratPredictor:
             if vector.size not in (3, 6) or not np.isfinite(vector).all():
                 raise ValueError(f"contact_wrench[{index}] must be finite with 3 or 6 values")
             normal_arr = None if normal is None else _unit(_array(normal, (3,), f"contact_wrench[{index}] normal"), "contact normal")
-            result.append((vector[:3].copy(), normal_arr))
+            moment = vector[3:].copy() if vector.size == 6 else np.zeros(3)
+            result.append((vector[:3].copy(), normal_arr, moment))
         return result[0], result[1]
 
-    def _make_state(self, positions, tangents, endpoints, velocities, wrenches, normals, timestamp) -> ReducedCosseratState:
+    def _make_state(self, positions, tangents, endpoints, velocities, wrenches, normals, timestamp, moment_angle=0.0) -> ReducedCosseratState:
         separation = float(np.linalg.norm(endpoints[1] - endpoints[0]))
         stretch = separation / self._rest_length - 1.0
         angles = np.arccos(np.clip(np.sum(tangents[:-1] * tangents[1:], axis=1), -1.0, 1.0))
         segment = self._rest_length / max(len(positions) - 1, 1)
-        bending = float(np.max(angles) / max(segment, 1.0e-12)) if angles.size else 0.0
+        # The load allowance is conservative, independent of moment sign. Bound
+        # the combined turn by pi, not by the configured acceptance threshold.
+        geometric_angle = float(np.max(angles)) if angles.size else 0.0
+        bending = min(math.pi, geometric_angle + moment_angle) / max(segment, 1.0e-12)
         forces = []
         tangential = []
         for wrench, normal in zip(wrenches, normals):
             n = np.array([0.0, 0.0, 1.0]) if normal is None else normal
-            normal_force = max(0.0, float(np.dot(wrench, n)))
+            normal_force = float(np.dot(wrench, n))
             tangent_force = float(np.linalg.norm(wrench - float(np.dot(wrench, n)) * n))
             forces.append(normal_force)
             tangential.append(tangent_force)
@@ -363,6 +377,33 @@ class ReducedCosseratPredictor:
             failure_reason=None if not reasons else ";".join(reasons),
         )
 
+    def _transport_positions(self, endpoints: np.ndarray) -> np.ndarray:
+        """Carry the sampled chord offsets with the shortest chord rotation.
+
+        Endpoint positions cannot specify roll about the chord. At an exact
+        reversal, choose a deterministic perpendicular axis for the half turn.
+        """
+        previous = self._state
+        old_direction = _unit(previous.endpoint_positions[1] - previous.endpoint_positions[0], "previous endpoint span")
+        new_direction = _unit(endpoints[1] - endpoints[0], "endpoint span")
+        cross = np.cross(old_direction, new_direction)
+        sine = float(np.linalg.norm(cross))
+        cosine = float(np.clip(np.dot(old_direction, new_direction), -1.0, 1.0))
+        if sine > 1.0e-12:
+            axis = cross / sine
+            skew = np.array([[0., -axis[2], axis[1]], [axis[2], 0., -axis[0]], [-axis[1], axis[0], 0.]])
+            rotation = cosine * np.eye(3) + (1.0 - cosine) * np.outer(axis, axis) + sine * skew
+        elif cosine < 0.0:
+            reference = np.eye(3)[np.argmin(np.abs(old_direction))]
+            axis = _unit(np.cross(old_direction, reference), "half-turn axis")
+            rotation = 2.0 * np.outer(axis, axis) - np.eye(3)
+        else:
+            rotation = np.eye(3)
+        alpha = np.linspace(0.0, 1.0, previous.positions.shape[0])[:, None]
+        old_chord = previous.endpoint_positions[0] * (1.0 - alpha) + previous.endpoint_positions[1] * alpha
+        new_chord = endpoints[0] * (1.0 - alpha) + endpoints[1] * alpha
+        return new_chord + (previous.positions - old_chord) @ rotation.T
+
     def step(self, left_boundary: Any, right_boundary: Any, contact_wrench: Any, dt: float | None = None) -> ReducedCosseratState:
         if self._state is None or self._dt is None:
             raise RuntimeError("predictor must be reset before step")
@@ -376,14 +417,21 @@ class ReducedCosseratPredictor:
         forces = np.stack((wrench_pair[0][0], wrench_pair[1][0]))
         previous_velocity = self._state.endpoint_velocities
         velocities = measured + step_dt * (forces / self.effective_mass_kg - self.damping * previous_velocity)
-        alpha = np.linspace(0.0, 1.0, self._state.positions.shape[0])[:, None]
-        positions = endpoints[0] * (1.0 - alpha) + endpoints[1] * alpha
+        positions = self._transport_positions(endpoints)
         tangents = self._tangents(positions)
+        # A reduced load proxy, not a full elastic rod integration: transverse
+        # endpoint moment / rod inertia estimates an angular increment over dt.
+        # atan2 bounds that allowance by pi/2 even for very large finite loads.
+        inertia = max(self.effective_mass_kg * self._rest_length * self._rest_length / 12.0, 1.0e-12)
+        moment_angle = max(
+            math.atan2(math.hypot(*np.cross(wrench[2], tangent)), inertia / step_dt / step_dt)
+            for wrench, tangent in zip(wrench_pair, tangents[[0, -1]])
+        )
         normals = (
             left[2] if left[2] is not None else wrench_pair[0][1],
             right[2] if right[2] is not None else wrench_pair[1][1],
         )
-        candidate = self._make_state(positions, tangents, endpoints, velocities, forces, normals, self._state.timestamp_s + step_dt)
+        candidate = self._make_state(positions, tangents, endpoints, velocities, forces, normals, self._state.timestamp_s + step_dt, moment_angle)
         if candidate.feasible:
             self._state = candidate
         return candidate

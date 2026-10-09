@@ -216,3 +216,88 @@ def test_prediction_rejects_nonfinite_geometry(field, nonfinite):
             feasible=np.ones(1, dtype=bool),
             failure_reasons=(None,),
         )
+
+
+def test_reset_derived_overflow_preserves_every_predictor_field():
+    predictor = ReducedCosseratPredictor()
+    safe = predictor.reset(_centerline(), material={"damping": 0.25})
+    before = vars(predictor).copy()
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(ValueError, match="finite"):
+            predictor.reset(
+                np.array([[0., 0., 0.], [1.e200, 0., 0.], [2.e200, 0., 0.]]),
+                radius_m=0.008, dt=0.02,
+                material={"effective_mass_kg": 0.1, "damping": 0.5},
+            )
+    assert predictor.state is safe
+    assert vars(predictor) == before
+    next_state = predictor.step(_boundary(safe.positions[0]), _boundary(safe.positions[-1]), _wrenches())
+    assert next_state.timestamp_s == pytest.approx(0.01)
+    assert next_state.radius_m == safe.radius_m
+
+
+@pytest.mark.parametrize("angle", [0.0, np.pi / 2, np.pi])
+def test_step_transports_curved_centerline_under_rigid_endpoint_motion(angle):
+    predictor = ReducedCosseratPredictor(max_slip_m=1.0)
+    points = np.array([[0., 0., 1.2], [0.1, 0.03, 1.2], [0.2, 0., 1.2]])
+    safe = predictor.reset(points, radius_m=0.004)
+    rotation = np.array([[np.cos(angle), -np.sin(angle), 0.],
+                         [np.sin(angle), np.cos(angle), 0.], [0., 0., 1.]])
+    expected = points @ rotation.T + [0.01, 0.02, 0.0]
+    result = predictor.step(_boundary(expected[0]), _boundary(expected[-1]), _wrenches())
+    assert result.feasible
+    np.testing.assert_allclose(result.positions, expected, atol=1.e-12)
+    np.testing.assert_allclose(result.tangents, safe.tangents @ rotation.T, atol=1.e-12)
+    assert result.bending_proxy == pytest.approx(safe.bending_proxy)
+
+
+def test_curved_step_still_rejects_excess_bending():
+    predictor = ReducedCosseratPredictor(max_bending_proxy=1.0)
+    points = np.array([[0., 0., 1.2], [0.1, 0.03, 1.2], [0.2, 0., 1.2]])
+    safe = predictor.reset(points, radius_m=0.004)
+    result = predictor.step(_boundary(points[0]), _boundary(points[-1]), _wrenches())
+    assert result.bending_proxy == pytest.approx(safe.bending_proxy)
+    assert not result.feasible
+    assert result.failure_reason == "bending_proxy"
+    assert predictor.state is safe
+
+
+@pytest.mark.parametrize("endpoint", [0, 1])
+def test_endpoint_moment_changes_bending_and_rejects_without_state_mutation(endpoint):
+    predictor = ReducedCosseratPredictor(max_bending_proxy=0.01)
+    safe = predictor.reset(_centerline())
+    wrench = np.zeros((2, 6))
+    wrench[:, 2] = 1.0
+    wrench[endpoint, 5] = 0.1
+    result = predictor.step(_boundary(safe.positions[0]), _boundary(safe.positions[-1]), wrench)
+    assert np.isfinite(result.bending_proxy)
+    assert result.bending_proxy > predictor.max_bending_proxy
+    assert not result.feasible
+    assert result.failure_reason == "bending_proxy"
+    assert predictor.state is safe
+
+
+def test_extreme_endpoint_moment_has_bounded_bending_proxy():
+    predictor = ReducedCosseratPredictor(max_bending_proxy=0.01)
+    safe = predictor.reset(_centerline())
+    wrench = np.array([[0., 0., 1., 0., 0., 1.e200], [0., 0., 1., 0., 0., 0.]])
+    result = predictor.step(_boundary(safe.positions[0]), _boundary(safe.positions[-1]), wrench)
+    segment_length = safe.rest_length_m / (len(safe.positions) - 1)
+    assert predictor.max_bending_proxy < result.bending_proxy <= np.pi / segment_length
+    assert not result.feasible
+    assert predictor.state is safe
+
+
+@pytest.mark.parametrize("endpoint", [0, 1])
+@pytest.mark.parametrize("normal", [(0., 0., 1.), (1., 0., 0.)])
+def test_tensile_normal_force_is_rejected_before_friction_allowance(endpoint, normal):
+    predictor = ReducedCosseratPredictor()
+    safe = predictor.reset(_centerline())
+    wrenches = [{"force": np.array(normal), "normal": normal} for _ in range(2)]
+    wrenches[endpoint]["force"] *= -1.0
+    result = predictor.step(_boundary(safe.positions[0]), _boundary(safe.positions[-1]), wrenches)
+    assert not result.friction_feasible
+    assert not result.feasible
+    assert result.failure_reason == "friction_cone"
+    assert (result.left_normal_force_n, result.right_normal_force_n)[endpoint] == -1.0
+    assert predictor.state is safe
