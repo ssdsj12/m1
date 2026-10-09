@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+from copy import deepcopy
+from dataclasses import asdict, replace
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -18,6 +20,9 @@ from go2_pvcnn.control.m1_bimanual_coordination.object_catalog import (
 )
 from go2_pvcnn.control.m1_bimanual_coordination.wire_coupling import (
     WireCouplingDiagnostics,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.wire_contact_acceptance import (
+    WireAcceptanceState,
 )
 
 
@@ -77,16 +82,86 @@ class _WireReportRecorder:
         }
 
 
-def _write_wire_report_atomic(path: Path, report: dict[str, object]) -> None:
-    """Write canonical finite JSON beside its destination, then replace atomically."""
+class _WireContactReportRecorder:
+    """Snapshot selected-wire diagnostics without deriving contact from geometry."""
+
+    def __init__(self, *, object_id: str, seed: int) -> None:
+        self.records: list[dict[str, object]] = []
+        self._latest: dict[str, object] = {
+            "schema_version": 1, "object_id": object_id, "seed": seed,
+            "step": 0, "elapsed_simulation_time_s": 0.0,
+            "wire_center_height_m": None, "reset_wire_center_height_m": None,
+            "lift_height_m": None, "hold_elapsed_s": 0.0,
+            "bilateral_contact_elapsed_s": 0.0,
+            "left_valid_contacts": 0, "right_valid_contacts": 0,
+            "success": False, "terminal_reason": None,
+        }
+        self._maxima = {f"max_{key}": 0.0 for key in (
+            "left_valid_contacts", "right_valid_contacts", "lift_height_m",
+            "hold_elapsed_s", "bilateral_contact_elapsed_s",
+        )}
+        self.finished = False
+
+    def reset(self, *, wire_center_height_m: float, control_dt_s: float) -> None:
+        self._latest["reset_wire_center_height_m"] = wire_center_height_m
+        self._latest["control_interval_s"] = control_dt_s
+
+    def record(
+        self, *, step: int, diagnostics: dict[str, object],
+        acceptance_state: WireAcceptanceState,
+        wire_coupling: WireCouplingDiagnostics | None = None,
+    ) -> None:
+        if self.finished:
+            raise RuntimeError("wire contact report is already finalized")
+        state = asdict(acceptance_state)
+        state["acceptance_phase"] = state.pop("phase").value
+        row = {**self._latest, **deepcopy(diagnostics), **state}
+        row.update(
+            record_type="sample", step=step,
+            elapsed_simulation_time_s=step * row["control_interval_s"],
+            lift_height_m=(diagnostics["wire_center_height_m"]
+                           - row["reset_wire_center_height_m"]),
+            wire_coupling=None if wire_coupling is None else wire_coupling.to_json(),
+        )
+        nonfinite_fields: list[str] = []
+
+        def finite_json(value, path=""):
+            if isinstance(value, float) and not math.isfinite(value):
+                nonfinite_fields.append(path)
+                return None
+            if isinstance(value, dict):
+                return {key: finite_json(item, f"{path}.{key}" if path else key)
+                        for key, item in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [finite_json(item, f"{path}[{index}]")
+                        for index, item in enumerate(value)]
+            return value
+
+        row = finite_json(row)
+        row["nonfinite_fields"] = nonfinite_fields
+        for key in self._maxima:
+            value = row[key.removeprefix("max_")]
+            if value is not None:
+                self._maxima[key] = max(self._maxima[key], value)
+        self.records.append(row)
+        self._latest = row
+
+    def finish(self, terminal_reason: str) -> dict[str, object]:
+        if not self.finished:
+            final = deepcopy(self._latest)
+            final.update(self._maxima)
+            final.update(record_type="final", terminal_reason=terminal_reason,
+                         success=bool(final["success"] and terminal_reason == "accepted"))
+            self.records.append(final)
+            self.finished = True
+        return self.records[-1]
+
+
+def _write_report_text_atomic(path: Path, encoded: str) -> None:
+    """Flush a sibling temporary file before replacing the complete report."""
 
     path = Path(path)
-    encoded = json.dumps(
-        report,
-        allow_nan=False,
-        indent=2,
-        sort_keys=True,
-    ) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -106,6 +181,26 @@ def _write_wire_report_atomic(path: Path, report: dict[str, object]) -> None:
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+
+
+def _write_wire_report_atomic(path: Path, report: dict[str, object]) -> None:
+    """Keep the legacy staged-coupling JSON report format available."""
+    _write_report_text_atomic(
+        path, json.dumps(report, allow_nan=False, indent=2, sort_keys=True) + "\n"
+    )
+
+
+def _write_wire_contact_report_atomic(path: Path, records: Sequence[dict[str, object]]) -> None:
+    _write_report_text_atomic(path, "".join(
+        json.dumps(row, allow_nan=False, sort_keys=True) + "\n" for row in records
+    ))
+
+
+def _positive_steps(value: str) -> int:
+    result = int(value)
+    if result <= 0:
+        raise argparse.ArgumentTypeError("max-steps must be positive")
+    return result
 
 
 def _metadata_sha256(value: str) -> str:
@@ -137,14 +232,15 @@ def _validate_prior_pair(parser: argparse.ArgumentParser, args: argparse.Namespa
         )
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(*, wire_contact_probe: bool = False) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.set_defaults(wire_contact_probe=wire_contact_probe)
     parser.add_argument("--mpc-backend", choices=("reference-cpu", "bimanual-rti-cuda", "auto"), default="reference-cpu")
     parser.add_argument("--qp-backend", choices=("reference-cpu", "osqp-cuda", "auto"), default="reference-cpu")
     parser.add_argument("--control-device", default="cuda:0", help="requested control device; reference-cpu always uses CPU")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--max-steps", type=int, default=4000)
-    parser.add_argument("--object-id", default=None)
+    parser.add_argument("--max-steps", type=_positive_steps, default=4000)
+    parser.add_argument("--object-id", default=None, required=wire_contact_probe)
     parser.add_argument(
         "--object-catalog",
         type=Path,
@@ -165,7 +261,8 @@ def _parser() -> argparse.ArgumentParser:
         "--wire-report",
         type=Path,
         default=None,
-        help="atomically write staged wire state transitions and the final record",
+        required=wire_contact_probe,
+        help="atomic wire report: sampled JSONL for the probe or .jsonl paths; legacy coupling JSON otherwise",
     )
     parser.add_argument("--mode", choices=("teacher", "latent"), default="teacher")
     parser.add_argument("--fingertip-prior-artifact", type=Path, default=None)
@@ -336,8 +433,8 @@ def build_play_config(
     return cfg
 
 
-def main() -> int:
-    parser = _parser()
+def main(parser: argparse.ArgumentParser | None = None) -> int:
+    parser = _parser() if parser is None else parser
     early_args, _unknown_launcher_args = parser.parse_known_args()
     _validate_prior_pair(parser, early_args)
     from go2_pvcnn.control.m1_bimanual_coordination.gpu_rti.config import resolve_backend_selection
@@ -364,6 +461,65 @@ def main() -> int:
             binding.close()
 
 
+def _play_episode(wrapper, simulation_app, args, wire_report, contact_report) -> str:
+    reset_snapshot = wrapper.reset(seed=args.seed)
+    if contact_report is not None:
+        contact_report.reset(
+            wire_center_height_m=float(reset_snapshot.box.pose_b[2]),
+            control_dt_s=float(wrapper.env.unwrapped.physics_dt),
+        )
+    previous_phase = wrapper.runtime.mission.phase.name
+    for step in range(args.max_steps):
+        if not simulation_app.is_running():
+            return "application_closed"
+        wrapper.step()
+        wire_diagnostics = wrapper.runtime.latest_wire_diagnostics
+        if wire_diagnostics is not None:
+            wire_report.record(wire_diagnostics)
+        state = wrapper.wire_acceptance_state
+        if contact_report is not None:
+            diagnostics = wrapper.wire_acceptance_diagnostics
+            if state is None or diagnostics is None:
+                raise RuntimeError("selected wire acceptance diagnostics are unavailable")
+            contact_report.record(step=step + 1, diagnostics=diagnostics,
+                                  acceptance_state=state, wire_coupling=wire_diagnostics)
+        phase = wrapper.runtime.mission.phase.name
+        if args.diagnostics and (phase != previous_phase or phase in {"DONE", "TERMINATED"}):
+            latest = wrapper.runtime.latest_solutions
+            reasons = {
+                key: None if value is None else value.diagnostics.fallback_reason
+                for key, value in latest.items() if key != "arm"
+            }
+            print(
+                f"step={step + 1} phase={phase} feasible={wrapper.last_command.feasible} "
+                f"reasons={reasons} base_state={wrapper.last_snapshot.base_state.tolist()}",
+                flush=True,
+            )
+        previous_phase = phase
+        if state is not None:
+            if state.terminal_reason is not None:
+                return state.terminal_reason
+            if state.success:
+                return "accepted"
+        if phase in {"DONE", "TERMINATED"}:
+            return f"mission_{phase.lower()}"
+    return "max_steps"
+
+
+def _keep_play_open(wrapper, simulation_app, *, headless: bool) -> None:
+    if headless or not simulation_app.is_running():
+        return
+    wrapper.env.unwrapped.sim.pause()
+    while simulation_app.is_running():
+        simulation_app.update()
+
+
+def _publish_wire_contact_report(args, recorder, terminal_reason: str) -> None:
+    final = recorder.finish(terminal_reason)
+    _write_wire_contact_report_atomic(args.wire_report, recorder.records)
+    print(json.dumps(final, allow_nan=False, sort_keys=True), flush=True)
+
+
 def _run_with_fingertip_prior(parser, binding) -> int:
     # The pinned left/right workers are already bound. Never reload their
     # mutable artifact path after crossing the launcher/scene boundary.
@@ -371,6 +527,11 @@ def _run_with_fingertip_prior(parser, binding) -> int:
 
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
+    contact_trace_requested = args.wire_contact_probe or (
+        args.wire_report is not None and args.wire_report.suffix.lower() == ".jsonl"
+    )
+    contact_report = (_WireContactReportRecorder(object_id=args.object_id, seed=args.seed)
+                      if contact_trace_requested else None)
     try:
         catalog, object_instances = _prepare_object_scene(
             object_id=args.object_id,
@@ -378,67 +539,59 @@ def _run_with_fingertip_prior(parser, binding) -> int:
             object_assets_root=args.object_assets_root,
         )
     except (FileNotFoundError, TypeError, ValueError) as error:
+        if contact_report is not None:
+            _publish_wire_contact_report(args, contact_report, f"preflight_error:{type(error).__name__}")
         parser.error(str(error))
+    if contact_trace_requested and not any(
+        instance.object_id == args.object_id and instance.object_class == "wire"
+        for instance in object_instances
+    ):
+        parser.error("wire contact JSONL requires an explicit selected wire object ID")
     if args.diagnostics:
         print(f"backend_selection={args.backend_selection}", flush=True)
-    app_launcher = AppLauncher(args)
-    simulation_app = app_launcher.app
-    import gymnasium as gym
-
-    import go2_pvcnn.tasks  # noqa: F401
-    from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_wrapper import (
-        M1DualPandaO6BimanualWrapper,
-    )
-
-    cfg = build_play_config(
-        seed=args.seed,
-        object_id=args.object_id,
-        catalog=catalog,
-        object_instances=object_instances,
-    )
-    env = gym.make("Isaac-M1-DualPanda-O6-Bimanual-Lift-v0", cfg=cfg)
     wire_report = _WireReportRecorder()
-    with M1DualPandaO6BimanualWrapper(
-        env,
-        mode=args.mode,
-        object_id=args.object_id,
-        fingertip_prior_artifact=args.fingertip_prior_artifact,
-        fingertip_prior_metadata_sha256=args.fingertip_prior_metadata_sha256,
-        fingertip_prior_binding=binding,
-    ) as wrapper:
-        if args.object_id is not None:
-            wrapper.runtime.wire_object_id = args.object_id
-            wrapper.runtime.wire_target_prim_path = cfg.target_contact_prim_path.replace(
-                "{ENV_REGEX_NS}", "/World/envs/env_0"
-            )
-        wrapper.reset(seed=args.seed)
-        previous_phase = wrapper.runtime.mission.phase.name
-        for step in range(args.max_steps):
-            wrapper.step()
-            wire_diagnostics = wrapper.runtime.latest_wire_diagnostics
-            if wire_diagnostics is not None:
-                wire_report.record(wire_diagnostics)
-            phase = wrapper.runtime.mission.phase.name
-            if args.diagnostics and (phase != previous_phase or phase in {"DONE", "TERMINATED"}):
-                latest = wrapper.runtime.latest_solutions
-                reasons = {
-                    key: None if value is None else value.diagnostics.fallback_reason
-                    for key, value in latest.items()
-                    if key != "arm"
-                }
-                print(
-                    f"step={step + 1} phase={phase} feasible={wrapper.last_command.feasible} "
-                    f"reasons={reasons} base_state={wrapper.last_snapshot.base_state.tolist()}",
-                    flush=True,
+    try:
+        app_launcher = AppLauncher(args)
+        simulation_app = app_launcher.app
+        import gymnasium as gym
+
+        import go2_pvcnn.tasks  # noqa: F401
+        from go2_pvcnn.tasks.m1_dual_panda_o6_bimanual_wrapper import (
+            M1DualPandaO6BimanualWrapper,
+        )
+
+        cfg = build_play_config(
+            seed=args.seed,
+            object_id=args.object_id,
+            catalog=catalog,
+            object_instances=object_instances,
+        )
+        env = gym.make("Isaac-M1-DualPanda-O6-Bimanual-Lift-v0", cfg=cfg)
+        with M1DualPandaO6BimanualWrapper(
+            env,
+            mode=args.mode,
+            object_id=args.object_id,
+            fingertip_prior_artifact=args.fingertip_prior_artifact,
+            fingertip_prior_metadata_sha256=args.fingertip_prior_metadata_sha256,
+            fingertip_prior_binding=binding,
+        ) as wrapper:
+            if args.object_id is not None:
+                wrapper.runtime.wire_object_id = args.object_id
+                wrapper.runtime.wire_target_prim_path = cfg.target_contact_prim_path.replace(
+                    "{ENV_REGEX_NS}", "/World/envs/env_0"
                 )
-            previous_phase = phase
-            if phase in {"DONE", "TERMINATED"}:
-                break
-            if not simulation_app.is_running():
-                break
-        print(f"final_phase={wrapper.runtime.mission.phase.name}", flush=True)
-    if args.wire_report is not None:
-        _write_wire_report_atomic(args.wire_report, wire_report.to_json())
+            terminal_reason = _play_episode(wrapper, simulation_app, args, wire_report, contact_report)
+            print(f"final_phase={wrapper.runtime.mission.phase.name}", flush=True)
+            if contact_report is not None:
+                _publish_wire_contact_report(args, contact_report, terminal_reason)
+            elif args.wire_report is not None:
+                _write_wire_report_atomic(args.wire_report, wire_report.to_json())
+            _keep_play_open(wrapper, simulation_app, headless=args.headless)
+    except BaseException as error:
+        if contact_report is not None and not contact_report.finished:
+            reason = "interrupted" if isinstance(error, KeyboardInterrupt) else f"runtime_error:{type(error).__name__}"
+            _publish_wire_contact_report(args, contact_report, reason)
+        raise
     return 0
 
 
