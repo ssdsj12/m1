@@ -5,6 +5,7 @@ import pytest
 
 from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_goal import DloCenterlineState
 from go2_pvcnn.control.m1_bimanual_coordination.reduced_cosserat import (
+    ReducedCosseratPrediction,
     ReducedCosseratPredictor,
 )
 
@@ -135,3 +136,83 @@ def test_predict_rejection_restores_last_state_after_partial_horizon():
         )
     np.testing.assert_allclose(predictor.state.positions, safe.positions)
     assert predictor.state.timestamp_s == safe.timestamp_s
+
+
+@pytest.mark.parametrize("invalid_material", [
+    {"damping": float("nan")},
+    {"effective_mass_kg": 0.0},
+    {"max_slip_m": -1.0},
+])
+def test_reset_rejects_invalid_material_atomically(invalid_material):
+    predictor = ReducedCosseratPredictor()
+    safe = predictor.reset(_centerline(), radius_m=0.004, material={"damping": 0.25}, dt=0.01)
+    before_material = {
+        name: getattr(predictor, name)
+        for name in ("effective_mass_kg", "damping", "friction_coefficient", "max_axial_stretch", "max_bending_proxy", "max_slip_m", "normal_force_min_n")
+    }
+
+    with pytest.raises(ValueError):
+        predictor.reset(
+            _centerline(), radius_m=0.008,
+            material={"effective_mass_kg": 0.1, **invalid_material}, dt=0.02,
+        )
+
+    assert predictor.state is safe
+    assert predictor.state.timestamp_s == safe.timestamp_s
+    for name, value in before_material.items():
+        assert getattr(predictor, name) == value
+    next_state = predictor.step(_boundary((0.40, 0.0, 1.2)), _boundary((0.60, 0.0, 1.2)), _wrenches())
+    assert next_state.timestamp_s == pytest.approx(0.01)
+    assert next_state.radius_m == safe.radius_m
+
+
+@pytest.mark.parametrize("later_offset", [0.1, 0.0])
+def test_predict_does_not_advance_from_rejected_candidate(later_offset):
+    predictor = ReducedCosseratPredictor(max_slip_m=0.05)
+    safe = predictor.reset(_centerline(), radius_m=0.004, material={}, dt=0.01)
+    prediction = predictor.predict(
+        2,
+        [_boundary((0.50, 0.0, 1.2)), _boundary((0.40 + later_offset, 0.0, 1.2))],
+        [_boundary((0.70, 0.0, 1.2)), _boundary((0.60 + later_offset, 0.0, 1.2))],
+        [_wrenches(), _wrenches()],
+    )
+
+    assert not prediction.feasible[0]
+    assert not prediction.feasible[1]
+    assert prediction.failure_reasons[0] == "slip"
+    assert prediction.failure_reasons[1] == "slip"
+    np.testing.assert_allclose(prediction.positions[1], prediction.positions[0])
+    assert predictor.state is safe
+
+
+def test_predict_accepts_sequence_of_wrench_mappings():
+    predictor = ReducedCosseratPredictor()
+    predictor.reset(_centerline(), radius_m=0.004, material={}, dt=0.01)
+    prediction = predictor.predict(
+        1,
+        [_boundary((0.40, 0.0, 1.2))],
+        [_boundary((0.60, 0.0, 1.2))],
+        [[{"wrench": (0.0, 0.0, 1.0)}, {"wrench": (0.0, 0.0, 1.0)}]],
+    )
+    assert prediction.feasible.tolist() == [True]
+
+
+@pytest.mark.parametrize("field", ["positions", "tangents", "endpoint_positions", "endpoint_velocities"])
+@pytest.mark.parametrize("nonfinite", [np.nan, np.inf, -np.inf])
+def test_prediction_rejects_nonfinite_geometry(field, nonfinite):
+    finite = np.zeros((1, 2, 3), dtype=np.float64)
+    geometry = {name: finite.copy() for name in ("positions", "tangents", "endpoint_positions", "endpoint_velocities")}
+    geometry[field][0, 1, 0] = nonfinite
+    with pytest.raises(ValueError, match="finite"):
+        ReducedCosseratPrediction(
+            **geometry,
+            endpoint_separation_m=np.zeros(1),
+            axial_stretch=np.zeros(1),
+            bending_proxy=np.zeros(1),
+            left_slip_m=np.zeros(1),
+            right_slip_m=np.zeros(1),
+            friction_feasible=np.ones(1, dtype=bool),
+            slip_feasible=np.ones(1, dtype=bool),
+            feasible=np.ones(1, dtype=bool),
+            failure_reasons=(None,),
+        )

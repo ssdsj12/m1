@@ -135,6 +135,10 @@ class ReducedCosseratPrediction:
         velocities = np.asarray(self.endpoint_velocities, dtype=np.float64)
         if tangents.shape != positions.shape or endpoints.shape != (horizon, 2, 3) or velocities.shape != (horizon, 2, 3):
             raise ValueError("prediction geometry has inconsistent shapes")
+        for name, value in (("positions", positions), ("tangents", tangents),
+                            ("endpoint_positions", endpoints), ("endpoint_velocities", velocities)):
+            if not np.isfinite(value).all():
+                raise ValueError(f"{name} must be finite")
         scalar_names = ("endpoint_separation_m", "axial_stretch", "bending_proxy", "left_slip_m", "right_slip_m")
         for name in scalar_names:
             value = np.asarray(getattr(self, name), dtype=np.float64)
@@ -187,11 +191,7 @@ class ReducedCosseratPredictor:
             "max_slip_m": max_slip_m,
             "normal_force_min_n": normal_force_min_n,
         }
-        for name, value in values.items():
-            if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(float(value)):
-                raise ValueError(f"{name} must be finite")
-        if effective_mass_kg <= 0 or damping < 0 or friction_coefficient < 0 or max_axial_stretch < 0 or max_bending_proxy < 0 or max_slip_m < 0 or normal_force_min_n < 0:
-            raise ValueError("predictor limits must be nonnegative and mass positive")
+        self._validate_limits(values)
         self.effective_mass_kg = float(effective_mass_kg)
         self.damping = float(damping)
         self.friction_coefficient = float(friction_coefficient)
@@ -203,6 +203,14 @@ class ReducedCosseratPredictor:
         self._rest_length = None
         self._radius = None
         self._state: ReducedCosseratState | None = None
+
+    @staticmethod
+    def _validate_limits(values: Mapping[str, Any]) -> None:
+        for name, value in values.items():
+            if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(float(value)):
+                raise ValueError(f"{name} must be finite")
+            if value < 0 or (name == "effective_mass_kg" and value == 0):
+                raise ValueError("predictor limits must be nonnegative and mass positive")
 
     @property
     def state(self) -> ReducedCosseratState:
@@ -245,16 +253,18 @@ class ReducedCosseratPredictor:
     def _apply_material(self, material: Mapping[str, Any] | Any | None) -> None:
         if material is None:
             return
-        def get(name: str, default: float) -> float:
-            value = material.get(name, default) if isinstance(material, Mapping) else getattr(material, name, default)
-            return float(value)
-        self.effective_mass_kg = get("effective_mass_kg", get("mass_kg", self.effective_mass_kg))
-        self.damping = get("damping", self.damping)
-        self.friction_coefficient = get("friction_coefficient", self.friction_coefficient)
-        self.max_axial_stretch = get("max_axial_stretch", self.max_axial_stretch)
-        self.max_bending_proxy = get("max_bending_proxy", self.max_bending_proxy)
-        self.max_slip_m = get("max_slip_m", self.max_slip_m)
-        self.normal_force_min_n = get("normal_force_min_n", self.normal_force_min_n)
+        def get(name: str, default: Any) -> Any:
+            return material.get(name, default) if isinstance(material, Mapping) else getattr(material, name, default)
+        values = {
+            "effective_mass_kg": get("effective_mass_kg", get("mass_kg", self.effective_mass_kg)),
+            **{name: get(name, getattr(self, name)) for name in (
+                "damping", "friction_coefficient", "max_axial_stretch",
+                "max_bending_proxy", "max_slip_m", "normal_force_min_n",
+            )},
+        }
+        self._validate_limits(values)
+        for name, value in values.items():
+            setattr(self, name, float(value))
 
     @staticmethod
     def _tangents(positions: np.ndarray) -> np.ndarray:
@@ -292,12 +302,12 @@ class ReducedCosseratPredictor:
     def _wrench_pair(value: Any) -> tuple[tuple[np.ndarray, np.ndarray | None], tuple[np.ndarray, np.ndarray | None]]:
         if isinstance(value, Mapping):
             values = (value.get("left", value.get("left_wrench")), value.get("right", value.get("right_wrench")))
+        elif isinstance(value, (tuple, list)) and len(value) == 2:
+            values = (value[0], value[1])
         else:
             arr = np.asarray(value, dtype=np.float64)
             if arr.shape in ((2, 6), (2, 3)):
                 values = (arr[0], arr[1])
-            elif isinstance(value, (tuple, list)) and len(value) == 2:
-                values = (value[0], value[1])
             else:
                 raise ValueError("contact_wrench must contain left and right six-dimensional wrenches")
         result = []
@@ -414,8 +424,12 @@ class ReducedCosseratPredictor:
                 # Step through a private predictor state, then restore the accepted state.
                 self._state = simulated
                 candidate = self.step(left, right, wrench)
-                simulated = candidate
                 rows.append(candidate)
+                if not candidate.feasible:
+                    # An invalid transition cannot seed any later horizon row.
+                    rows.extend([candidate] * (horizon - len(rows)))
+                    break
+                simulated = candidate
         finally:
             self._state = accepted_state
         return ReducedCosseratPrediction(
