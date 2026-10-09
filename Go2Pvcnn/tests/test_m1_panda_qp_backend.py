@@ -89,6 +89,21 @@ def test_unconstrained_quadratic_returns_float64_cpu_minimum():
     assert result.active_set == ()
 
 
+def test_nonfinite_unconstrained_minimizer_retains_finite_diagnostic_seed():
+    problem = _problem(
+        torch.tensor([[1.0e-300]], dtype=torch.float64),
+        torch.tensor([-1.0e100], dtype=torch.float64),
+    )
+
+    result = solve_reference_qp(problem)
+
+    assert not result.success
+    assert torch.equal(result.solution, torch.zeros(1, dtype=torch.float64))
+    assert result.max_equality_residual == 0.0
+    assert result.max_inequality_violation == 0.0
+    assert result.iterations == 1
+
+
 def test_equality_only_kkt_solution_satisfies_constraint():
     problem = _problem(
         torch.eye(2, dtype=torch.float64),
@@ -139,6 +154,35 @@ def test_single_active_inequality_matches_projection_solution():
         result.solution, torch.tensor([1.5, -0.5], dtype=torch.float64), atol=1.0e-9
     )
     assert result.active_set == (0,)
+
+
+@pytest.mark.parametrize(
+    ("priority_curvature", "solver_options"),
+    [(1.0e6, {"tolerance": 1.0e-5}), (1.0e9, {})],
+)
+def test_priority_curvature_does_not_hide_negative_active_multipliers(
+    priority_curvature, solver_options,
+):
+    problem = _problem(
+        torch.diag(torch.tensor([1.0, 1.0, priority_curvature], dtype=torch.float64)),
+        torch.tensor([-2.0, -4.0, 0.0], dtype=torch.float64),
+        inequality_matrix=[[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+        inequality_upper=[1.0, 3.5],
+    )
+
+    result = solve_reference_qp(problem, **solver_options)
+    objective = 0.5 * result.solution @ problem.hessian @ result.solution
+    objective += problem.gradient @ result.solution
+
+    assert result.success
+    assert torch.allclose(
+        result.solution,
+        torch.tensor([0.75, 2.75, 0.0], dtype=torch.float64),
+        atol=1.0e-8,
+        rtol=0.0,
+    )
+    assert objective.item() == pytest.approx(-8.4375, abs=1.0e-10, rel=0.0)
+    assert result.active_set == (1,)
 
 
 def test_captured_arm_qp_releases_obsolete_acceleration_bounds():
@@ -252,6 +296,28 @@ def test_scaled_redundant_rows_do_not_stop_at_a_nonstationary_feasible_point():
     assert result.max_inequality_violation <= 1.0e-9
 
 
+def test_large_equality_row_does_not_hide_an_independent_inequality():
+    problem = _problem(
+        torch.eye(2, dtype=torch.float64),
+        torch.tensor([0.0, -2.0], dtype=torch.float64),
+        equality_matrix=[[1.0e16, 0.0]],
+        equality_rhs=[0.0],
+        inequality_matrix=[[0.0, 1.0]],
+        inequality_upper=[1.0],
+    )
+
+    result = solve_reference_qp(problem)
+
+    assert result.success
+    assert torch.allclose(
+        result.solution, torch.tensor([0.0, 1.0], dtype=torch.float64),
+        atol=1.0e-9, rtol=0.0,
+    )
+    assert result.max_equality_residual <= 1.0e-9
+    assert result.max_inequality_violation <= 1.0e-9
+    assert result.active_set == (0,)
+
+
 def test_mixed_equality_inequality_and_bounds_are_all_enforced():
     problem = _problem(
         torch.eye(3, dtype=torch.float64),
@@ -276,7 +342,7 @@ def test_mixed_equality_inequality_and_bounds_are_all_enforced():
     assert result.max_inequality_violation <= 1.0e-9
 
 
-@pytest.mark.parametrize("row_scale", [1.0, 1.0e-4])
+@pytest.mark.parametrize("row_scale", [1.0, 1.0e-4, 1.0e-6, 1.0e-8])
 def test_phase_one_finds_feasibility_without_penalizing_required_displacement(row_scale):
     problem = _problem(
         torch.eye(1, dtype=torch.float64),

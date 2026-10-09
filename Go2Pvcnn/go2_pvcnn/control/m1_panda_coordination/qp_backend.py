@@ -207,6 +207,11 @@ def _solve_kkt(
         # direction is well-defined even when the augmented KKT is singular.
         solved = torch.linalg.lstsq(kkt, rhs, driver="gelsd").solution
     multipliers = left[:, :rank] @ (solved[dimension:] / singular_values[:rank])
+    # The release threshold is expressed in the input problem's units.
+    # Undo both KKT scalings: H/s + (C/r)' mu = 0 gives lambda = s*mu/r.
+    # Returning scaled multipliers would hide a negative multiplier whenever
+    # an unrelated high-priority objective direction increases s.
+    multipliers = multipliers * (objective_scale / constraint_scale)
     return solved[:dimension], multipliers
 
 
@@ -246,7 +251,12 @@ def _constraint_rank(matrix: torch.Tensor) -> int:
     """Return a deterministic numerical rank for an active-row candidate."""
     if matrix.shape[0] == 0:
         return 0
-    return int(torch.linalg.matrix_rank(matrix, hermitian=False).item())
+    # Use the same row conditioning and relative SVD cutoff as _solve_kkt.
+    # Otherwise a large equality row can make an independent blocking
+    # inequality look numerically dependent and allow a step through it.
+    row_scale = torch.linalg.vector_norm(matrix, dim=1).clamp_min(1.0)
+    conditioned = matrix / row_scale.unsqueeze(1)
+    return int(torch.linalg.matrix_rank(conditioned, hermitian=False).item())
 
 
 def _active_set_qp(
@@ -285,10 +295,13 @@ def _active_set_qp(
     # repeated correction steps in deliberately ill-conditioned equality-only
     # diagnostics where the minimizer is finite but very large.
     if row_count == 0:
-        solution, _ = _solve_kkt(
+        candidate, _ = _solve_kkt(
             hessian, gradient, equality_matrix, equality_rhs
         )
-        if equality_matrix.shape[0]:
+        finite_candidate = torch.isfinite(candidate).all().item()
+        if finite_candidate:
+            solution = candidate
+        if finite_candidate and equality_matrix.shape[0]:
             # A very ill-conditioned objective can leave a large-magnitude
             # KKT solution with a few ulps of equality drift.  One minimum-
             # norm equality correction restores the requested residual without
@@ -312,7 +325,7 @@ def _active_set_qp(
         return DenseQpResult(
             solution=solution,
             success=(
-                torch.isfinite(solution).all().item()
+                finite_candidate
                 and _primal_feasible(eq_residual, inequality_violation, tolerance)
             ),
             iterations=1,
@@ -455,17 +468,23 @@ def _phase_one(
     """Find a feasible point by minimizing one common violation slack."""
     dimension = canonical.gradient.numel()
     seed = _diagnostic_seed(canonical)
-    inequality_residual = inequality_matrix @ seed - inequality_upper
-    equality_residual = (
-        torch.abs(canonical.equality_matrix @ seed - canonical.equality_rhs)
-        if canonical.equality_matrix.shape[0]
-        else torch.empty(0, dtype=torch.float64)
+    feasibility_matrix = torch.cat(
+        (inequality_matrix, canonical.equality_matrix, -canonical.equality_matrix),
+        dim=0,
     )
-    initial_violation = 0.0
-    if inequality_residual.numel():
-        initial_violation = max(initial_violation, float(inequality_residual.max().item()))
-    if equality_residual.numel():
-        initial_violation = max(initial_violation, float(equality_residual.max().item()))
+    feasibility_upper = torch.cat(
+        (inequality_upper, canonical.equality_rhs, -canonical.equality_rhs)
+    )
+    # Normalize original rows before adding the common slack column.  Adding
+    # a unit t coefficient first would leave a small x row nearly parallel to
+    # t >= 0; the semidefinite KKT solve then loses its feasible x direction.
+    # Zero rows keep their original bounds so contradictions remain visible.
+    row_scale = torch.linalg.vector_norm(feasibility_matrix, dim=1)
+    row_scale = torch.where(row_scale > 0.0, row_scale, torch.ones_like(row_scale))
+    feasibility_matrix = feasibility_matrix / row_scale.unsqueeze(1)
+    feasibility_upper = feasibility_upper / row_scale
+    residual = feasibility_matrix @ seed - feasibility_upper
+    initial_violation = max(0.0, float(residual.max().item()))
     initial_slack = max(1.0, initial_violation + 1.0)
 
     # Original inequalities and both sides of each equality are relaxed by a
@@ -480,32 +499,14 @@ def _phase_one(
     augmented_hessian[-1, -1] = 1.0
     augmented_gradient = torch.zeros(augmented_dimension, dtype=torch.float64)
 
-    rows = []
-    rhs = []
-    if inequality_matrix.shape[0]:
-        rows.append(torch.cat(
-            (inequality_matrix, -torch.ones((inequality_matrix.shape[0], 1), dtype=torch.float64)),
-            dim=1,
-        ))
-        rhs.append(inequality_upper)
-    if canonical.equality_matrix.shape[0]:
-        rows.append(torch.cat(
-            (canonical.equality_matrix, -torch.ones((canonical.equality_matrix.shape[0], 1), dtype=torch.float64)),
-            dim=1,
-        ))
-        rhs.append(canonical.equality_rhs)
-        rows.append(torch.cat(
-            (-canonical.equality_matrix, -torch.ones((canonical.equality_matrix.shape[0], 1), dtype=torch.float64)),
-            dim=1,
-        ))
-        rhs.append(-canonical.equality_rhs)
-    rows.append(torch.cat(
-        (torch.zeros((1, dimension), dtype=torch.float64), -torch.ones((1, 1), dtype=torch.float64)),
+    relaxed_rows = torch.cat(
+        (feasibility_matrix, -torch.ones((feasibility_matrix.shape[0], 1), dtype=torch.float64)),
         dim=1,
-    ))
-    rhs.append(torch.zeros(1, dtype=torch.float64))
-    augmented_matrix = torch.cat(rows, dim=0)
-    augmented_upper = torch.cat(rhs, dim=0)
+    )
+    slack_lower_row = torch.zeros((1, augmented_dimension), dtype=torch.float64)
+    slack_lower_row[0, -1] = -1.0
+    augmented_matrix = torch.cat((relaxed_rows, slack_lower_row), dim=0)
+    augmented_upper = torch.cat((feasibility_upper, torch.zeros(1, dtype=torch.float64)))
     augmented_seed = torch.cat((seed, torch.tensor([initial_slack], dtype=torch.float64)))
     phase = _active_set_qp(
         augmented_hessian,
