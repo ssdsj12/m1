@@ -61,6 +61,41 @@ class DualDloStepResult:
     elapsed_time: float
 
 
+def endpoint_wrenches_from_impulses(
+    result: DualDloStepResult, *, max_force_n: float = 50.0, max_moment_nm: float = 5.0,
+) -> np.ndarray:
+    """Average base-frame reaction wrenches, preserving backend impulse signs.
+
+    The integration interval comes from DeformX, not the controller period.
+    Forces and moments are independently norm-bounded without changing direction.
+    """
+    dt = float(result.elapsed_time)
+    if not np.isfinite(dt) or dt <= 0.0:
+        raise ValueError("backend elapsed_time must be finite and positive")
+    limits = (float(max_force_n), float(max_moment_nm))
+    if any(not np.isfinite(limit) or limit <= 0.0 for limit in limits):
+        raise ValueError("wrench limits must be finite and positive")
+    rows = []
+    for side in ("left", "right"):
+        parts = []
+        for kind, limit in zip(("linear", "angular"), limits):
+            impulse = np.asarray(getattr(result, f"{side}_{kind}_impulse"), dtype=np.float64)
+            if impulse.shape != (3,) or not np.isfinite(impulse).all():
+                raise ValueError("backend impulses must be finite XYZ vectors")
+            # Normalize first: an overflowing magnitude must not corrupt the
+            # direction or finite saturation, even for subnormal intervals.
+            scale = float(np.max(np.abs(impulse)))
+            if scale == 0.0:
+                parts.append(np.zeros(3))
+                continue
+            direction = impulse / scale
+            norm = float(np.linalg.norm(direction))
+            magnitude = min(limit, (scale / dt) * norm)
+            parts.append((direction / norm) * magnitude)
+        rows.append(np.concatenate(parts))
+    return np.stack(rows)
+
+
 class DeformXWireBackend:
     """Thin adapter translating M1 frame commands to DeformX."""
 
@@ -265,4 +300,5 @@ __all__ = [
     "DeformXWireBackend",
     "DloStepResult",
     "DualDloStepResult",
+    "endpoint_wrenches_from_impulses",
 ]

@@ -12,6 +12,7 @@ from .contracts import BimanualSnapshot
 from .deformx_adapter import DualDloStepResult
 from .dlo_wire_goal import DloCenterlineState, WireLineContactGoal, build_wire_station_contact_goal
 from .object_mpc import ObjectMpcSolution
+from .reduced_wire_runtime import ReducedWireUpdate
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,61 @@ class DloWireTrajectoryPlanner:
                 left_palm_pose=left_pose,
                 right_palm_pose=right_pose,
             ),
+            contact_goal=goal,
+        )
+
+    def plan_prediction(
+        self,
+        snapshot: BimanualSnapshot,
+        object_solution: ObjectMpcSolution,
+        update: ReducedWireUpdate,
+    ) -> DloWireTrajectoryPlan:
+        """Track every predicted endpoint, or hold measured palms on rejection.
+
+        Existing geometry-only entry points retain their contracts. This opt-in
+        path also supplies the synchronized wire lift reference to object MPC.
+        """
+        if not isinstance(update, ReducedWireUpdate):
+            raise TypeError("update must be ReducedWireUpdate")
+        horizon = object_solution.left_palm_pose.shape[0]
+        if update.endpoint_targets.shape != (horizon, 2, 3) or update.lift_velocity.shape != (horizon,):
+            raise ValueError("wire prediction must match object MPC horizon")
+        geometry = DloCenterlineState(update.state.positions, update.state.radius_m)
+        goal = build_wire_station_contact_goal(geometry, clearance_m=self.contact_clearance_m)
+        paths = {}
+        for index, side in enumerate(("left", "right")):
+            pose = getattr(snapshot, f"{side}_arm").palm_pose_b
+            if update.failure_reason is not None:
+                paths[f"{side}_palm_pose"] = pose.repeat(horizon, 1)
+                continue
+            targets = update.endpoint_targets[:, index].to(pose)
+            if self.track_pinch_center:
+                pinch = getattr(snapshot, f"{side}_hand").fingertip_positions_b[:2].mean(0)
+                targets = targets + pose[:3] - pinch
+            else:
+                normal = pose.new_tensor(getattr(goal, f"{side}_palm_approach_normal"))
+                targets = targets - self.palm_standoff_m * normal
+            current = pose[:3]
+            positions = []
+            for target in targets:
+                delta = target - current
+                distance = torch.linalg.vector_norm(delta).clamp_min(1.0e-12)
+                current = current + delta * torch.clamp(self.dt * self.palm_speed_m_s / distance, max=1.)
+                positions.append(current)
+            paths[f"{side}_palm_pose"] = torch.cat(
+                (torch.stack(positions), pose[3:].repeat(horizon, 1)), dim=1)
+        twist = object_solution.box_twist.clone()
+        twist[:, 2] = (0. if update.failure_reason is not None else
+                       update.lift_velocity.to(twist).clamp(0., self.palm_speed_m_s))
+        for side in ("left", "right"):
+            initial_height = getattr(snapshot, f"{side}_arm").palm_pose_b[2:3]
+            heights = paths[f"{side}_palm_pose"][:, 2]
+            available_lift = torch.diff(torch.cat((initial_height, heights))) / self.dt
+            twist[:, 2] = torch.minimum(twist[:, 2], available_lift.to(twist).clamp_min(0.))
+        box_pose = object_solution.box_pose.clone()
+        box_pose[:, 2] = snapshot.box.pose_b[2] + self.dt * torch.cumsum(twist[:, 2], dim=0)
+        return DloWireTrajectoryPlan(
+            object_solution=replace(object_solution, **paths, box_twist=twist, box_pose=box_pose),
             contact_goal=goal,
         )
 
