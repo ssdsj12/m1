@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 import torch
 
+from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualPhase
 from go2_pvcnn.control.m1_bimanual_coordination.dual_arm_mpc import DualArmMpcSolution
 from go2_pvcnn.control.m1_bimanual_coordination.hand_mpc import O6HandMpc
 from go2_pvcnn.control.m1_bimanual_coordination.object_mpc import BimanualObjectMpc
@@ -133,6 +134,73 @@ def test_approach_zero_wrench_does_not_require_force_closure():
         _request(object_solution=approach_object)
     )
     assert solution.feasible
+
+
+def _unilateral_wire_contact_hand():
+    # Selected-wire right-thumb force recorded at terminal step 1339.
+    forces = torch.zeros(5, 3, dtype=DTYPE)
+    forces[0] = torch.tensor(
+        [0.02256172709014661, -0.34093469384915487, -0.1239094286173951],
+        dtype=DTYPE,
+    )
+    hand = O6HandMpc().plan(_hand_input(
+        phase=BimanualPhase.APPROACH,
+        target_wrench_b=torch.zeros(6, dtype=DTYPE),
+        fingertip_forces_b=forces,
+        contact_mask=torch.tensor([True, False, False, False, False]),
+    ))
+    assert hand.diagnostics.feasible
+    assert hand.diagnostics.slip_margin == pytest.approx(-0.44006223674307093)
+    return hand
+
+
+def test_unloaded_approach_wire_contact_does_not_require_grasp_closure():
+    request = _request()
+    approach_object = replace(
+        request.object_solution,
+        left_wrench=torch.zeros_like(request.object_solution.left_wrench),
+        right_wrench=torch.zeros_like(request.object_solution.right_wrench),
+        diagnostics=replace(request.object_solution.diagnostics, force_closure_margin=0.0),
+    )
+    hand = _unilateral_wire_contact_hand()
+    request = replace(request, object_solution=approach_object, right_hand_solution=hand)
+    solution = BimanualWholeBodyQp().solve(request)
+    assert solution.feasible
+    assert not solution.fallback_used
+    assert solution.effort.shape == (43,)
+    assert solution.diagnostics.force_closure_margin == hand.diagnostics.slip_margin
+    constraints = build_bimanual_constraints(request)
+    assert constraints.inequality_matrix.shape == request.collision_jacobian.shape
+    assert constraints.force_closure_margin == hand.diagnostics.slip_margin
+
+
+@pytest.mark.parametrize("normal_force", [8.0 - 0.5e-6, 8.0, 12.0])
+def test_loaded_grasp_rejects_same_negative_wire_contact_margin(normal_force):
+    controller = BimanualWholeBodyQp()
+    request = _request()
+    safe = controller.solve(request)
+    assert safe.feasible
+    left_wrench = request.object_solution.left_wrench.clone()
+    right_wrench = request.object_solution.right_wrench.clone()
+    left_wrench[:, 1] = -normal_force
+    right_wrench[:, 1] = normal_force
+    loaded_object = replace(
+        request.object_solution, left_wrench=left_wrench, right_wrench=right_wrench,
+    )
+    assert loaded_object.diagnostics.force_closure_margin > 0.0
+    hand = _unilateral_wire_contact_hand()
+    request = replace(request, object_solution=loaded_object, right_hand_solution=hand)
+    constraints = build_bimanual_constraints(request)
+    assert constraints.inequality_upper[-1].item() == hand.diagnostics.slip_margin
+    assert torch.count_nonzero(constraints.inequality_matrix[-1]).item() == 0
+    rejected = controller.solve(request)
+    assert not rejected.feasible
+    assert rejected.fallback_used
+    assert torch.equal(rejected.effort, safe.effort)
+    assert rejected.diagnostics.failure_category == "force_closure_constraint"
+    assert rejected.diagnostics.max_constraint_violation == pytest.approx(
+        -hand.diagnostics.slip_margin
+    )
 
 
 def test_nominal_effort_actively_holds_m1_standing_posture():

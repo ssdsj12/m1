@@ -260,6 +260,43 @@ def test_wire_real_object_planner_does_not_invoke_discarded_box_orientation(wire
     assert command.feasible and command.fallback_reasons == ()
 
 
+def test_unloaded_wire_contact_between_hand_ticks_remains_accepted():
+    snapshot, geometry = _clear_wire_inside_box_geometry()
+    runtime, backend = _staged_runtime(wbc=BimanualWholeBodyQp())
+    runtime.object_mpc = BimanualObjectMpc()
+    runtime.left_hand_mpc = O6HandMpc()
+    runtime.right_hand_mpc = O6HandMpc()
+    runtime.wire_geometry_provider = lambda _snapshot: geometry
+    assert runtime.compute(replace(snapshot, timestamp_ns=1)).feasible
+    initial_hand = runtime.latest_solutions["right_hand"]
+    assert initial_hand.diagnostics.slip_margin == 0.0
+    forces = torch.zeros(5, 3, dtype=torch.float64)
+    forces[0] = torch.tensor(
+        [0.02256172709014661, -0.34093469384915487, -0.1239094286173951],
+        dtype=torch.float64,
+    )
+    contacted = replace(snapshot, right_hand=replace(
+        snapshot.right_hand, fingertip_forces_b=forces,
+        contact_mask=torch.tensor([True, False, False, False, False]),
+    ))
+    assert runtime.compute(replace(contacted, timestamp_ns=2)).feasible
+    assert runtime.latest_solutions["right_hand"] is initial_hand
+    command = runtime.compute(replace(contacted, timestamp_ns=3))
+    hand = runtime.latest_solutions["right_hand"]
+    assert hand is not initial_hand
+    assert hand.diagnostics.feasible
+    assert hand.diagnostics.slip_margin == pytest.approx(-0.44006223674307093)
+    assert runtime.mission.phase is BimanualPhase.APPROACH
+    object_solution = runtime.latest_solutions["object"]
+    assert torch.count_nonzero(object_solution.left_wrench).item() == 0
+    assert torch.count_nonzero(object_solution.right_wrench).item() == 0
+    assert command.feasible, command.fallback_reasons
+    assert command.fallback_reasons == ()
+    assert runtime._last_right_hand is hand
+    assert runtime.latest_solutions["wbc"].diagnostics.force_closure_margin < 0.0
+    assert backend.bind_calls == backend.step_calls == 0
+
+
 @pytest.mark.parametrize("single_dlo", [False, True])
 def test_ordinary_box_keeps_orientation_rejection_inside_box_geometry(single_dlo):
     snapshot, _geometry = _clear_wire_inside_box_geometry()

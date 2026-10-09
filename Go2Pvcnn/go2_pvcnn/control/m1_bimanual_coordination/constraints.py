@@ -113,6 +113,14 @@ def effort_limits() -> torch.Tensor:
     )
 
 
+def _grasp_loaded(request: BimanualWbcRequest) -> bool:
+    # APPROACH commands intentionally carry no grasp wrench. Force closure is
+    # a hard gate only once both object-MPC normal forces reach grasp preload.
+    left_normal = -float(request.object_solution.left_wrench[0, 1].item())
+    right_normal = float(request.object_solution.right_wrench[0, 1].item())
+    return min(left_normal, right_normal) >= 8.0 - 1.0e-6
+
+
 def subsolution_failure_reason(request: BimanualWbcRequest) -> str | None:
     if not request.object_solution.diagnostics.feasible:
         return "object_mpc_infeasible"
@@ -126,12 +134,7 @@ def subsolution_failure_reason(request: BimanualWbcRequest) -> str | None:
         return "left_hand_mpc_infeasible"
     if not request.right_hand_solution.diagnostics.feasible:
         return "right_hand_mpc_infeasible"
-    # APPROACH commands intentionally carry no grasp wrench.  Force closure is
-    # a hard gate only once both object-MPC normal forces reach grasp preload.
-    left_normal = -float(request.object_solution.left_wrench[0, 1].item())
-    right_normal = float(request.object_solution.right_wrench[0, 1].item())
-    grasp_loaded = min(left_normal, right_normal) >= 8.0 - 1.0e-6
-    if grasp_loaded and request.object_solution.diagnostics.force_closure_margin <= 0.0:
+    if _grasp_loaded(request) and request.object_solution.diagnostics.force_closure_margin <= 0.0:
         return "force_closure_lost"
     return None
 
@@ -158,11 +161,14 @@ def build_bimanual_constraints(
         request.left_hand_solution.diagnostics.slip_margin,
         request.right_hand_solution.diagnostics.slip_margin,
     )
-    closure_row = torch.zeros((1, ACTIVE_CONTROL_DOF), dtype=torch.float64)
-    inequality_matrix = torch.cat((collision_matrix, closure_row), dim=0)
-    inequality_upper = torch.cat(
-        (collision_upper, torch.tensor([force_closure_margin], dtype=torch.float64))
-    )
+    inequality_matrix = collision_matrix
+    inequality_upper = collision_upper
+    if _grasp_loaded(request):
+        closure_row = torch.zeros((1, ACTIVE_CONTROL_DOF), dtype=torch.float64)
+        inequality_matrix = torch.cat((collision_matrix, closure_row), dim=0)
+        inequality_upper = torch.cat(
+            (collision_upper, torch.tensor([force_closure_margin], dtype=torch.float64))
+        )
     return BimanualConstraintSet(
         lower_effort=-limits,
         upper_effort=limits,
