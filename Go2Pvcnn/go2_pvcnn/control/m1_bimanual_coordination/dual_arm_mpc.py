@@ -9,6 +9,7 @@ from typing import Callable, Protocol
 
 import torch
 
+from go2_pvcnn.control.m1_panda_coordination.arm_diagnostics import capture_arm_attempt
 from go2_pvcnn.control.m1_panda_coordination.arm_mpc import (
     ARM_DOF,
     ARM_MPC_DT,
@@ -53,6 +54,7 @@ class DualArmMpcSolution:
     right: ArmMpcSolution
     both_feasible: bool
     synchronized_fallback: bool
+    failure_capture: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.left, ArmMpcSolution):
@@ -229,7 +231,8 @@ class DualArmMpcCoordinator:
         self._last_safe: DualArmMpcSolution | None = None
 
     def _synchronized_hold(
-        self, sample: DualArmMpcInput, reason: str
+        self, sample: DualArmMpcInput, reason: str,
+        failure_capture: dict[str, object] | None = None,
     ) -> DualArmMpcSolution:
         if self._last_safe is None:
             left = _hold_arm(sample.left, reason)
@@ -242,6 +245,7 @@ class DualArmMpcCoordinator:
             right=right,
             both_feasible=False,
             synchronized_fallback=True,
+            failure_capture=failure_capture,
         )
 
     def plan(self, sample: DualArmMpcInput) -> DualArmMpcSolution:
@@ -278,4 +282,13 @@ class DualArmMpcCoordinator:
         reason = "left_arm_mpc_infeasible" if not left.diagnostics.feasible else "right_arm_mpc_infeasible"
         if not left.diagnostics.feasible and not right.diagnostics.feasible:
             reason = "both_arm_mpc_infeasible"
-        return self._synchronized_hold(sample, reason)
+        capture = {
+            "schema_version": 1,
+            "nonfinite_encoding": "NaN/Infinity/-Infinity strings",
+            "row_convention": "zero-based; residual = lhs - upper; lhs <= upper",
+            "failed_sides": [side for side, solution in (("left", left), ("right", right))
+                             if not solution.diagnostics.feasible],
+            "left": capture_arm_attempt(left_input, left, self.left),
+            "right": capture_arm_attempt(right_input, right, self.right),
+        }
+        return self._synchronized_hold(sample, reason, capture)

@@ -11,6 +11,7 @@ import weakref
 
 import torch
 
+from go2_pvcnn.control.m1_panda_coordination.arm_diagnostics import diagnostic_snapshot
 from go2_pvcnn.assets import M1_FOOT_BODY_NAMES
 from go2_pvcnn.assets.m1_dual_panda_o6 import (
     LEFT_O6_ACTIVE_JOINT_NAMES,
@@ -652,6 +653,10 @@ class BimanualLaneController:
     wire_last_safe_command: BimanualCommand | None = None
     wire_last_safe_hand_targets: tuple[torch.Tensor, torch.Tensor] | None = None
     wire_acceptance_diagnostics: dict[str, object] | None = None
+    wire_command_history: list[dict[str, object]] = field(default_factory=list)
+    wire_candidate_projection: dict[str, object] | None = None
+    wire_terminal_hold_projection: dict[str, object] | None = None
+    wire_first_arm_failure: dict[str, object] | None = None
     wire_mission_phase: BimanualPhase | None = None
     wire_mission_elapsed_s: float = 0.0
     left_hand_contact_q: torch.Tensor = field(
@@ -1071,6 +1076,10 @@ class M1DualPandaO6BimanualWrapper:
         lane.wire_last_safe_command = None
         lane.wire_last_safe_hand_targets = None
         lane.wire_acceptance_diagnostics = None
+        lane.wire_command_history.clear()
+        lane.wire_candidate_projection = None
+        lane.wire_terminal_hold_projection = None
+        lane.wire_first_arm_failure = None
         lane.wire_mission_phase = None
         lane.wire_mission_elapsed_s = 0.0
 
@@ -1183,9 +1192,11 @@ class M1DualPandaO6BimanualWrapper:
             # Both projection and its rejection fallback must carry the current
             # arm hold; an earlier accepted command may still be lifting.
             safety_input = self._safety_input(lane, snapshot, dynamics, effort)
-            lane.last_safety_result = lane.safety.project(replace(
-                safety_input, safe_effort=effort,
-            ))
+            safety_input = replace(safety_input, safe_effort=effort)
+            lane.last_safety_result = lane.safety.project(safety_input)
+            lane.wire_terminal_hold_projection = self._wire_projection_snapshot(
+                safety_input, lane.last_safety_result, lane.safety,
+            )
             feasibility["safety"] = bool(lane.last_safety_result.feasible)
             accepted = accepted and feasibility["safety"]
             effort = lane.last_safety_result.effort.clone()
@@ -1205,6 +1216,17 @@ class M1DualPandaO6BimanualWrapper:
         result = BimanualCommand(command.timestamp_ns, effort, not rejected, reasons)
         if result.feasible:
             lane.wire_last_safe_command = result
+        arm_capture = getattr(solutions.get("arm"), "failure_capture", None)
+        if arm_capture is not None and lane.wire_first_arm_failure is None:
+            lane.wire_first_arm_failure = {
+                "timestamp_ns": snapshot.timestamp_ns,
+                "arm": deepcopy(arm_capture),
+                "preceding_commands": deepcopy(lane.wire_command_history),
+                "rejected_cycle": {
+                    "candidate_projection": deepcopy(lane.wire_candidate_projection),
+                    "terminal_hold_projection": deepcopy(lane.wire_terminal_hold_projection),
+                },
+            }
         diagnostics = {
             "frame": "m1_base", "mission_phase": phase.name,
             "mission_phase_elapsed_s": lane.wire_mission_elapsed_s,
@@ -1217,6 +1239,7 @@ class M1DualPandaO6BimanualWrapper:
             "contact_failure_reason": evaluation.failure_reason,
             "fallback_reasons": list(result.fallback_reasons),
             "normal_source": "normalized_target_contact_force",
+            "first_arm_failure": lane.wire_first_arm_failure,
         }
         start, end = geometry.left_station_b, geometry.right_station_b
         record = getattr(self, "_wire_record", None)
@@ -1532,12 +1555,19 @@ class M1DualPandaO6BimanualWrapper:
         dynamics: FullDynamicsState,
         teacher_input,
     ) -> BimanualCommand:
+        if lane.wire_acceptance_tracker is not None:
+            lane.wire_candidate_projection = None
+            lane.wire_terminal_hold_projection = None
         if self.mode == "latent":
             if lane.latent_runtime is None:
                 raise RuntimeError("latent runtime was not initialized")
             command = lane.latent_runtime.compute(snapshot, dynamics, teacher_input)
             lane.last_teacher_solution = lane.latent_runtime.last_teacher_solution
             lane.last_safety_result = lane.latent_runtime.last_safety_result
+            if lane.wire_acceptance_tracker is not None:
+                lane.wire_candidate_projection = self._wire_projection_snapshot(
+                    None, lane.last_safety_result, lane.safety,
+                )
             return self._preserve_wire_runtime_status(lane, command)
         if self._step % 8 == 0 or lane.last_teacher_solution is None:
             lane.last_teacher_solution = lane.teacher.plan(teacher_input)
@@ -1549,9 +1579,12 @@ class M1DualPandaO6BimanualWrapper:
             if teacher_solution.diagnostics.feasible
             else lane.baseline_command.effort
         )
-        lane.last_safety_result = lane.safety.project(
-            self._safety_input(lane, snapshot, dynamics, candidate)
-        )
+        safety_input = self._safety_input(lane, snapshot, dynamics, candidate)
+        lane.last_safety_result = lane.safety.project(safety_input)
+        if lane.wire_acceptance_tracker is not None:
+            lane.wire_candidate_projection = self._wire_projection_snapshot(
+                safety_input, lane.last_safety_result, lane.safety,
+            )
         fallback_reasons: list[str] = []
         if not teacher_solution.diagnostics.feasible:
             fallback_reasons.append(
@@ -1575,6 +1608,54 @@ class M1DualPandaO6BimanualWrapper:
                 fallback_reasons=tuple(fallback_reasons),
             ),
         )
+
+    @staticmethod
+    def _wire_projection_snapshot(sample, result, safety) -> dict[str, object]:
+        return diagnostic_snapshot({
+            "input": sample,
+            "input_available": sample is not None,
+            "result": {name: getattr(result, name, None) for name in (
+                "effort", "feasible", "active_constraints", "fallback_reason", "dynamics_residual",
+            )},
+            "config": {name: getattr(safety, name, None) for name in (
+                "dt", "collision_margin_m", "joint_position_margin_rad",
+                "joint_velocity_margin_fraction", "externally_servoed_hand",
+                "wheel_contact_acceleration_tolerance", "base_acceleration_tolerance",
+                "base_kp", "qp_tolerance",
+            )},
+        })
+
+    def _record_wire_command(self, lane, snapshot, command, left_target, right_target) -> None:
+        """Bounded history of final submitted commands and pre-step measurements.
+
+        Position targets are the actual targets selected after last-safe hand
+        fallback. applied_torque, when available, is measured at this snapshot,
+        before the new command; it is not a predicted external-servo torque.
+        """
+        if lane.wire_acceptance_tracker is None:
+            return
+        robot = getattr(lane.adapter, "robot", None)
+        applied = getattr(getattr(robot, "data", None), "applied_torque", None)
+        ids = getattr(lane.adapter, "active_joint_ids", None)
+        measured = None if applied is None or ids is None else applied[lane.env_index, list(ids)]
+        cycle = diagnostic_snapshot({
+            "timestamp_ns": snapshot.timestamp_ns,
+            "candidate_projection": lane.wire_candidate_projection,
+            "terminal_hold_projection": lane.wire_terminal_hold_projection,
+            "command": command,
+            "left_hand_position_target": left_target,
+            "right_hand_position_target": right_target,
+            "hand_actuation": "external_position_servo",
+            "measured_applied_effort": measured,
+            "measured_effort_timing": "snapshot_before_new_command",
+            "external_servo_prediction_available": False,
+        })
+        failure = lane.wire_first_arm_failure
+        if (failure is not None and failure["timestamp_ns"] == snapshot.timestamp_ns
+                and "command" not in failure["rejected_cycle"]):
+            failure["rejected_cycle"] = deepcopy(cycle)
+        lane.wire_command_history.append(cycle)
+        del lane.wire_command_history[:-4]
 
     @staticmethod
     def _preserve_wire_runtime_status(
@@ -1664,6 +1745,7 @@ class M1DualPandaO6BimanualWrapper:
                     left_target, right_target = lane.wire_last_safe_hand_targets
                 else:
                     left_target, right_target = snapshot.left_hand.q, snapshot.right_hand.q
+            self._record_wire_command(lane, snapshot, command, left_target, right_target)
             commands.append(command)
             left_targets.append(left_target)
             right_targets.append(right_target)

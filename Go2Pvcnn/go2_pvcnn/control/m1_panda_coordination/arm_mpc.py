@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import torch
 
 from .contracts import require_tensor
-from .qp_backend import DenseQpProblem, solve_reference_qp
+from .qp_backend import DenseQpProblem, DenseQpResult, solve_reference_qp
 
 
 ARM_DOF = 7
@@ -324,6 +324,8 @@ class LinearizedArmMpc:
         if not isinstance(self.cfg, ArmMpcCfg):
             raise TypeError("cfg must be an ArmMpcCfg")
         self._last_safe: ArmMpcSolution | None = None
+        self.last_qp_problem: DenseQpProblem | None = None
+        self.last_qp_result: DenseQpResult | None = None
 
     def _problem(self, sample: ArmMpcInput) -> DenseQpProblem:
         horizon = self.cfg.horizon_steps
@@ -517,11 +519,16 @@ class LinearizedArmMpc:
     def plan(self, sample: ArmMpcInput) -> ArmMpcSolution:
         if not isinstance(sample, ArmMpcInput):
             raise TypeError("sample must be an ArmMpcInput")
+        problem = self._problem(sample)
         result = solve_reference_qp(
-            self._problem(sample),
+            problem,
             tolerance=self.cfg.qp_tolerance,
             max_iterations=self.cfg.qp_max_iterations,
         )
+        # Retain the attempted problem/result, including failed and nonfinite
+        # output, before last-safe fallback replaces the returned trajectory.
+        self.last_qp_problem = problem
+        self.last_qp_result = result
         if not result.success or not torch.isfinite(result.solution).all().item():
             return self._fallback(sample, "qp_infeasible")
         qdd = result.solution.reshape(self.cfg.horizon_steps, ARM_DOF)
