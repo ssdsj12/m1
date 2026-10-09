@@ -1,6 +1,15 @@
+import hashlib
+import json
+from pathlib import Path
+
 import pytest
 import torch
 
+from go2_pvcnn.control.m1_panda_coordination.arm_mpc import (
+    ArmMpcCfg,
+    ArmMpcInput,
+    LinearizedArmMpc,
+)
 from go2_pvcnn.control.m1_panda_coordination.qp_backend import (
     DenseQpProblem,
     DenseQpResult,
@@ -132,6 +141,80 @@ def test_single_active_inequality_matches_projection_solution():
     assert result.active_set == (0,)
 
 
+def test_captured_arm_qp_releases_obsolete_acceleration_bounds():
+    """Literal two-variable reduction of the captured left Arm QP failure."""
+    dtype = torch.float64
+    problem = DenseQpProblem(
+        hessian=torch.tensor(
+            [
+                [2.732726274030364, 2.3417287776269253],
+                [2.3417287776269253, 2.4440342104359982],
+            ],
+            dtype=dtype,
+        ),
+        gradient=torch.tensor(
+            [306.2004455941621, 285.45660325971323], dtype=dtype
+        ),
+        equality_matrix=torch.empty((0, 2), dtype=dtype),
+        equality_rhs=torch.empty(0, dtype=dtype),
+        inequality_matrix=torch.tensor(
+            [[-0.0078, -0.0074]], dtype=dtype
+        ),
+        inequality_upper=torch.tensor([0.10732854783535006], dtype=dtype),
+        lower_bound=torch.full((2,), -8.0, dtype=dtype),
+        upper_bound=torch.full((2,), 8.0, dtype=dtype),
+    )
+
+    result = solve_reference_qp(problem, tolerance=1.0e-7, max_iterations=512)
+
+    assert result.success, "Captured feasible two-variable Arm QP was falsely rejected"
+    expected = torch.tensor([-8.0, -6.071425383155413], dtype=dtype)
+    assert torch.allclose(result.solution, expected, atol=1.0e-7, rtol=0.0)
+    assert result.max_inequality_violation <= 1.0e-7
+
+
+def test_full_captured_left_arm_qp_replays_from_compact_fixture():
+    fixture_path = Path(__file__).parent / "fixtures" / "wire_contact_left_arm_qp_seed42.json"
+    with fixture_path.open() as stream:
+        fixture = json.load(stream)
+
+    sample = ArmMpcInput(
+        **{
+            name: torch.tensor(value, dtype=torch.float64)
+            for name, value in fixture["input"].items()
+        }
+    )
+    planner = LinearizedArmMpc(ArmMpcCfg(**fixture["config"]))
+    problem = planner._problem(sample)
+    for name, expected_hash in fixture["qp_tensor_sha256"].items():
+        tensor_bytes = getattr(problem, name).contiguous().numpy().tobytes()
+        assert hashlib.sha256(tensor_bytes).hexdigest() == expected_hash
+
+    result = solve_reference_qp(
+        problem,
+        tolerance=fixture["config"]["qp_tolerance"],
+        max_iterations=fixture["config"]["qp_max_iterations"],
+    )
+    repeated = solve_reference_qp(
+        problem,
+        tolerance=fixture["config"]["qp_tolerance"],
+        max_iterations=fixture["config"]["qp_max_iterations"],
+    )
+    objective = 0.5 * result.solution @ problem.hessian @ result.solution
+    objective = objective + problem.gradient @ result.solution
+
+    assert result.success
+    assert result.max_equality_residual <= 1.0e-7
+    assert result.max_inequality_violation <= 1.0e-7
+    assert objective.item() == pytest.approx(
+        fixture["expected_objective"], abs=1.0e-7, rel=0.0
+    )
+    assert repeated.success
+    assert torch.equal(result.solution, repeated.solution)
+    assert result.active_set == repeated.active_set
+    assert result.iterations == repeated.iterations
+
+
 def test_redundant_inequalities_converge_without_duplicate_active_indices():
     problem = _problem(
         torch.ones((1, 1), dtype=torch.float64),
@@ -145,6 +228,27 @@ def test_redundant_inequalities_converge_without_duplicate_active_indices():
     assert result.success
     assert result.solution.item() == pytest.approx(1.0, abs=1.0e-9)
     assert len(result.active_set) == len(set(result.active_set))
+    assert result.max_inequality_violation <= 1.0e-9
+
+
+def test_scaled_redundant_rows_do_not_stop_at_a_nonstationary_feasible_point():
+    equality = torch.tensor([[0.3, 0.7, 1.1]], dtype=torch.float64)
+    gradient = torch.tensor([1.0, -2.0, 3.0], dtype=torch.float64)
+    problem = _problem(
+        torch.eye(3, dtype=torch.float64),
+        gradient,
+        equality_matrix=equality,
+        equality_rhs=[0.0],
+        inequality_matrix=torch.cat((1.0e6 * equality, -1.0e6 * equality)),
+        inequality_upper=[0.0, 0.0],
+    )
+    expected = -gradient + equality[0] * (equality[0] @ gradient) / equality.square().sum()
+
+    result = solve_reference_qp(problem)
+
+    assert result.success
+    assert torch.allclose(result.solution, expected, atol=1.0e-9, rtol=0.0)
+    assert result.max_equality_residual <= 1.0e-9
     assert result.max_inequality_violation <= 1.0e-9
 
 
@@ -170,6 +274,84 @@ def test_mixed_equality_inequality_and_bounds_are_all_enforced():
     )
     assert result.max_equality_residual <= 1.0e-9
     assert result.max_inequality_violation <= 1.0e-9
+
+
+@pytest.mark.parametrize("row_scale", [1.0, 1.0e-4])
+def test_phase_one_finds_feasibility_without_penalizing_required_displacement(row_scale):
+    problem = _problem(
+        torch.eye(1, dtype=torch.float64),
+        torch.zeros(1, dtype=torch.float64),
+        inequality_matrix=[[-row_scale]],
+        inequality_upper=[-100.0 * row_scale],
+    )
+
+    result = solve_reference_qp(problem)
+
+    assert result.success
+    assert result.solution.item() == pytest.approx(100.0, abs=1.0e-8, rel=0.0)
+    assert result.max_inequality_violation <= 1.0e-9
+
+
+def test_phase_one_handles_dependent_equalities_and_tight_opposing_rows():
+    problem = _problem(
+        torch.eye(2, dtype=torch.float64),
+        torch.tensor([-4.0, 0.0], dtype=torch.float64),
+        equality_matrix=[[1.0, 1.0], [2.0, 2.0]],
+        equality_rhs=[2.0, 4.0],
+        inequality_matrix=[[0.0, 1.0], [0.0, -1.0], [0.0, 2.0]],
+        inequality_upper=[0.5, -0.5, 1.0],
+    )
+
+    results = [solve_reference_qp(problem) for _ in range(3)]
+
+    assert all(result.success for result in results)
+    assert torch.allclose(
+        results[0].solution,
+        torch.tensor([1.5, 0.5], dtype=torch.float64),
+        atol=1.0e-9,
+        rtol=0.0,
+    )
+    assert all(torch.equal(results[0].solution, r.solution) for r in results[1:])
+    assert results[0].max_equality_residual <= 1.0e-9
+    assert results[0].max_inequality_violation <= 1.0e-9
+
+
+@pytest.mark.parametrize(
+    ("equality_rhs", "upper_bound"),
+    [([1.0, 3.0], None), ([1.0, 2.0], [0.0])],
+)
+def test_phase_one_rejects_inconsistent_equalities_or_equality_bound_conflict(
+    equality_rhs, upper_bound,
+):
+    problem = _problem(
+        torch.eye(1, dtype=torch.float64),
+        torch.zeros(1, dtype=torch.float64),
+        equality_matrix=[[1.0], [2.0]],
+        equality_rhs=equality_rhs,
+        upper_bound=upper_bound,
+    )
+
+    result = solve_reference_qp(problem)
+
+    assert not result.success
+    assert torch.isfinite(result.solution).all()
+    assert max(result.max_equality_residual, result.max_inequality_violation) > 1.0e-9
+
+
+@pytest.mark.parametrize("needs_phase_one", [False, True])
+def test_iteration_limit_covers_feasibility_and_optimization(needs_phase_one):
+    problem = _problem(
+        torch.eye(1, dtype=torch.float64),
+        torch.tensor([-3.0], dtype=torch.float64),
+        inequality_matrix=[[-1.0]] if needs_phase_one else [[1.0]],
+        inequality_upper=[-1.0] if needs_phase_one else [1.0],
+    )
+
+    result = solve_reference_qp(problem, max_iterations=1)
+
+    assert not result.success
+    assert result.iterations == 1
+    assert torch.isfinite(result.solution).all()
 
 
 def test_repeated_solves_are_bitwise_deterministic():
