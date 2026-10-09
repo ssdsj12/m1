@@ -192,12 +192,15 @@ class ObjectMpcInput:
     target_object_pose_b: torch.Tensor | None = None
     obstacle_object_poses_b: tuple[torch.Tensor, ...] | torch.Tensor = ()
     grasp_goal: BimanualGraspGoal | None = None
+    hold_measured_palm_orientation: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.snapshot, BimanualSnapshot):
             raise TypeError("snapshot must be BimanualSnapshot")
         if not isinstance(self.phase, BimanualPhase):
             raise TypeError("phase must be BimanualPhase")
+        if not isinstance(self.hold_measured_palm_orientation, bool):
+            raise TypeError("hold_measured_palm_orientation must be bool")
         if self.previous_solution is not None and not isinstance(
             self.previous_solution, ObjectMpcSolution
         ):
@@ -680,6 +683,17 @@ class BimanualObjectMpc:
                 setattr(self, name, value)
             return candidate
         snapshot = sample.snapshot
+        if sample.hold_measured_palm_orientation:
+            # Wire trajectories own both orientation references. Do not run
+            # the discarded Box policy or inherit its geometry-based veto.
+            poses = {}
+            for side in ("left", "right"):
+                pose = getattr(candidate, f"{side}_palm_pose").clone()
+                pose[:, 3:] = getattr(snapshot, f"{side}_arm").palm_pose_b[3:]
+                poses[f"{side}_palm_pose"] = pose
+            candidate = replace(candidate, **poses)
+            self._last_safe = self._clone(candidate)
+            return candidate
         orientation = self.right_orientation_mpc.plan(PalmOrientationInput(
             snapshot.right_arm.palm_pose_b, snapshot.right_hand.fingertip_positions_b,
             snapshot.box.pose_b, snapshot.right_hand.contact_mask, sample.phase))

@@ -760,9 +760,20 @@ class BimanualRuntime:
         left_hand_solution = self._last_left_hand
         right_hand_solution = self._last_right_hand
         if self._step % self.OBJECT_PERIOD == 0 or object_solution is None:
-            object_solution = self.object_mpc.plan(self._object_input(snapshot))
-            if (staged_wire and wire_failure is None
-                    and proposal.next_state.phase is not WireCouplingPhase.SAFE_HOLD):
+            plan_scene_wire = (staged_wire and wire_failure is None
+                               and proposal.next_state.phase is not WireCouplingPhase.SAFE_HOLD)
+            plan_dlo_wire = (
+                not staged_wire
+                and self.dlo_trajectory_planner is not None
+                and self.latest_dlo_step is not None
+                and (not self._auto_dlo_trajectory_planner
+                     or isinstance(self.latest_dlo_step, DualDloStepResult))
+            )
+            object_input = self._object_input(snapshot)
+            if plan_scene_wire or plan_dlo_wire:
+                object_input = replace(object_input, hold_measured_palm_orientation=True)
+            object_solution = self.object_mpc.plan(object_input)
+            if plan_scene_wire:
                 state = (self.latest_dlo_step.state
                          if self.wire_coupling_state.phase in (
                              WireCouplingPhase.COSSERAT_BOUND, WireCouplingPhase.RECLAMPING)
@@ -787,16 +798,7 @@ class BimanualRuntime:
                                 contacts_name: getattr(self.latest_wire_goal, contacts_name),
                                 approach_name: getattr(self.latest_wire_goal, approach_name),
                             })
-            elif (
-                not staged_wire
-                and
-                self.dlo_trajectory_planner is not None
-                and self.latest_dlo_step is not None
-                and (
-                    not self._auto_dlo_trajectory_planner
-                    or isinstance(self.latest_dlo_step, DualDloStepResult)
-                )
-            ):
+            elif plan_dlo_wire:
                 wire_plan = self.dlo_trajectory_planner.plan(
                     snapshot,
                     object_solution,

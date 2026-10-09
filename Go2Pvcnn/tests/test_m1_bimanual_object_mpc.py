@@ -22,6 +22,30 @@ from go2_pvcnn.control.m1_bimanual_coordination.object_mpc import (
 DTYPE = torch.float64
 
 
+@pytest.mark.parametrize("phase", [BimanualPhase.APPROACH, BimanualPhase.PRELOAD, BimanualPhase.HOLD])
+def test_wire_orientation_hold_uses_current_measurements_without_box_policy(phase):
+    planner = BimanualObjectMpc()
+    sample = _input(phase=phase)
+    if phase is BimanualPhase.PRELOAD:
+        sample = replace(sample, snapshot=replace(sample.snapshot,
+            box=replace(sample.snapshot.box, supported=True)))
+    sample = replace(sample, hold_measured_palm_orientation=True)
+    assert planner.plan(sample).diagnostics.feasible
+    snapshot = sample.snapshot
+    left_pose = snapshot.left_arm.palm_pose_b.clone()
+    right_pose = snapshot.right_arm.palm_pose_b.clone()
+    left_pose[3:] = torch.tensor([.1, .2, -.3], dtype=DTYPE)
+    right_pose[3:] = torch.tensor([-.2, .1, .3], dtype=DTYPE)
+    sample = replace(sample, snapshot=replace(snapshot,
+        left_arm=replace(snapshot.left_arm, palm_pose_b=left_pose),
+        right_arm=replace(snapshot.right_arm, palm_pose_b=right_pose)))
+    result = planner.plan(sample)
+    assert result.diagnostics.feasible
+    assert planner.right_orientation_mpc.last_diagnostics is None
+    assert torch.equal(result.left_palm_pose[:, 3:], left_pose[3:].repeat(25, 1))
+    assert torch.equal(result.right_palm_pose[:, 3:], right_pose[3:].repeat(25, 1))
+
+
 def test_orientation_is_integrated_and_reset():
     planner = BimanualObjectMpc()
     sample = _input(phase=BimanualPhase.APPROACH)

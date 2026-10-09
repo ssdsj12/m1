@@ -7,7 +7,12 @@ import pytest
 import torch
 
 from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualPhase
-from go2_pvcnn.control.m1_bimanual_coordination.dual_arm_mpc import DualArmMpcSolution
+from go2_pvcnn.control.m1_bimanual_coordination.dual_arm_mpc import (
+    DualArmMpcCoordinator,
+    DualArmMpcSolution,
+)
+from go2_pvcnn.control.m1_bimanual_coordination.object_mpc import BimanualObjectMpc, ObjectMpcInput
+from go2_pvcnn.control.m1_bimanual_coordination.wire_scene_geometry import WireSceneGeometry
 from go2_pvcnn.control.m1_bimanual_coordination.expert_fingertip_prior.runtime import (
     FingertipPriorDiagnostics,
     PriorQueryResult,
@@ -28,6 +33,7 @@ from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_goal import (
 from go2_pvcnn.control.m1_bimanual_coordination.whole_body_qp import (
     BimanualWbcDiagnostics,
     BimanualWbcSolution,
+    BimanualWholeBodyQp,
 )
 from tests.test_m1_bimanual_dual_arm_mpc import (
     _arm_input,
@@ -189,6 +195,107 @@ def _staged_runtime(wbc=None):
 
 def _wire_tick(runtime, tick, *, left=True, right=True):
     return runtime.compute(replace(_contact_snapshot(left=left, right=right), timestamp_ns=tick))
+
+
+def _clear_wire_inside_box_geometry():
+    # The palm is inside the Box policy's +/- (.10, .09, .05) volume,
+    # while its 4 cm Y/Z offsets leave the 5 mm wire physically clear.
+    snapshot = _snapshot()
+    box_pose = torch.tensor([.65, 0., .58, 0., 0., 0.], dtype=torch.float64)
+    palm_pose = torch.tensor([.60, -.04, .62, .1, -.2, .3], dtype=torch.float64)
+    tips = palm_pose[:3] + torch.tensor([
+        [.06, -.01, -.01], [.08, .01, -.01], [.085, .02, -.01],
+        [.09, .03, -.01], [.095, .04, -.01],
+    ], dtype=torch.float64)
+    snapshot = replace(
+        snapshot,
+        box=replace(snapshot.box, pose_b=box_pose, supported=True),
+        right_arm=replace(snapshot.right_arm, palm_pose_b=palm_pose),
+        right_hand=replace(snapshot.right_hand, fingertip_positions_b=tips,
+                           contact_mask=torch.zeros(5, dtype=torch.bool)),
+        left_hand=replace(snapshot.left_hand, contact_mask=torch.zeros(5, dtype=torch.bool)),
+    )
+    state = DloCenterlineState(np.array([[.626, 0., .58], [.674, 0., .58]]), radius_m=.005)
+    geometry = WireSceneGeometry(
+        centerline=state, center_b=box_pose[:3],
+        tangent_b=torch.tensor([1., 0., 0.], dtype=torch.float64), radius_m=.005,
+        left_station_b=torch.tensor(state.positions[0]),
+        right_station_b=torch.tensor(state.positions[-1]),
+    )
+    return snapshot, geometry
+
+
+@pytest.mark.parametrize("wire_mode", ["staged", "dual"])
+def test_wire_real_object_planner_does_not_invoke_discarded_box_orientation(wire_mode):
+    snapshot, geometry = _clear_wire_inside_box_geometry()
+    runtime, backend = _staged_runtime(wbc=BimanualWholeBodyQp())
+    runtime.object_mpc = BimanualObjectMpc()
+    runtime.wire_geometry_provider = lambda _snapshot: geometry
+    if wire_mode == "dual":
+        runtime.wire_geometry_provider = None
+        runtime.dlo_frame_provider = lambda _snapshot: {}
+        backend.step = lambda **_frames: replace(
+            _FixedDualDloBackend().step(), state=geometry.centerline)
+
+    class RecordingArm:
+        def __init__(self):
+            self.samples = []
+
+        def plan(self, sample):
+            self.samples.append(sample)
+            return _arm_solution(sample, True)
+
+    runtime.arm_mpc = DualArmMpcCoordinator(planner_factory=RecordingArm)
+    command = runtime.compute(snapshot)
+    solution = runtime.latest_solutions["object"]
+    assert solution.diagnostics.feasible, solution.diagnostics.fallback_reason
+    assert runtime.object_mpc.right_orientation_mpc.last_diagnostics is None
+    for side in ("left", "right"):
+        torch.testing.assert_close(
+            getattr(solution, f"{side}_palm_pose")[:, 3:],
+            getattr(snapshot, f"{side}_arm").palm_pose_b[3:].repeat(25, 1),
+        )
+        assert len(getattr(runtime.arm_mpc, side).samples) == 1
+    assert runtime.latest_solutions["arm"].both_feasible
+    assert command.feasible and command.fallback_reasons == ()
+
+
+@pytest.mark.parametrize("single_dlo", [False, True])
+def test_ordinary_box_keeps_orientation_rejection_inside_box_geometry(single_dlo):
+    snapshot, _geometry = _clear_wire_inside_box_geometry()
+    runtime, _backend = _staged_runtime(wbc=BimanualWholeBodyQp())
+    runtime.wire_geometry_provider = None
+    runtime.dlo_backend = _FixedSingleDloBackend() if single_dlo else None
+    runtime.dlo_frame_provider = lambda _snapshot: {}
+    runtime.object_mpc = BimanualObjectMpc()
+    command = runtime.compute(snapshot)
+    assert not runtime.latest_solutions["object"].diagnostics.feasible
+    assert runtime.latest_solutions["object"].diagnostics.fallback_reason == "right_palm_orientation_infeasible"
+    assert "degenerate approach ray" in runtime.object_mpc.right_orientation_mpc.last_diagnostics.fallback_reason
+    assert not command.feasible
+    assert "object_mpc_infeasible" in command.fallback_reasons
+
+
+def test_wire_real_object_planner_preserves_translation_rejection():
+    snapshot, geometry = _clear_wire_inside_box_geometry()
+    runtime, _backend = _staged_runtime(wbc=BimanualWholeBodyQp())
+    runtime.object_mpc = BimanualObjectMpc()
+    runtime.arm_mpc = DualArmMpcCoordinator()
+    runtime.wire_geometry_provider = lambda _snapshot: geometry
+    unreachable = snapshot.box.pose_b.repeat(25, 1)
+    unreachable[:, 0] += 10.
+    runtime._object_input_provider = lambda snapshot, _phase, _previous: ObjectMpcInput(
+        snapshot=snapshot, target_box_pose_b=unreachable, phase=BimanualPhase.HOLD,
+    )
+    command = runtime.compute(snapshot)
+    solution = runtime.latest_solutions["object"]
+    assert not solution.diagnostics.feasible
+    assert solution.diagnostics.fallback_reason == "target_unreachable"
+    assert runtime.object_mpc.right_orientation_mpc.last_diagnostics is None
+    assert not runtime.latest_solutions["arm"].both_feasible
+    assert runtime.latest_solutions["arm"].right.diagnostics.fallback_reason == "object_mpc_infeasible"
+    assert not command.feasible
+    assert "object_mpc_infeasible" in command.fallback_reasons
 
 
 def test_staged_wire_plans_scene_geometry_without_precontact_backend_calls():
