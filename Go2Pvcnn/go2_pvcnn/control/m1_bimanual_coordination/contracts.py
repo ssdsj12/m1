@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
+import math
 
 import torch
 
@@ -13,6 +14,27 @@ from go2_pvcnn.control.m1_panda_coordination.contracts import require_tensor
 ACTIVE_CONTROL_DOF = 43
 GENERALIZED_DOF = 59
 WHEEL_CONSTRAINT_DOF = 12
+
+
+@dataclass(frozen=True)
+class WireMpcLimits:
+    """Conservative validity region for the optional reduced-wire horizon."""
+
+    max_axial_stretch: float = 0.25
+    max_bending_proxy: float = 20.0
+    max_slip_m: float = 0.02
+    min_endpoint_separation_m: float = 0.001
+    max_endpoint_separation_m: float = 1.25
+    lift_velocity_tolerance_m_s: float = 0.002
+
+    def __post_init__(self) -> None:
+        for name, value in vars(self).items():
+            if isinstance(value, bool) or not isinstance(value, (float, int)):
+                raise TypeError(f"{name} must be a real number")
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if self.min_endpoint_separation_m >= self.max_endpoint_separation_m:
+            raise ValueError("endpoint separation minimum must be below maximum")
 
 
 def _timestamp(value: int) -> int:

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import copy
 
 from .palm_orientation_mpc import PalmOrientationInput, RightPalmOrientationMpc
 import math
 
 import torch
+import numpy as np
 
 from go2_pvcnn.control.m1_panda_coordination.qp_backend import (
     DenseQpProblem,
@@ -16,8 +17,9 @@ from go2_pvcnn.control.m1_panda_coordination.qp_backend import (
     solve_reference_qp,
 )
 
-from .contracts import BimanualPhase, BimanualSnapshot
+from .contracts import BimanualPhase, BimanualSnapshot, WireMpcLimits
 from .grasp_goal import BimanualGraspGoal
+from .reduced_cosserat import ReducedCosseratPrediction
 
 
 OBJECT_MPC_DT = 0.04
@@ -91,8 +93,11 @@ class ObjectMpcCfg:
     moment_limit_nm: float = 3.0
     qp_tolerance: float = 1.0e-7
     qp_max_iterations: int = 512
+    wire_limits: WireMpcLimits = field(default_factory=WireMpcLimits)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.wire_limits, WireMpcLimits):
+            raise TypeError("wire_limits must be WireMpcLimits")
         _real_positive("dt", self.dt)
         if self.horizon_steps != OBJECT_MPC_HORIZON_STEPS:
             raise ValueError(
@@ -154,6 +159,10 @@ class ObjectMpcDiagnostics:
     force_closure_margin: float
     saturation_fraction: float
     iterations: int
+    wire_stretch_max: float | None = None
+    wire_slip_max_m: float | None = None
+    wire_friction_feasible: bool | None = None
+    wire_lift_feasible: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -193,8 +202,14 @@ class ObjectMpcInput:
     obstacle_object_poses_b: tuple[torch.Tensor, ...] | torch.Tensor = ()
     grasp_goal: BimanualGraspGoal | None = None
     hold_measured_palm_orientation: bool = False
+    wire_prediction: ReducedCosseratPrediction | None = None
 
     def __post_init__(self) -> None:
+        if self.wire_prediction is not None:
+            if not isinstance(self.wire_prediction, ReducedCosseratPrediction):
+                raise TypeError("wire_prediction must be ReducedCosseratPrediction or None")
+            if self.wire_prediction.endpoint_positions.shape != (OBJECT_MPC_HORIZON_STEPS, 2, 3):
+                raise ValueError("wire_prediction must have shape (horizon, 2, 3)")
         if not isinstance(self.snapshot, BimanualSnapshot):
             raise TypeError("snapshot must be BimanualSnapshot")
         if not isinstance(self.phase, BimanualPhase):
@@ -367,6 +382,8 @@ def build_object_qp(sample: ObjectMpcInput, cfg: ObjectMpcCfg) -> DenseQpProblem
         raise TypeError("sample must be ObjectMpcInput")
     if not isinstance(cfg, ObjectMpcCfg):
         raise TypeError("cfg must be ObjectMpcCfg")
+    if sample.wire_prediction is not None:
+        return _build_wire_qp(sample, cfg)
     horizon = cfg.horizon_steps
     dimension = horizon * _VARIABLES_PER_STEP
     acceleration_map = _acceleration_map(sample, cfg)
@@ -497,6 +514,189 @@ def build_object_qp(sample: ObjectMpcInput, cfg: ObjectMpcCfg) -> DenseQpProblem
     )
 
 
+def _wire_failure(sample: ObjectMpcInput, cfg: ObjectMpcCfg) -> str | None:
+    prediction = sample.wire_prediction
+    limits = cfg.wire_limits
+    numeric = ("positions", "tangents", "endpoint_positions", "endpoint_velocities",
+               "endpoint_separation_m", "axial_stretch", "bending_proxy", "left_slip_m", "right_slip_m")
+    if any(not np.isfinite(getattr(prediction, name)).all() for name in numeric):
+        return "wire_nonfinite_prediction"
+    try:
+        replace(prediction)  # Revalidate adapters that corrupted an immutable record.
+    except (ValueError, TypeError):
+        return "wire_invalid_prediction"
+    if not prediction.friction_feasible.all():
+        return "wire_friction_infeasible"
+    if (not prediction.slip_feasible.all()
+            or (prediction.endpoint_slip_m < 0).any()
+            or (prediction.endpoint_slip_m > limits.max_slip_m).any()):
+        return "wire_slip_infeasible"
+    if (np.abs(prediction.axial_stretch) > limits.max_axial_stretch).any():
+        return "wire_stretch_infeasible"
+    if ((prediction.bending_proxy < 0).any()
+            or (prediction.bending_proxy > limits.max_bending_proxy).any()):
+        return "wire_bending_infeasible"
+    separation = np.linalg.norm(prediction.endpoint_positions[:, 0] - prediction.endpoint_positions[:, 1], axis=1)
+    if (not np.allclose(separation, prediction.endpoint_separation_m, atol=1e-8, rtol=1e-6)
+            or (separation < limits.min_endpoint_separation_m).any()
+            or (separation > limits.max_endpoint_separation_m).any()):
+        return "wire_separation_infeasible"
+    if not prediction.feasible.all() or any(reason is not None for reason in prediction.failure_reasons):
+        return "wire_dynamics_infeasible"
+    for side, arm in enumerate((sample.snapshot.left_arm, sample.snapshot.right_arm)):
+        travel = np.linalg.norm(prediction.endpoint_positions[:, side] - arm.palm_pose_b[:3].numpy(), axis=1)
+        if (travel > cfg.max_target_translation_m).any():
+            return "wire_endpoint_unreachable"
+    if sample.phase in _GRASP_PHASES:
+        for hand in (sample.snapshot.left_hand, sample.snapshot.right_hand):
+            if not hand.contact_consistent or int(hand.contact_mask.sum()) < 2:
+                return "wire_contact_infeasible"
+    return None
+
+
+def _wire_dynamics(sample: ObjectMpcInput, cfg: ObjectMpcCfg):
+    """Local endpoint response about the authoritative reduced prediction.
+
+    Each endpoint carries half the measured object mass. Forces are increments
+    about a gravity-balanced, symmetric clamp; the predictor owns the nominal
+    centerline dynamics. Contact axes retain the existing +/-Y convention.
+    """
+    horizon, dimension = cfg.horizon_steps, cfg.horizon_steps * _VARIABLES_PER_STEP
+    positions = torch.tensor(sample.wire_prediction.endpoint_positions.copy())
+    velocities = torch.tensor(sample.wire_prediction.endpoint_velocities.copy())
+    position_map = torch.zeros((horizon, 2, 3, dimension), dtype=torch.float64)
+    velocity_map = torch.zeros_like(position_map)
+    nominal = torch.zeros((horizon, _VARIABLES_PER_STEP), dtype=torch.float64)
+    normal_min, normal_max = _normal_limits(sample.phase, cfg)
+    normal = .5 * (normal_min + normal_max)
+    nominal[:, 1], nominal[:, 7] = -normal, normal
+    if sample.phase in _GRASP_PHASES or not sample.snapshot.box.supported:
+        nominal[:, 2] = nominal[:, 8] = .5 * float(sample.snapshot.box.mass) * _GRAVITY
+    initial_velocity = torch.stack((sample.snapshot.left_arm.palm_twist_b[:3],
+                                    sample.snapshot.right_arm.palm_twist_b[:3]))
+    accelerations = torch.diff(torch.cat((initial_velocity[None], velocities)), dim=0) / cfg.dt
+    for side in range(2):
+        nominal[:, side*6:side*6+3] += .5 * float(sample.snapshot.box.mass) * accelerations[:, side]
+    nominal[:, _YAW] = sample.snapshot.platform_q_qd[0]
+    inverse_mass = 2.0 / float(sample.snapshot.box.mass)
+    for step in range(horizon):
+        for control in range(step + 1):
+            for side in range(2):
+                columns = slice(control * _VARIABLES_PER_STEP + side * 6,
+                                control * _VARIABLES_PER_STEP + side * 6 + 3)
+                position_map[step, side, :, columns] = torch.eye(3, dtype=torch.float64) * (cfg.dt**2 * (step-control+.5) * inverse_mass)
+                velocity_map[step, side, :, columns] = torch.eye(3, dtype=torch.float64) * (cfg.dt * inverse_mass)
+    position_offset = positions - position_map @ nominal.flatten()
+    velocity_offset = velocities - velocity_map @ nominal.flatten()
+    return position_map, position_offset, velocity_map, velocity_offset, nominal
+
+
+def _build_wire_qp(sample: ObjectMpcInput, cfg: ObjectMpcCfg) -> DenseQpProblem:
+    reason = _wire_failure(sample, cfg)
+    if reason is not None:
+        raise ValueError(reason)
+    # Reuse the existing controls, finite bounds, slew/yaw terms, and backend.
+    rigid_sample = replace(sample, wire_prediction=None)
+    problem = build_object_qp(rigid_sample, cfg)
+    pmap, poffset, vmap, voffset, nominal = _wire_dynamics(sample, cfg)
+    dimension = problem.gradient.numel()
+    hessian, gradient = problem.hessian.clone(), problem.gradient.clone()
+    rmap, roffset, rtmap, rtoffset = _condensed_dynamics(sample, cfg, _acceleration_map(sample, cfg))
+    target_twist = torch.cat(((sample.target_box_pose_b[0] - sample.snapshot.box.pose_b)[None],
+                              sample.target_box_pose_b[1:] - sample.target_box_pose_b[:-1])) / cfg.dt
+    # Replace rigid pose/twist costs and nominal forcing with endpoint costs.
+    for matrix, offset, weight in (
+        (rmap, roffset - sample.target_box_pose_b.flatten(), cfg.box_pose_weight),
+        (rtmap, rtoffset - target_twist.flatten(), cfg.box_twist_weight),
+    ):
+        h, g = _quadratic(matrix, offset, weight)
+        hessian -= h
+        gradient -= g
+    rigid_nominal = torch.zeros_like(nominal)
+    normal_min, normal_max = _normal_limits(sample.phase, cfg)
+    rigid_nominal[:, 1], rigid_nominal[:, 7] = -.5 * (normal_min+normal_max), .5 * (normal_min+normal_max)
+    rigid_nominal[:, _YAW] = sample.snapshot.platform_q_qd[0]
+    rigid_nominal[:, 2] = rigid_nominal[:, 8] = .5 * float(sample.snapshot.box.mass) * (
+        _desired_acceleration(sample, cfg)[:, 2] + (_GRAVITY if sample.phase in _GRASP_PHASES else 0.))
+    gradient += 2 * cfg.wrench_nominal_weight * (rigid_nominal - nominal).flatten()
+    # The local response starts from an already clamped equilibrium. Slew is
+    # measured from that force, not from a fictitious zero-force first node.
+    gradient[:12] -= 2 * cfg.wrench_slew_weight * nominal[0, :12]
+    prediction = sample.wire_prediction
+    endpoints = torch.tensor(prediction.endpoint_positions.copy())
+    velocities = torch.tensor(prediction.endpoint_velocities.copy())
+    for matrix, offset, weight in (
+        (pmap.reshape(-1, dimension), (poffset-endpoints).flatten(), cfg.box_pose_weight),
+        (vmap.reshape(-1, dimension), (voffset-velocities).flatten(), cfg.box_twist_weight),
+    ):
+        h, g = _quadratic(matrix, offset, weight)
+        hessian += h
+        gradient += g
+    difference_map = pmap[:, 0] - pmap[:, 1]
+    difference_offset = poffset[:, 0] - poffset[:, 1]
+    difference = endpoints[:, 0] - endpoints[:, 1]
+    lengths = torch.linalg.vector_norm(difference, dim=1)
+    axis = difference / lengths[:, None]
+    axial_map = torch.einsum('hi,hij->hj', axis, difference_map)
+    axial_offset = (axis * difference_offset).sum(1)
+    rest_lengths = lengths / (1 + torch.tensor(prediction.axial_stretch.copy()))
+    h, g = _quadratic(axial_map, axial_offset-rest_lengths, cfg.box_pose_weight * .1)
+    hessian += h
+    gradient += g
+    # Penalize endpoint bending away from the predicted centerline direction.
+    transverse = torch.eye(3, dtype=torch.float64)[None] - axis[:, :, None] * axis[:, None, :]
+    bend_scale = (1 + torch.tensor(prediction.bending_proxy.copy()))[:, None, None]
+    h, g = _quadratic((bend_scale * (transverse @ difference_map)).reshape(-1, dimension),
+                      (bend_scale.squeeze(-1) * (transverse @ difference_offset[:, :, None]).squeeze(-1)).flatten(),
+                      cfg.box_pose_weight * .1)
+    hessian += h
+    gradient += g
+    balance = torch.zeros((cfg.horizon_steps * 3, dimension), dtype=torch.float64)
+    for step in range(cfg.horizon_steps):
+        for axis_index in range(3):
+            balance[step*3+axis_index, step*13+axis_index] = 1
+            balance[step*3+axis_index, step*13+6+axis_index] = 1 if axis_index == 1 else -1
+    hessian += 2 * cfg.wrench_slew_weight * balance.T @ balance
+    # Synchronized velocity applies to every node, including asymmetric input.
+    equality_matrix = vmap[:, 0, 2] - vmap[:, 1, 2]
+    equality_rhs = voffset[:, 1, 2] - voffset[:, 0, 2]
+    rows, bounds = [problem.inequality_matrix], [problem.inequality_upper]
+    # A coordinate box inside the slip sphere is a conservative linear bound.
+    remaining = cfg.wire_limits.max_slip_m - torch.tensor(prediction.endpoint_slip_m.copy())
+    radius = remaining[:, :, None].expand(-1, -1, 3).flatten() / math.sqrt(3.)
+    deviation = (poffset-endpoints).flatten()
+    rows.extend((pmap.reshape(-1, dimension), -pmap.reshape(-1, dimension)))
+    bounds.extend((radius-deviation, radius+deviation))
+    rows.extend((axial_map, -axial_map))
+    bounds.extend((torch.minimum(rest_lengths * (1+cfg.wire_limits.max_axial_stretch),
+                                torch.full_like(lengths, cfg.wire_limits.max_endpoint_separation_m))-axial_offset,
+                   axial_offset-torch.maximum(rest_lengths * (1-cfg.wire_limits.max_axial_stretch),
+                                             torch.full_like(lengths, cfg.wire_limits.min_endpoint_separation_m))))
+    # Inscribed diamond guarantees the Euclidean friction cone, unlike a box.
+    friction_rows = []
+    for step in range(cfg.horizon_steps):
+        for side, normal_sign in ((0, 1.), (1, -1.)):
+            for sx in (-1., 1.):
+                for sz in (-1., 1.):
+                    row = torch.zeros(dimension, dtype=torch.float64)
+                    offset = step*13 + side*6
+                    row[offset], row[offset+2] = sx, sz
+                    row[offset+1] = normal_sign * cfg.friction_coefficient
+                    friction_rows.append(row)
+    rows.append(torch.stack(friction_rows))
+    bounds.append(torch.zeros(len(friction_rows), dtype=torch.float64))
+    if sample.phase is BimanualPhase.LIFT:
+        cap = velocities[:, :, 2].min(1).values.clamp_min(0.)
+        rows.extend((vmap[:, 0, 2], -vmap[:, 0, 2]))
+        bounds.extend((cap-voffset[:, 0, 2], voffset[:, 0, 2]))
+    result = replace(problem, hessian=hessian, gradient=gradient,
+                     equality_matrix=equality_matrix, equality_rhs=equality_rhs,
+                     inequality_matrix=torch.cat(rows), inequality_upper=torch.cat(bounds))
+    if any(not torch.isfinite(value).all() for value in vars(result).values()):
+        raise ValueError("wire_nonfinite_qp")
+    return result
+
+
 def _palm_targets(
     box_pose: torch.Tensor,
     half_width: float,
@@ -571,6 +771,19 @@ class BimanualObjectMpc:
 
     def _fallback(self, sample: ObjectMpcInput, reason: str) -> ObjectMpcSolution:
         safe = sample.previous_solution or self._last_safe
+        wire_stretch = wire_slip = wire_friction = None
+        if sample.wire_prediction is not None:
+            safe = self._last_safe
+            if safe is None and sample.previous_solution is not None and sample.previous_solution.diagnostics.feasible:
+                safe = sample.previous_solution
+            prediction = sample.wire_prediction
+            if prediction.axial_stretch.size and np.isfinite(prediction.axial_stretch).all():
+                wire_stretch = float(np.abs(prediction.axial_stretch).max())
+            slips = np.concatenate((np.asarray(prediction.left_slip_m).reshape(-1),
+                                    np.asarray(prediction.right_slip_m).reshape(-1)))
+            if slips.size and np.isfinite(slips).all():
+                wire_slip = float(slips.max())
+            wire_friction = bool(prediction.friction_feasible.all()) and reason != "wire_friction_infeasible"
         diagnostics = ObjectMpcDiagnostics(
             feasible=False,
             fallback_used=True,
@@ -580,6 +793,10 @@ class BimanualObjectMpc:
             ),
             saturation_fraction=0.0,
             iterations=0,
+            wire_lift_feasible=False if sample.wire_prediction is not None else None,
+            wire_stretch_max=wire_stretch,
+            wire_slip_max_m=wire_slip,
+            wire_friction_feasible=wire_friction,
         )
         if safe is not None:
             return self._clone(safe, diagnostics)
@@ -594,6 +811,9 @@ class BimanualObjectMpc:
             self.cfg.right_palm_height_offset_m,
             sample.grasp_goal,
         )
+        if sample.wire_prediction is not None:
+            left_palm = sample.snapshot.left_arm.palm_pose_b.repeat(horizon, 1)
+            right_palm = sample.snapshot.right_arm.palm_pose_b.repeat(horizon, 1)
         return ObjectMpcSolution(
             box_pose=box_pose,
             box_twist=torch.zeros((horizon, 6), dtype=torch.float64),
@@ -683,7 +903,7 @@ class BimanualObjectMpc:
                 setattr(self, name, value)
             return candidate
         snapshot = sample.snapshot
-        if sample.hold_measured_palm_orientation:
+        if sample.hold_measured_palm_orientation or sample.wire_prediction is not None:
             # Wire trajectories own both orientation references. Do not run
             # the discarded Box policy or inherit its geometry-based veto.
             poses = {}
@@ -710,6 +930,8 @@ class BimanualObjectMpc:
     def _plan_translation(self, sample: ObjectMpcInput) -> ObjectMpcSolution:
         if not isinstance(sample, ObjectMpcInput):
             raise TypeError("sample must be ObjectMpcInput")
+        if sample.wire_prediction is not None:
+            return self._plan_wire(sample)
         if sample.phase is BimanualPhase.APPROACH:
             self._preload_palm_targets = None
             self._preload_inward_travel = [0.0, 0.0]
@@ -849,3 +1071,72 @@ class BimanualObjectMpc:
         solution = self._solution(sample, result)
         self._last_safe = self._clone(solution)
         return solution
+
+    def _plan_wire(self, sample: ObjectMpcInput) -> ObjectMpcSolution:
+        reason = _wire_failure(sample, self.cfg)
+        if reason is not None:
+            return self._fallback(sample, reason)
+        if not self._target_reachable(sample):
+            return self._fallback(sample, "target_unreachable")
+        try:
+            problem = build_object_qp(sample, self.cfg)
+        except ValueError as error:
+            if str(error) != "wire_nonfinite_qp":
+                raise
+            return self._fallback(sample, "wire_nonfinite_qp")
+        result = solve_reference_qp(problem, tolerance=self.cfg.qp_tolerance,
+                                    max_iterations=self.cfg.qp_max_iterations)
+        if not result.success or not torch.isfinite(result.solution).all():
+            return self._fallback(sample, "wire_qp_infeasible")
+        pmap, poffset, vmap, voffset, _ = _wire_dynamics(sample, self.cfg)
+        positions = poffset + pmap @ result.solution
+        velocities = voffset + vmap @ result.solution
+        prediction = sample.wire_prediction
+        separation = torch.linalg.vector_norm(positions[:, 0]-positions[:, 1], dim=1)
+        nominal_separation = torch.tensor(prediction.endpoint_separation_m.copy())
+        rest = nominal_separation / (1 + torch.tensor(prediction.axial_stretch.copy()))
+        stretch = (separation / rest - 1).abs()
+        slip = torch.tensor(prediction.endpoint_slip_m.copy()) + torch.linalg.vector_norm(
+            positions - torch.tensor(prediction.endpoint_positions.copy()), dim=2)
+        limits, tolerance = self.cfg.wire_limits, self.cfg.qp_tolerance * 10
+        if not torch.isfinite(positions).all() or not torch.isfinite(velocities).all():
+            return self._fallback(sample, "wire_nonfinite_solution")
+        if (separation < limits.min_endpoint_separation_m-tolerance).any() or (separation > limits.max_endpoint_separation_m+tolerance).any():
+            return self._fallback(sample, "wire_separation_infeasible")
+        if (stretch > limits.max_axial_stretch+tolerance).any():
+            return self._fallback(sample, "wire_stretch_infeasible")
+        if (slip > limits.max_slip_m+tolerance).any():
+            return self._fallback(sample, "wire_slip_infeasible")
+        controls = result.solution.reshape(self.cfg.horizon_steps, _VARIABLES_PER_STEP)
+        left, right = controls[:, _LEFT], controls[:, _RIGHT]
+        margins = torch.stack((self.cfg.friction_coefficient * -left[:, 1] - torch.linalg.vector_norm(left[:, (0, 2)], dim=1),
+                               self.cfg.friction_coefficient * right[:, 1] - torch.linalg.vector_norm(right[:, (0, 2)], dim=1)))
+        if (margins < -tolerance).any():
+            return self._fallback(sample, "wire_friction_infeasible")
+        normal_min, normal_max = _normal_limits(sample.phase, self.cfg)
+        normals = torch.stack((-left[:, 1], right[:, 1]))
+        if ((normals < normal_min-tolerance) | (normals > normal_max+tolerance)).any():
+            return self._fallback(sample, "wire_normal_force_infeasible")
+        if (velocities[:, 0, 2]-velocities[:, 1, 2]).abs().max() > limits.lift_velocity_tolerance_m_s:
+            return self._fallback(sample, "wire_lift_infeasible")
+        box_pose = sample.snapshot.box.pose_b.repeat(self.cfg.horizon_steps, 1)
+        box_pose[:, :3] = positions.mean(1)
+        box_twist = torch.zeros_like(box_pose)
+        box_twist[:, :3] = velocities.mean(1)
+        palms = []
+        for side, arm in enumerate((sample.snapshot.left_arm, sample.snapshot.right_arm)):
+            pose = arm.palm_pose_b.repeat(self.cfg.horizon_steps, 1)
+            pose[:, :3] = positions[:, side]
+            palms.append(pose)
+        return ObjectMpcSolution(
+            box_pose=box_pose, box_twist=box_twist, platform_yaw=controls[:, _YAW],
+            left_palm_pose=palms[0], right_palm_pose=palms[1], left_wrench=left, right_wrench=right,
+            diagnostics=ObjectMpcDiagnostics(
+                feasible=True, fallback_used=False, fallback_reason=None,
+                force_closure_margin=float(margins.min()),
+                saturation_fraction=float(((normals-normal_min).abs() < tolerance).double().mean()),
+                iterations=result.iterations, wire_stretch_max=float(stretch.max()),
+                wire_slip_max_m=float(slip.max()), wire_friction_feasible=True,
+                wire_lift_feasible=sample.phase in _GRASP_PHASES,
+            ),
+        )
