@@ -11,6 +11,72 @@ from .contracts import ACTIVE_CONTROL_DOF, BimanualSnapshot
 from .dual_arm_mpc import DualArmMpcSolution
 from .hand_mpc import HandMpcSolution
 from .object_mpc import ObjectMpcSolution
+from .diagnostics import WirePipelineDiagnostics
+
+
+@dataclass(frozen=True)
+class WireGateConfig:
+    """Hard gates for the reduced-wire command boundary."""
+
+    min_contact_force_n: float = 0.2
+    min_contacts_per_hand: int = 2
+    max_slip_m: float = 0.02
+
+    def __post_init__(self) -> None:
+        if isinstance(self.min_contact_force_n, bool) or not math.isfinite(float(self.min_contact_force_n)) or self.min_contact_force_n <= 0.0:
+            raise ValueError("min_contact_force_n must be finite and positive")
+        if isinstance(self.max_slip_m, bool) or not math.isfinite(float(self.max_slip_m)) or self.max_slip_m <= 0.0:
+            raise ValueError("max_slip_m must be finite and positive")
+        if isinstance(self.min_contacts_per_hand, bool) or not isinstance(self.min_contacts_per_hand, int) or not 1 <= self.min_contacts_per_hand <= 5:
+            raise ValueError("min_contacts_per_hand must be in [1, 5]")
+
+
+@dataclass(frozen=True)
+class WireGateResult:
+    accepted: bool
+    reason: str | None
+
+
+def evaluate_wire_gate(
+    diagnostics: WirePipelineDiagnostics,
+    cfg: WireGateConfig | None = None,
+) -> WireGateResult:
+    """Evaluate one wire observation in stable, fail-closed order.
+
+    ``APPROACH`` has no contact requirement.  All later phases require the
+    actual bilateral masks; LIFT/HOLD additionally require dynamics,
+    recoverability, clamp force, and slip margins.
+    """
+
+    if not isinstance(diagnostics, WirePipelineDiagnostics):
+        raise TypeError("diagnostics must be WirePipelineDiagnostics")
+    cfg = WireGateConfig() if cfg is None else cfg
+    if not isinstance(cfg, WireGateConfig):
+        raise TypeError("cfg must be WireGateConfig")
+    phase = diagnostics.phase
+    if not diagnostics.command_accepted:
+        return WireGateResult(False, diagnostics.terminal_reason or "command_rejected")
+    if phase in {"APPROACH"}:
+        return WireGateResult(True, None)
+    if not diagnostics.bilateral_contact:
+        return WireGateResult(False, "contact_lost_during_lift" if phase in {"LIFT", "HOLD"} else "bilateral_contact_required")
+    if phase in {"GRASP", "LIFT", "HOLD"}:
+        if diagnostics.left_contact_count < cfg.min_contacts_per_hand or diagnostics.right_contact_count < cfg.min_contacts_per_hand:
+            return WireGateResult(False, "per_digit_contact_latch_required")
+        if not diagnostics.left_latched or not diagnostics.right_latched:
+            return WireGateResult(False, "per_digit_contact_latch_required")
+        if diagnostics.left_clamp_force_n < cfg.min_contact_force_n or diagnostics.right_clamp_force_n < cfg.min_contact_force_n:
+            return WireGateResult(False, "clamp_force_insufficient")
+        if diagnostics.slip_m > cfg.max_slip_m:
+            return WireGateResult(False, "wire_slip_limit")
+        if diagnostics.force_closure_margin <= 0.0:
+            return WireGateResult(False, "force_closure_lost")
+    if phase in {"LIFT", "HOLD"}:
+        if not diagnostics.wire_feasible:
+            return WireGateResult(False, diagnostics.wire_failure_reason or "wire_dynamics_infeasible")
+        if not diagnostics.arm_recoverability:
+            return WireGateResult(False, "arm_mpc_recoverability")
+    return WireGateResult(True, None)
 
 
 @dataclass(frozen=True)
@@ -134,6 +200,27 @@ def subsolution_failure_reason(request: BimanualWbcRequest) -> str | None:
         return "left_hand_mpc_infeasible"
     if not request.right_hand_solution.diagnostics.feasible:
         return "right_hand_mpc_infeasible"
+    # Wire diagnostics are optional: the legacy rigid-object path has all
+    # values set to ``None`` and therefore retains its historical behavior.
+    wire_diag = request.object_solution.diagnostics
+    wire_mode = any(
+        value is not None
+        for value in (
+            wire_diag.wire_stretch_max,
+            wire_diag.wire_slip_max_m,
+            wire_diag.wire_friction_feasible,
+            wire_diag.wire_lift_feasible,
+        )
+    )
+    if wire_mode:
+        if wire_diag.wire_friction_feasible is False:
+            return "wire_dynamics_infeasible"
+        if wire_diag.wire_slip_max_m is not None and wire_diag.wire_slip_max_m > 0.02:
+            return "wire_slip_limit"
+        if wire_diag.wire_lift_feasible is False:
+            return "wire_dynamics_infeasible"
+        if not bool(request.snapshot.left_hand.contact_mask.any()) or not bool(request.snapshot.right_hand.contact_mask.any()):
+            return "bilateral_contact_required"
     if _grasp_loaded(request) and request.object_solution.diagnostics.force_closure_margin <= 0.0:
         return "force_closure_lost"
     return None
