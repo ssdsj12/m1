@@ -387,6 +387,14 @@ class BimanualRuntime:
         self._grasp_goal = grasp_goal
         self.mission.set_grasp_goal(grasp_goal)
 
+    def request_reclamp(self) -> None:
+        """Restart clamp dwell and synchronize the published mission state."""
+
+        self.mission.request_reclamp()
+        if self._latest_mission_state is not None:
+            self._latest_mission_state = replace(self._latest_mission_state,
+                phase=self.mission.phase, phase_steps=0, fallback_reason=None)
+
     def reset(self) -> None:
         """Clear temporal caches and object-planner state for deterministic replay."""
         reset_object = getattr(self.object_mpc, 'reset', None)
@@ -841,6 +849,7 @@ class BimanualRuntime:
             self._counts["hand"] += 1
         distances, collision_jacobian = self._collision(snapshot)
         request = BimanualWbcRequest(
+            phase=self.mission.phase,
             snapshot=snapshot,
             object_solution=object_solution,
             arm_solution=arm_solution,

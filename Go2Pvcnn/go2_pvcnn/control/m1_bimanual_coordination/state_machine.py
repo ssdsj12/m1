@@ -198,6 +198,7 @@ class BimanualMission:
 
         self._transition(BimanualPhase.PRELOAD)
         self._hold_elapsed_ns = 0
+        self._fallback_reason = None
 
     def _supported(self, diagnostics: BimanualMissionDiagnostics) -> bool:
         return diagnostics.box_supported and (

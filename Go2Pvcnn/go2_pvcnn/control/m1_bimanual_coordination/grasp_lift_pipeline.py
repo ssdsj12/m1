@@ -319,7 +319,9 @@ class BimanualGraspLiftPipeline:
                                    or entry_phase in {BimanualPhase.LIFT, BimanualPhase.HOLD})
                 if request_reclamp:
                     mission = getattr(self.runtime, "mission", None)
-                    reclamp = getattr(mission, "request_reclamp", None)
+                    reclamp = getattr(self.runtime, "request_reclamp", None)
+                    if not callable(reclamp):
+                        reclamp = getattr(mission, "request_reclamp", None)
                     if callable(reclamp):
                         reclamp()
                     self._wire_left_latch = [False] * 5

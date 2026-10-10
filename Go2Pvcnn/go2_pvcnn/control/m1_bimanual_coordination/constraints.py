@@ -7,7 +7,7 @@ import math
 
 import torch
 
-from .contracts import ACTIVE_CONTROL_DOF, BimanualSnapshot
+from .contracts import ACTIVE_CONTROL_DOF, BimanualPhase, BimanualSnapshot
 from .dual_arm_mpc import DualArmMpcSolution
 from .hand_mpc import HandMpcSolution
 from .object_mpc import ObjectMpcSolution
@@ -54,8 +54,8 @@ def evaluate_wire_gate(
 ) -> WireGateResult:
     """Evaluate one wire observation in stable, fail-closed order.
 
-    ``APPROACH`` has no contact requirement.  All later phases require the
-    actual bilateral masks; LIFT/HOLD additionally require dynamics,
+    ``APPROACH`` and ``PRELOAD`` allow bounded commands before contact.
+    GRASP/LIFT/HOLD require actual bilateral masks; LIFT/HOLD require dynamics,
     recoverability, clamp force, and slip margins.
     """
 
@@ -68,6 +68,10 @@ def evaluate_wire_gate(
     if not diagnostics.command_accepted:
         return WireGateResult(False, diagnostics.terminal_reason or "command_rejected")
     if phase not in {"PRELOAD", "GRASP", "LIFT", "HOLD"}:
+        return WireGateResult(True, None)
+    if phase == "PRELOAD":
+        if cfg.max_clamp_force_n is not None and max(diagnostics.left_clamp_force_n, diagnostics.right_clamp_force_n) > cfg.max_clamp_force_n:
+            return WireGateResult(False, "clamp_force_excessive")
         return WireGateResult(True, None)
     if not diagnostics.bilateral_contact:
         return WireGateResult(False, "contact_lost_during_lift" if phase in {"LIFT", "HOLD"} else "bilateral_contact_required")
@@ -118,8 +122,12 @@ class BimanualWbcRequest:
     collision_distances: torch.Tensor
     collision_jacobian: torch.Tensor
     wire_gate_config: WireGateConfig = field(default_factory=WireGateConfig)
+    # Omitted phase retains the conservative contact-required legacy contract.
+    phase: BimanualPhase | None = None
 
     def __post_init__(self) -> None:
+        if self.phase is not None and not isinstance(self.phase, BimanualPhase):
+            raise TypeError("phase must be BimanualPhase or None")
         if not isinstance(self.wire_gate_config, WireGateConfig):
             raise TypeError("wire_gate_config must be WireGateConfig")
         for name, expected in (
@@ -237,13 +245,14 @@ def subsolution_failure_reason(request: BimanualWbcRequest) -> str | None:
             return "wire_slip_limit"
         if wire_diag.wire_lift_feasible is False:
             return "wire_dynamics_infeasible"
-        if not bool(request.snapshot.left_hand.contact_mask.any()) or not bool(request.snapshot.right_hand.contact_mask.any()):
-            return "bilateral_contact_required"
-        for hand in (request.snapshot.left_hand, request.snapshot.right_hand):
-            valid = hand.contact_mask & (torch.linalg.vector_norm(hand.fingertip_forces_b, dim=1)
-                                        > request.wire_gate_config.min_contact_force_n)
-            if not hand.contact_consistent or int(valid.sum()) < request.wire_gate_config.min_contacts_per_hand:
-                return "per_digit_contact_latch_required"
+        if request.phase not in {BimanualPhase.APPROACH, BimanualPhase.PRELOAD}:
+            if not bool(request.snapshot.left_hand.contact_mask.any()) or not bool(request.snapshot.right_hand.contact_mask.any()):
+                return "bilateral_contact_required"
+            for hand in (request.snapshot.left_hand, request.snapshot.right_hand):
+                valid = hand.contact_mask & (torch.linalg.vector_norm(hand.fingertip_forces_b, dim=1)
+                                            > request.wire_gate_config.min_contact_force_n)
+                if not hand.contact_consistent or int(valid.sum()) < request.wire_gate_config.min_contacts_per_hand:
+                    return "per_digit_contact_latch_required"
     if _grasp_loaded(request) and request.object_solution.diagnostics.force_closure_margin <= 0.0:
         return "force_closure_lost"
     return None

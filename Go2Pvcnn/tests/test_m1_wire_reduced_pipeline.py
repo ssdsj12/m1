@@ -21,7 +21,10 @@ from tests.test_m1_bimanual_object_mpc import _snapshot
 from tests.test_m1_bimanual_grasp_lift_pipeline import _goal
 from tests.test_m1_bimanual_whole_body_qp import _request
 from go2_pvcnn.control.m1_bimanual_coordination.constraints import WireGateConfig, subsolution_failure_reason
-from go2_pvcnn.control.m1_bimanual_coordination.state_machine import BimanualMission
+from go2_pvcnn.control.m1_bimanual_coordination.state_machine import BimanualMission, BimanualMissionCfg
+from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
+from go2_pvcnn.control.m1_bimanual_coordination.whole_body_qp import BimanualWholeBodyQp
+from go2_pvcnn.control.m1_bimanual_coordination.constraints import effort_limits
 
 
 class _Runtime:
@@ -73,7 +76,8 @@ def test_pipeline_latches_each_digit_and_requires_bilateral_contacts():
     )
     first = pipeline.step(snapshot)
     assert first.phase is BimanualPhase.PRELOAD
-    assert first.fallback and first.fallback_reason == "bilateral_contact_required"
+    assert not first.fallback
+    assert not first.lift_permitted
     runtime.wire_diagnostics = _diag(
         phase="GRASP", bilateral_contact=True,
         left_contact_mask=(True, True, False, False, False),
@@ -343,3 +347,100 @@ def test_native_runtime_safe_transition_does_not_hide_lift_reclamp_request():
     assert result.phase is BimanualPhase.PRELOAD
     assert runtime.mission.phase is BimanualPhase.PRELOAD
     assert result.fallback_reason == "wire_dynamics_infeasible"
+
+
+def _real_wire_pipeline():
+    request = _request()
+
+    class ObjectController:
+        def plan(self, sample):
+            solution = request.object_solution
+            return replace(solution,
+                left_palm_pose=sample.snapshot.left_arm.palm_pose_b.repeat(solution.left_palm_pose.shape[0], 1),
+                right_palm_pose=sample.snapshot.right_arm.palm_pose_b.repeat(solution.right_palm_pose.shape[0], 1),
+                diagnostics=replace(solution.diagnostics, force_closure_margin=1.,
+                                    wire_lift_feasible=True, wire_friction_feasible=True))
+
+    class HandController:
+        def plan(self, sample):
+            target = 0. if sample.phase is BimanualPhase.APPROACH else 0.02
+            return replace(request.left_hand_solution,
+                           q_ref=torch.full_like(request.left_hand_solution.q_ref, target))
+
+    runtime = BimanualRuntime(
+        object_mpc=ObjectController(),
+        arm_mpc=SimpleNamespace(plan=lambda sample: request.arm_solution),
+        left_hand_mpc=HandController(), right_hand_mpc=HandController(),
+        wbc=BimanualWholeBodyQp(),
+        mission=BimanualMission(BimanualMissionCfg(approach_dwell_steps=2,
+            preload_dwell_steps=2, grasp_dwell_steps=1), grasp_goal=_goal()),
+    )
+    return BimanualGraspLiftPipeline(_goal(), runtime=runtime)
+
+
+def _wire_sample(tick, *, contact=False):
+    left = [[2.5, 0., 0.]] * 2 + [[0., 0., 0.]] * 3
+    right = [[-2.5, 0., 0.]] * 2 + [[0., 0., 0.]] * 3
+    snapshot = _force_snapshot(left, right,
+        mask=(True, True, False, False, False) if contact else (False,) * 5)
+    return replace(snapshot, timestamp_ns=tick * 5_000_000)
+
+
+def test_real_runtime_preload_publishes_closing_targets_before_contact():
+    pipeline = _real_wire_pipeline()
+    opened = pipeline.step(_wire_sample(1))
+    assert opened.phase is BimanualPhase.APPROACH
+    assert not opened.fallback
+    assert torch.count_nonzero(opened.left_hand_target) == 0
+    pipeline.step(_wire_sample(2))
+    closing = pipeline.step(_wire_sample(3))
+    assert closing.phase is BimanualPhase.PRELOAD
+    assert not closing.fallback
+    assert closing.command.feasible and not closing.lift_permitted
+    assert not closing.diagnostics.bilateral_contact
+    for target in (closing.left_hand_target, closing.right_hand_target):
+        assert torch.equal(target, torch.full_like(target, .02))
+    assert torch.equal(closing.command.effort, pipeline.runtime.latest_solutions["wbc"].effort)
+    assert torch.isfinite(closing.command.effort).all()
+    assert torch.all(closing.command.effort.abs() <= effort_limits() + 1e-8)
+
+
+def test_real_mission_reclamp_retires_fallback_and_publishes_current_state():
+    pipeline = _real_wire_pipeline()
+    for tick in range(1, 6):
+        result = pipeline.step(_wire_sample(tick, contact=True))
+        assert not result.fallback
+    assert result.phase is BimanualPhase.LIFT
+    lost = pipeline.step(_wire_sample(6))
+    assert lost.request_reclamp and lost.fallback
+    assert lost.phase is BimanualPhase.PRELOAD
+    assert not lost.lift_permitted
+    state = pipeline.runtime.latest_mission_state
+    assert state.phase is BimanualPhase.PRELOAD
+    assert state.fallback_reason is None
+    assert state.phase_steps == 0
+    recovering = pipeline.step(_wire_sample(7))
+    assert recovering.phase is BimanualPhase.PRELOAD
+    assert recovering.command.feasible and not recovering.fallback
+    assert recovering.fallback_reason is None
+    assert pipeline.runtime.latest_mission_state.fallback_reason is None
+    assert not recovering.lift_permitted
+
+
+@pytest.mark.parametrize("phase", [BimanualPhase.GRASP, BimanualPhase.LIFT])
+def test_lower_wire_gate_still_requires_contact_after_preload(phase):
+    request = _request()
+    request = replace(request, phase=phase, snapshot=_wire_sample(1),
+        object_solution=replace(request.object_solution,
+            diagnostics=replace(request.object_solution.diagnostics, wire_lift_feasible=True)))
+    assert subsolution_failure_reason(request) == "bilateral_contact_required"
+
+
+def test_preload_rejects_excessive_clamp_force_atomically():
+    runtime = _Runtime(_snapshot())
+    runtime.wire_diagnostics = _clamped(phase="PRELOAD", left_clamp_force_n=11.)
+    result = BimanualGraspLiftPipeline(runtime=runtime,
+        wire_config=WirePipelineConfig(max_clamp_force_n=10.)).step(_snapshot())
+    assert not result.command.feasible
+    assert result.fallback_reason == "clamp_force_excessive"
+    assert not result.lift_permitted
