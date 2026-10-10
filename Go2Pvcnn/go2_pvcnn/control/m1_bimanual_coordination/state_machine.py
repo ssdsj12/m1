@@ -193,6 +193,12 @@ class BimanualMission:
         if phase is BimanualPhase.HOLD:
             self._hold_elapsed_ns = 0
 
+    def request_reclamp(self) -> None:
+        """Pause a wire lift and require a fresh clamp dwell before resuming."""
+
+        self._transition(BimanualPhase.PRELOAD)
+        self._hold_elapsed_ns = 0
+
     def _supported(self, diagnostics: BimanualMissionDiagnostics) -> bool:
         return diagnostics.box_supported and (
             diagnostics.box_twist_norm <= self.cfg.supported_twist_tolerance

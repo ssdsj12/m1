@@ -8,7 +8,10 @@ exposes one step result suitable for a headless probe or a task wrapper.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from copy import deepcopy
 from typing import Any
+
+import torch
 
 from .contracts import BimanualCommand, BimanualPhase, BimanualSnapshot
 from .constraints import WireGateConfig, evaluate_wire_gate
@@ -38,6 +41,8 @@ class BimanualGraspLiftStep:
     left_hand_target: Any | None
     right_hand_target: Any | None
     diagnostics: WirePipelineDiagnostics | None = None
+    lift_permitted: bool = False
+    request_reclamp: bool = False
 
     @property
     def terminal_reason(self) -> str | None:
@@ -87,12 +92,18 @@ class BimanualGraspLiftPipeline:
                 min_contact_force_n=wire_config.min_contact_force_n,
                 min_contacts_per_hand=wire_config.min_contacts_per_hand,
                 max_slip_m=wire_config.max_slip_m,
+                min_clamp_force_n=wire_config.min_clamp_force_n,
+                max_clamp_force_n=wire_config.max_clamp_force_n,
+                min_normal_alignment=wire_config.min_normal_alignment,
             )
         else:
             raise TypeError("wire_config must be WirePipelineConfig")
         self._wire_left_latch = [False] * 5
         self._wire_right_latch = [False] * 5
+        self._wire_left_ticks = [0] * 5
+        self._wire_right_ticks = [0] * 5
         self._last_wire_command: BimanualCommand | None = None
+        self._last_wire_hand_targets = (None, None)
         if not callable(getattr(self.runtime, "compute", None)):
             raise TypeError("runtime must expose compute(snapshot)")
 
@@ -139,7 +150,10 @@ class BimanualGraspLiftPipeline:
         reset()
         self._wire_left_latch = [False] * 5
         self._wire_right_latch = [False] * 5
+        self._wire_left_ticks = [0] * 5
+        self._wire_right_ticks = [0] * 5
         self._last_wire_command = None
+        self._last_wire_hand_targets = (None, None)
 
     @staticmethod
     def _coerce_wire_diagnostics(value: Any) -> WirePipelineDiagnostics | None:
@@ -158,11 +172,48 @@ class BimanualGraspLiftPipeline:
         )
         if all(hasattr(value, name) for name in required):
             fields = {name: getattr(value, name) for name in required}
-            for name in ("terminal_reason", "wire_failure_reason", "left_latched", "right_latched"):
+            for name in ("terminal_reason", "wire_failure_reason", "left_latched", "right_latched",
+                         "left_normal_alignment", "right_normal_alignment"):
                 if hasattr(value, name):
                     fields[name] = getattr(value, name)
             return WirePipelineDiagnostics(**fields)
         return None
+
+    def _gate_config(self) -> WireGateConfig:
+        goal = self.goal or getattr(self.runtime, "latest_grasp_goal", None)
+        if goal is None:
+            return self.wire_config
+        criteria = goal.clamp_criteria
+        return replace(self.wire_config,
+            min_contacts_per_hand=max(self.wire_config.min_contacts_per_hand, criteria.min_contact_count_per_hand),
+            min_clamp_force_n=max(self.wire_config.min_clamp_force_n, criteria.min_normal_force_n),
+            max_clamp_force_n=min(self.wire_config.max_clamp_force_n or criteria.max_normal_force_n,
+                                  criteria.max_normal_force_n),
+            min_normal_alignment=max(self.wire_config.min_normal_alignment, criteria.min_normal_alignment))
+
+    def _contact_metrics(self, hand, side: str):
+        """Use selected-target sensor rows, projected onto each goal normal."""
+        forces = hand.fingertip_forces_b
+        magnitudes = torch.linalg.vector_norm(forces, dim=1)
+        goal = self.goal or getattr(self.runtime, "latest_grasp_goal", None)
+        if goal is None:
+            normal_force = magnitudes
+            alignment = torch.ones_like(magnitudes)
+            selected = hand.contact_mask.clone()
+        else:
+            targets = getattr(goal, side).contact_targets
+            normals = torch.zeros_like(forces)
+            normals[:len(targets)] = torch.tensor([target.normal for target in targets], dtype=forces.dtype)
+            normals /= torch.linalg.vector_norm(normals, dim=1).clamp_min(1e-12)[:, None]
+            projected = (forces * normals).sum(dim=1)
+            normal_force = projected.clamp_min(0.0)
+            alignment = (projected / magnitudes.clamp_min(1e-12)).clamp(-1.0, 1.0)
+            selected = hand.contact_mask & (torch.linalg.vector_norm(normals, dim=1) > 0)
+        qualifying = selected & (normal_force > self.wire_config.min_contact_force_n)
+        if not hand.contact_consistent:
+            qualifying = torch.zeros_like(qualifying)
+        return (tuple(qualifying.tolist()), float(normal_force[selected].sum()),
+                float(alignment[selected].min()) if bool(selected.any()) else 0.0)
 
     def _wire_observation(self, snapshot: BimanualSnapshot, command: BimanualCommand) -> WirePipelineDiagnostics | None:
         runtime_value = None
@@ -183,13 +234,14 @@ class BimanualGraspLiftPipeline:
             latest = getattr(self.runtime, "latest_solutions", {})
             object_solution = latest.get("object") if isinstance(latest, dict) else None
             object_diag = getattr(object_solution, "diagnostics", None)
-            if update is not None or object_diag is not None:
+            wire_object = object_diag is not None and any(
+                getattr(object_diag, name, None) is not None for name in
+                ("wire_stretch_max", "wire_slip_max_m", "wire_friction_feasible", "wire_lift_feasible"))
+            if update is not None or wire_object:
                 phase = getattr(self.runtime, "phase", BimanualPhase.APPROACH)
                 phase_name = phase.name if isinstance(phase, BimanualPhase) else str(phase).upper()
-                left_mask = tuple(bool(v) for v in snapshot.left_hand.contact_mask.tolist())
-                right_mask = tuple(bool(v) for v in snapshot.right_hand.contact_mask.tolist())
-                left_force = float(snapshot.left_hand.fingertip_forces_b[:, 2].clamp_min(0.0).sum().item())
-                right_force = float(snapshot.right_hand.fingertip_forces_b[:, 2].clamp_min(0.0).sum().item())
+                left_mask, left_force, left_alignment = self._contact_metrics(snapshot.left_hand, "left")
+                right_mask, right_force, right_alignment = self._contact_metrics(snapshot.right_hand, "right")
                 prediction = getattr(update, "prediction", None)
                 feasible = bool(getattr(update, "failure_reason", None) is None)
                 slip = 0.0
@@ -213,6 +265,8 @@ class BimanualGraspLiftPipeline:
                     right_contact_mask=right_mask,
                     left_clamp_force_n=left_force,
                     right_clamp_force_n=right_force,
+                    left_normal_alignment=left_alignment,
+                    right_normal_alignment=right_alignment,
                     force_closure_margin=float(getattr(object_diag, "force_closure_margin", 1.0) or 0.0),
                     slip_m=slip,
                     wire_feasible=feasible,
@@ -222,24 +276,31 @@ class BimanualGraspLiftPipeline:
                 )
         if observation is None:
             return None
-        left = [old or new for old, new in zip(self._wire_left_latch, observation.left_contact_mask)]
-        right = [old or new for old, new in zip(self._wire_right_latch, observation.right_contact_mask)]
-        # A latch is monotonic only through GRASP; before that, contact is an
-        # observation and after a lift loss the command is rejected atomically.
-        if observation.phase in {"GRASP", "LIFT", "HOLD"}:
-            self._wire_left_latch, self._wire_right_latch = left, right
+        if observation.phase in {"PRELOAD", "GRASP", "LIFT", "HOLD"}:
+            for ticks, latched, mask in (
+                (self._wire_left_ticks, self._wire_left_latch, observation.left_contact_mask),
+                (self._wire_right_ticks, self._wire_right_latch, observation.right_contact_mask),
+            ):
+                for index, contact in enumerate(mask):
+                    ticks[index] = min(ticks[index] + 1, self.wire_config.contact_dwell_steps) if (
+                        contact and command.feasible and observation.command_accepted) else 0
+                    latched[index] = latched[index] or ticks[index] >= self.wire_config.contact_dwell_steps
+        cfg = self._gate_config()
         return replace(
             observation,
             left_contact_mask=tuple(observation.left_contact_mask),
             right_contact_mask=tuple(observation.right_contact_mask),
-            left_latched=sum(self._wire_left_latch) >= self.wire_config.min_contacts_per_hand,
-            right_latched=sum(self._wire_right_latch) >= self.wire_config.min_contacts_per_hand,
+            left_latched=sum(self._wire_left_latch) >= cfg.min_contacts_per_hand,
+            right_latched=sum(self._wire_right_latch) >= cfg.min_contacts_per_hand,
             command_accepted=bool(command.feasible and observation.command_accepted),
+            terminal_reason=(observation.terminal_reason or
+                (next(iter(getattr(command, "fallback_reasons", ())), None) if not command.feasible else None)),
         )
 
     def step(self, snapshot: BimanualSnapshot) -> BimanualGraspLiftStep:
         if not isinstance(snapshot, BimanualSnapshot):
             raise TypeError("snapshot must be BimanualSnapshot")
+        entry_phase = getattr(self.runtime, "phase", getattr(getattr(self.runtime, "mission", None), "phase", None))
         command = self.runtime.compute(snapshot)
         if not isinstance(command, BimanualCommand):
             # Keep test/probe adapters useful while still checking the fields
@@ -249,18 +310,31 @@ class BimanualGraspLiftPipeline:
         phase = self.phase
         wire_diagnostics = self._wire_observation(snapshot, command)
         wire_reason = None
+        request_reclamp = False
         if wire_diagnostics is not None:
-            gate = evaluate_wire_gate(wire_diagnostics, self.wire_config)
+            gate = evaluate_wire_gate(wire_diagnostics, self._gate_config())
             wire_reason = gate.reason
             if not gate.accepted:
-                wire_diagnostics = replace(wire_diagnostics, terminal_reason=wire_reason)
+                request_reclamp = (wire_diagnostics.phase in {"LIFT", "HOLD"}
+                                   or entry_phase in {BimanualPhase.LIFT, BimanualPhase.HOLD})
+                if request_reclamp:
+                    mission = getattr(self.runtime, "mission", None)
+                    reclamp = getattr(mission, "request_reclamp", None)
+                    if callable(reclamp):
+                        reclamp()
+                    self._wire_left_latch = [False] * 5
+                    self._wire_right_latch = [False] * 5
+                    self._wire_left_ticks = [0] * 5
+                    self._wire_right_ticks = [0] * 5
+                wire_diagnostics = replace(wire_diagnostics, terminal_reason=wire_reason,
+                    command_accepted=False, phase="PRELOAD" if request_reclamp else wire_diagnostics.phase)
                 # Do not publish a newly rejected effort.  Keep the last safe
                 # command, while preserving the runtime's immutable command
                 # type and timestamp contract.
                 effort = (
                     self._last_wire_command.effort
                     if self._last_wire_command is not None
-                    else command.effort
+                    else torch.zeros_like(command.effort)
                 )
                 if isinstance(command, BimanualCommand):
                     command = replace(command, effort=effort, feasible=False,
@@ -292,6 +366,13 @@ class BimanualGraspLiftPipeline:
         latest = getattr(self.runtime, "latest_solutions", {})
         left = latest.get("left_hand") if isinstance(latest, dict) else None
         right = latest.get("right_hand") if isinstance(latest, dict) else None
+        targets = (None if left is None else getattr(left, "q_ref", None),
+                   None if right is None else getattr(right, "q_ref", None))
+        if wire_diagnostics is not None:
+            if wire_reason is not None:
+                targets = deepcopy(self._last_wire_hand_targets)
+            else:
+                self._last_wire_hand_targets = deepcopy(targets)
         step_goal = self.goal
         if step_goal is None:
             step_goal = getattr(self.runtime, "latest_grasp_goal", None)
@@ -304,9 +385,11 @@ class BimanualGraspLiftPipeline:
             fallback=fallback,
             fallback_reason=reason,
             grasp_goal=step_goal,
-            left_hand_target=None if left is None else getattr(left, "q_ref", None),
-            right_hand_target=None if right is None else getattr(right, "q_ref", None),
+            left_hand_target=targets[0],
+            right_hand_target=targets[1],
             diagnostics=wire_diagnostics,
+            lift_permitted=wire_diagnostics is not None and not fallback and phase in {BimanualPhase.LIFT, BimanualPhase.HOLD},
+            request_reclamp=request_reclamp,
         )
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 
 import torch
@@ -21,6 +21,9 @@ class WireGateConfig:
     min_contact_force_n: float = 0.2
     min_contacts_per_hand: int = 2
     max_slip_m: float = 0.02
+    min_clamp_force_n: float = 0.2
+    max_clamp_force_n: float | None = None
+    min_normal_alignment: float = 0.0
 
     def __post_init__(self) -> None:
         if isinstance(self.min_contact_force_n, bool) or not math.isfinite(float(self.min_contact_force_n)) or self.min_contact_force_n <= 0.0:
@@ -29,6 +32,14 @@ class WireGateConfig:
             raise ValueError("max_slip_m must be finite and positive")
         if isinstance(self.min_contacts_per_hand, bool) or not isinstance(self.min_contacts_per_hand, int) or not 1 <= self.min_contacts_per_hand <= 5:
             raise ValueError("min_contacts_per_hand must be in [1, 5]")
+        if not math.isfinite(self.min_clamp_force_n) or self.min_clamp_force_n <= 0.0:
+            raise ValueError("min_clamp_force_n must be finite and positive")
+        if self.max_clamp_force_n is not None and (
+            not math.isfinite(self.max_clamp_force_n) or self.max_clamp_force_n < self.min_clamp_force_n
+        ):
+            raise ValueError("max_clamp_force_n must be finite and >= min_clamp_force_n")
+        if not math.isfinite(self.min_normal_alignment) or not 0.0 <= self.min_normal_alignment <= 1.0:
+            raise ValueError("min_normal_alignment must be in [0, 1]")
 
 
 @dataclass(frozen=True)
@@ -56,7 +67,7 @@ def evaluate_wire_gate(
     phase = diagnostics.phase
     if not diagnostics.command_accepted:
         return WireGateResult(False, diagnostics.terminal_reason or "command_rejected")
-    if phase in {"APPROACH"}:
+    if phase not in {"PRELOAD", "GRASP", "LIFT", "HOLD"}:
         return WireGateResult(True, None)
     if not diagnostics.bilateral_contact:
         return WireGateResult(False, "contact_lost_during_lift" if phase in {"LIFT", "HOLD"} else "bilateral_contact_required")
@@ -65,8 +76,12 @@ def evaluate_wire_gate(
             return WireGateResult(False, "per_digit_contact_latch_required")
         if not diagnostics.left_latched or not diagnostics.right_latched:
             return WireGateResult(False, "per_digit_contact_latch_required")
-        if diagnostics.left_clamp_force_n < cfg.min_contact_force_n or diagnostics.right_clamp_force_n < cfg.min_contact_force_n:
+        if min(diagnostics.left_clamp_force_n, diagnostics.right_clamp_force_n) < max(cfg.min_contact_force_n, cfg.min_clamp_force_n):
             return WireGateResult(False, "clamp_force_insufficient")
+        if cfg.max_clamp_force_n is not None and max(diagnostics.left_clamp_force_n, diagnostics.right_clamp_force_n) > cfg.max_clamp_force_n:
+            return WireGateResult(False, "clamp_force_excessive")
+        if min(diagnostics.left_normal_alignment, diagnostics.right_normal_alignment) < cfg.min_normal_alignment:
+            return WireGateResult(False, "contact_normal_misaligned")
         if diagnostics.slip_m > cfg.max_slip_m:
             return WireGateResult(False, "wire_slip_limit")
         if diagnostics.force_closure_margin <= 0.0:
@@ -102,8 +117,11 @@ class BimanualWbcRequest:
     right_hand_solution: HandMpcSolution
     collision_distances: torch.Tensor
     collision_jacobian: torch.Tensor
+    wire_gate_config: WireGateConfig = field(default_factory=WireGateConfig)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.wire_gate_config, WireGateConfig):
+            raise TypeError("wire_gate_config must be WireGateConfig")
         for name, expected in (
             ("snapshot", BimanualSnapshot),
             ("object_solution", ObjectMpcSolution),
@@ -215,12 +233,17 @@ def subsolution_failure_reason(request: BimanualWbcRequest) -> str | None:
     if wire_mode:
         if wire_diag.wire_friction_feasible is False:
             return "wire_dynamics_infeasible"
-        if wire_diag.wire_slip_max_m is not None and wire_diag.wire_slip_max_m > 0.02:
+        if wire_diag.wire_slip_max_m is not None and wire_diag.wire_slip_max_m > request.wire_gate_config.max_slip_m:
             return "wire_slip_limit"
         if wire_diag.wire_lift_feasible is False:
             return "wire_dynamics_infeasible"
         if not bool(request.snapshot.left_hand.contact_mask.any()) or not bool(request.snapshot.right_hand.contact_mask.any()):
             return "bilateral_contact_required"
+        for hand in (request.snapshot.left_hand, request.snapshot.right_hand):
+            valid = hand.contact_mask & (torch.linalg.vector_norm(hand.fingertip_forces_b, dim=1)
+                                        > request.wire_gate_config.min_contact_force_n)
+            if not hand.contact_consistent or int(valid.sum()) < request.wire_gate_config.min_contacts_per_hand:
+                return "per_digit_contact_latch_required"
     if _grasp_loaded(request) and request.object_solution.diagnostics.force_closure_margin <= 0.0:
         return "force_closure_lost"
     return None

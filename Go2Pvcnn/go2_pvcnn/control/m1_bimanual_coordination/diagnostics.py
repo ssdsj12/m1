@@ -11,14 +11,18 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
+from .contracts import BimanualPhase
+
 
 def _mask(name: str, value: Any) -> tuple[bool, ...]:
     try:
-        values = tuple(bool(item) for item in value)
+        values = tuple(value)
     except (TypeError, ValueError) as exc:
         raise TypeError(f"{name} must be an iterable of booleans") from exc
     if len(values) != 5:
         raise ValueError(f"{name} must contain five fingertip values")
+    if any(not isinstance(item, bool) for item in values):
+        raise TypeError(f"{name} must contain only booleans")
     return values
 
 
@@ -53,18 +57,30 @@ class WirePipelineDiagnostics:
     wire_failure_reason: str | None = None
     left_latched: bool = False
     right_latched: bool = False
+    left_normal_alignment: float = 1.0
+    right_normal_alignment: float = 1.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.phase, str) or not self.phase.strip():
             raise ValueError("phase must be a non-empty string")
         object.__setattr__(self, "phase", self.phase.upper())
+        if self.phase not in BimanualPhase.__members__:
+            raise ValueError("phase must name a BimanualPhase")
+        object.__setattr__(self, "phase", BimanualPhase[self.phase].name)
         for name in ("bilateral_contact", "wire_feasible", "arm_recoverability", "command_accepted"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} must be bool")
         for name in ("left_contact_mask", "right_contact_mask"):
             object.__setattr__(self, name, _mask(name, getattr(self, name)))
+        if self.bilateral_contact != (any(self.left_contact_mask) and any(self.right_contact_mask)):
+            raise ValueError("bilateral_contact contradicts the contact masks")
         for name in ("left_clamp_force_n", "right_clamp_force_n", "force_closure_margin", "slip_m"):
             object.__setattr__(self, name, _number(name, getattr(self, name)))
+        for name in ("left_normal_alignment", "right_normal_alignment"):
+            value = _number(name, getattr(self, name), nonnegative=False)
+            if not -1.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in [-1, 1]")
+            object.__setattr__(self, name, value)
         for name in ("left_latched", "right_latched"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} must be bool")
@@ -99,6 +115,8 @@ class WirePipelineDiagnostics:
             "right_contact_count": self.right_contact_count,
             "left_clamp_force_n": self.left_clamp_force_n,
             "right_clamp_force_n": self.right_clamp_force_n,
+            "left_normal_alignment": self.left_normal_alignment,
+            "right_normal_alignment": self.right_normal_alignment,
             "force_closure_margin": self.force_closure_margin,
             "slip_m": self.slip_m,
             "wire_feasible": self.wire_feasible,
