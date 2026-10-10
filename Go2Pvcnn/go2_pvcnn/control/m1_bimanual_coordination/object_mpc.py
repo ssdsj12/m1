@@ -562,7 +562,6 @@ def _wire_dynamics(sample: ObjectMpcInput, cfg: ObjectMpcCfg):
     centerline dynamics. Contact axes retain the existing +/-Y convention.
     """
     horizon, dimension = cfg.horizon_steps, cfg.horizon_steps * _VARIABLES_PER_STEP
-    positions = torch.tensor(sample.wire_prediction.endpoint_positions.copy())
     velocities = torch.tensor(sample.wire_prediction.endpoint_velocities.copy())
     position_map = torch.zeros((horizon, 2, 3, dimension), dtype=torch.float64)
     velocity_map = torch.zeros_like(position_map)
@@ -574,6 +573,14 @@ def _wire_dynamics(sample: ObjectMpcInput, cfg: ObjectMpcCfg):
         nominal[:, 2] = nominal[:, 8] = .5 * float(sample.snapshot.box.mass) * _GRAVITY
     initial_velocity = torch.stack((sample.snapshot.left_arm.palm_twist_b[:3],
                                     sample.snapshot.right_arm.palm_twist_b[:3]))
+    initial_position = torch.stack((sample.snapshot.left_arm.palm_pose_b[:3],
+                                    sample.snapshot.right_arm.palm_pose_b[:3]))
+    previous_velocities = torch.cat((initial_velocity[None], velocities[:-1]))
+    # Match the constant-acceleration force response below, including the
+    # measured-to-first-node interval. Supplied positions remain soft targets
+    # and slip references; they cannot introduce motion absent from velocity.
+    positions = initial_position + cfg.dt * torch.cumsum(
+        .5 * previous_velocities + .5 * velocities, dim=0)
     accelerations = torch.diff(torch.cat((initial_velocity[None], velocities)), dim=0) / cfg.dt
     for side in range(2):
         nominal[:, side*6:side*6+3] += .5 * float(sample.snapshot.box.mass) * accelerations[:, side]
@@ -661,6 +668,15 @@ def _build_wire_qp(sample: ObjectMpcInput, cfg: ObjectMpcCfg) -> DenseQpProblem:
     equality_matrix = vmap[:, 0, 2] - vmap[:, 1, 2]
     equality_rhs = voffset[:, 1, 2] - voffset[:, 0, 2]
     rows, bounds = [problem.inequality_matrix], [problem.inequality_upper]
+    measured_height = torch.stack((sample.snapshot.left_arm.palm_pose_b[2],
+                                   sample.snapshot.right_arm.palm_pose_b[2]))
+    motion_map = torch.diff(pmap[:, :, 2], dim=0, prepend=torch.zeros_like(pmap[:1, :, 2])) / cfg.dt
+    motion_offset = torch.diff(poffset[:, :, 2], dim=0, prepend=measured_height[None]) / cfg.dt
+    sync_map = motion_map[:, 0] - motion_map[:, 1]
+    sync_offset = motion_offset[:, 0] - motion_offset[:, 1]
+    rows.extend((sync_map, -sync_map))
+    bounds.extend((cfg.wire_limits.lift_velocity_tolerance_m_s-sync_offset,
+                   cfg.wire_limits.lift_velocity_tolerance_m_s+sync_offset))
     # A coordinate box inside the slip sphere is a conservative linear bound.
     remaining = cfg.wire_limits.max_slip_m - torch.tensor(prediction.endpoint_slip_m.copy())
     radius = remaining[:, :, None].expand(-1, -1, 3).flatten() / math.sqrt(3.)
@@ -689,6 +705,10 @@ def _build_wire_qp(sample: ObjectMpcInput, cfg: ObjectMpcCfg) -> DenseQpProblem:
         cap = velocities[:, :, 2].min(1).values.clamp_min(0.)
         rows.extend((vmap[:, 0, 2], -vmap[:, 0, 2]))
         bounds.extend((cap-voffset[:, 0, 2], voffset[:, 0, 2]))
+        # Bound the actual published displacement per interval as well as
+        # node velocity: an initially moving palm may otherwise overshoot.
+        rows.extend((motion_map.reshape(-1, dimension), -motion_map.reshape(-1, dimension)))
+        bounds.extend(((cap[:, None]-motion_offset).flatten(), motion_offset.flatten()))
     result = replace(problem, hessian=hessian, gradient=gradient,
                      equality_matrix=equality_matrix, equality_rhs=equality_rhs,
                      inequality_matrix=torch.cat(rows), inequality_upper=torch.cat(bounds))
@@ -1119,6 +1139,17 @@ class BimanualObjectMpc:
             return self._fallback(sample, "wire_normal_force_infeasible")
         if (velocities[:, 0, 2]-velocities[:, 1, 2]).abs().max() > limits.lift_velocity_tolerance_m_s:
             return self._fallback(sample, "wire_lift_infeasible")
+        measured_height = torch.stack((sample.snapshot.left_arm.palm_pose_b[2],
+                                       sample.snapshot.right_arm.palm_pose_b[2]))
+        motion = torch.diff(positions[:, :, 2], dim=0, prepend=measured_height[None]) / self.cfg.dt
+        if (motion[:, 0]-motion[:, 1]).abs().max() > limits.lift_velocity_tolerance_m_s+tolerance:
+            return self._fallback(sample, "wire_lift_infeasible")
+        if sample.phase is BimanualPhase.LIFT:
+            cap = torch.tensor(prediction.endpoint_velocities[:, :, 2].min(axis=1).copy()).clamp_min(0.)
+            if ((motion < -tolerance) | (motion > cap[:, None]+tolerance)
+                    | (velocities[:, :, 2] < -tolerance)
+                    | (velocities[:, :, 2] > cap[:, None]+tolerance)).any():
+                return self._fallback(sample, "wire_lift_infeasible")
         box_pose = sample.snapshot.box.pose_b.repeat(self.cfg.horizon_steps, 1)
         box_pose[:, :3] = positions.mean(1)
         box_twist = torch.zeros_like(box_pose)

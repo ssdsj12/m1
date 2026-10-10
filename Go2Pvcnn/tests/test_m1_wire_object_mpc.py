@@ -229,3 +229,72 @@ def test_malformed_adapter_output_does_not_break_fallback_diagnostics():
     result = BimanualObjectMpc().plan(sample)
     assert not result.diagnostics.feasible
     assert result.diagnostics.fallback_reason == 'wire_invalid_prediction'
+
+
+def _published_vertical_velocity(result, sample, cfg):
+    heights = torch.stack((result.left_palm_pose[:, 2], result.right_palm_pose[:, 2]), dim=1)
+    measured = torch.stack((sample.snapshot.left_arm.palm_pose_b[2],
+                            sample.snapshot.right_arm.palm_pose_b[2]))
+    return torch.diff(torch.cat((measured[None], heights)), dim=0) / cfg.dt
+
+
+@pytest.mark.parametrize('kind', ['rising_zero_velocity', 'unequal_increments',
+                                  'first_node_jump', 'initial_velocity'])
+def test_published_lift_motion_obeys_cap_and_sync_including_first_transition(kind):
+    cfg = ObjectMpcCfg()
+    sample = _wire(phase=BimanualPhase.LIFT)
+    prediction = sample.wire_prediction
+    endpoints = prediction.endpoint_positions.copy()
+    velocities = prediction.endpoint_velocities.copy()
+    if kind == 'rising_zero_velocity':
+        endpoints[:, :, 2] += np.arange(1, 26)[:, None] * cfg.dt * .005
+    elif kind == 'unequal_increments':
+        velocities[:, :, 2] = .01
+        endpoints[:, 0, 2] += np.arange(1, 26) * cfg.dt * .015
+        endpoints[:, 1, 2] += np.arange(1, 26) * cfg.dt * .01
+    elif kind == 'first_node_jump':
+        endpoints[:, 0, 2] += .003
+    else:
+        for side in ('left', 'right'):
+            arm = getattr(sample.snapshot, side + '_arm')
+            twist = arm.palm_twist_b.clone()
+            twist[2] = .02
+            sample = replace(sample, snapshot=replace(sample.snapshot, **{
+                side + '_arm': replace(arm, palm_twist_b=twist)}))
+    prediction = replace(prediction, endpoint_positions=endpoints, endpoint_velocities=velocities,
+                         positions=np.stack((endpoints[:, 0], endpoints.mean(1), endpoints[:, 1]), axis=1),
+                         endpoint_separation_m=np.linalg.norm(endpoints[:, 0]-endpoints[:, 1], axis=1))
+    sample = replace(sample, wire_prediction=prediction)
+    result = BimanualObjectMpc(cfg).plan(sample)
+    motion = _published_vertical_velocity(result, sample, cfg)
+    cap = torch.tensor(velocities[:, :, 2].min(axis=1)).clamp_min(0.)
+    assert (motion >= -1e-6).all()
+    assert (motion <= cap[:, None] + 1e-6).all()
+    assert (motion[:, 0]-motion[:, 1]).abs().max() <= cfg.wire_limits.lift_velocity_tolerance_m_s
+    assert result.diagnostics.feasible == (kind != 'initial_velocity')
+    if result.diagnostics.feasible:
+        measured_velocity = .5 * (sample.snapshot.left_arm.palm_twist_b[2]
+                                  + sample.snapshot.right_arm.palm_twist_b[2])
+        previous_velocity = torch.cat((measured_velocity[None], result.box_twist[:-1, 2]))
+        assert torch.allclose(motion.mean(1), .5 * (previous_velocity + result.box_twist[:, 2]), atol=1e-7)
+    else:
+        assert result.diagnostics.fallback_used
+        assert not result.diagnostics.wire_lift_feasible
+
+
+def test_inconsistent_lift_beyond_slip_budget_preserves_entire_last_safe_solution():
+    planner = BimanualObjectMpc()
+    sample = _wire(phase=BimanualPhase.LIFT)
+    safe = planner.plan(sample)
+    assert safe.diagnostics.feasible
+    # Position reference rises 0.1 m while the velocity reference forbids lift.
+    prediction = _prediction(.1)
+    prediction = replace(prediction, endpoint_velocities=np.zeros((25, 2, 3)))
+    for _ in range(2):
+        result = planner.plan(replace(sample, wire_prediction=prediction))
+        assert not result.diagnostics.feasible
+        assert result.diagnostics.fallback_used
+        for name in ('box_pose', 'box_twist', 'platform_yaw', 'left_palm_pose',
+                     'right_palm_pose', 'left_wrench', 'right_wrench'):
+            assert torch.equal(getattr(result, name), getattr(safe, name))
+            assert torch.equal(getattr(planner._last_safe, name), getattr(safe, name))
