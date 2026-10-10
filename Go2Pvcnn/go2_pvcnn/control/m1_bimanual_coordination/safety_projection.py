@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 import torch
+
+from go2_pvcnn.control.m1_panda_coordination.arm_mpc import (
+    ArmMpcCfg, ArmMpcInput, arm_mpc_recoverability_ok,
+)
 
 from go2_pvcnn.control.m1_panda_coordination.qp_backend import (
     DenseQpProblem,
@@ -45,6 +49,7 @@ class SafetyInput:
     base_error: torch.Tensor
     force_closure_margin: float
     phase: BimanualPhase
+    arm_mpc_context: tuple[tuple[ArmMpcInput, ArmMpcCfg], ...] = ()
 
     def __post_init__(self) -> None:
         candidate = self.candidate_effort
@@ -90,6 +95,12 @@ class SafetyInput:
             raise ValueError("force_closure_margin must be finite")
         if not isinstance(self.phase, BimanualPhase):
             raise TypeError("phase must be BimanualPhase")
+        if not isinstance(self.arm_mpc_context, tuple) or len(self.arm_mpc_context) not in (0, 2):
+            raise ValueError("arm_mpc_context must contain left and right arms or be empty")
+        for context in self.arm_mpc_context:
+            if (not isinstance(context, tuple) or len(context) != 2
+                    or not isinstance(context[0], ArmMpcInput) or not isinstance(context[1], ArmMpcCfg)):
+                raise TypeError("arm_mpc_context entries must be (ArmMpcInput, ArmMpcCfg)")
 
 
 @dataclass(frozen=True)
@@ -256,6 +267,8 @@ class SafetyProjection:
             )
             residual_norm = float(torch.max(torch.abs(residual)).item())
             if residual_norm <= 1.0e-6:
+                if not self.recoverability_ok(sample, qdd[ids]):
+                    return self._fallback(sample, "arm_mpc_recoverability")
                 return SafetyResult(
                     effort=locked_candidate,
                     feasible=True,
@@ -295,6 +308,8 @@ class SafetyProjection:
         residual_norm = float(torch.max(torch.abs(residual)).item())
         if residual_norm > 1.0e-6:
             return self._fallback(sample, "forward_dynamics_residual")
+        if not self.recoverability_ok(sample, qdd[ids]):
+            return self._fallback(sample, "arm_mpc_recoverability")
         return SafetyResult(
             effort=effort,
             feasible=True,
@@ -310,6 +325,19 @@ class SafetyProjection:
             fallback_reason=None,
             dynamics_residual=residual_norm,
         )
+
+    def recoverability_ok(self, sample: SafetyInput, active_qdd: torch.Tensor) -> bool:
+        """Check the state after this command, using constrained full dynamics."""
+        for offset, (arm, cfg) in zip((17, 24), sample.arm_mpc_context):
+            joints = slice(offset, offset + 7)
+            q = sample.active_q[joints]
+            qd = sample.active_qd[joints]
+            qdd = active_qdd[joints]
+            predicted = replace(arm, q=q + self.dt * qd + .5 * self.dt**2 * qdd,
+                                qd=qd + self.dt * qdd)
+            if not arm_mpc_recoverability_ok(predicted, cfg):
+                return False
+        return True
 
 
 __all__ = ["SafetyInput", "SafetyProjection", "SafetyResult"]

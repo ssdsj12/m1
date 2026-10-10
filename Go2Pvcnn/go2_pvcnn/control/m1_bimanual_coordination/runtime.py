@@ -9,7 +9,7 @@ from typing import Callable
 import torch
 import numpy as np
 
-from go2_pvcnn.control.m1_panda_coordination.arm_mpc import ArmMpcInput
+from go2_pvcnn.control.m1_panda_coordination.arm_mpc import ArmMpcCfg, ArmMpcInput
 
 from .constraints import BimanualWbcRequest
 from .grasp_goal import BimanualGraspGoal
@@ -343,6 +343,24 @@ class BimanualRuntime:
         """Return the immutable geometry/contact goal used by the last target."""
 
         return None if self._latest_motion_target is None else self._latest_motion_target.grasp_goal
+
+    def arm_recoverability_context(
+        self, snapshot: BimanualSnapshot
+    ) -> tuple[tuple[ArmMpcInput, ArmMpcCfg], ...]:
+        """Expose the exact arm samples and planner grids used by this runtime.
+
+        Custom legacy arm coordinators may not expose per-side planner configs;
+        in that case the empty result preserves their existing safety contract.
+        """
+        left, right = self._arm_inputs(snapshot)
+        contexts = []
+        for side, sample in (("left", left), ("right", right)):
+            planner = getattr(self.arm_mpc, side, None)
+            cfg = getattr(planner, "cfg", None)
+            if not isinstance(sample, ArmMpcInput) or not isinstance(cfg, ArmMpcCfg):
+                return ()
+            contexts.append((sample, cfg))
+        return tuple(contexts)
 
     @property
     def phase(self) -> BimanualPhase:

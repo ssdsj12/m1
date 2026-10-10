@@ -1304,6 +1304,24 @@ class M1DualPandaO6BimanualWrapper:
             if latest_wbc is None
             else latest_wbc.diagnostics.force_closure_margin
         )
+        context_provider = getattr(lane.runtime, "arm_recoverability_context", None)
+        arm_context_source = context_provider(snapshot) if callable(context_provider) else ()
+        arm_context = []
+        if arm_context_source:
+            active_ids = list(lane.adapter.active_joint_ids)
+            for index, side in enumerate(("left", "right")):
+                joint_ids = tuple(getattr(lane.adapter, f"{side}_arm_ids"))
+                positions = [active_ids.index(joint_id) for joint_id in joint_ids]
+                position_idx = torch.tensor(positions, dtype=torch.long)
+                sample, cfg = arm_context_source[index]
+                arm_context.append((replace(
+                    sample,
+                    q=active_q[position_idx],
+                    qd=active_qd[position_idx],
+                    q_min=limits[position_idx, 0],
+                    q_max=limits[position_idx, 1],
+                    qd_max=velocity_limits[position_idx],
+                ), cfg))
         return SafetyInput(
             candidate_effort=candidate,
             safe_effort=lane.baseline_command.effort,
@@ -1323,6 +1341,7 @@ class M1DualPandaO6BimanualWrapper:
             base_error=base_error,
             force_closure_margin=float(closure),
             phase=lane.runtime.mission.phase,
+            arm_mpc_context=tuple(arm_context),
         )
 
     def _write_default_physics_state(self) -> None:

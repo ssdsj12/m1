@@ -296,6 +296,58 @@ def predict_mount_reaction_wrench(
     return result
 
 
+def arm_mpc_recoverability_ok(sample: ArmMpcInput, cfg: ArmMpcCfg) -> bool:
+    """Check next-horizon q/qd/qdd feasibility on the MPC's discrete grid.
+
+    Maximum braking provides a cheap feasible witness in the normal case.
+    Extremal reachable positions prove unavoidable violations without a QP.
+    A small feasibility QP resolves the remaining cases (including a feasible
+    reversal within one sample); no continuous stopping-distance margin is
+    imposed. Effort/collision feasibility is still owned by MPC/WBC.
+    """
+    if not isinstance(sample, ArmMpcInput) or not isinstance(cfg, ArmMpcCfg):
+        raise TypeError("recoverability requires ArmMpcInput and ArmMpcCfg")
+    dt, tolerance = cfg.dt, cfg.qp_tolerance
+    elapsed = dt * torch.arange(1, cfg.horizon_steps + 1, dtype=torch.float64)[:, None]
+    free_q = sample.q + elapsed * sample.qd
+    reach = .5 * elapsed.square() * sample.qdd_max
+    if (torch.any(free_q - reach > sample.q_max + tolerance).item()
+            or torch.any(free_q + reach < sample.q_min - tolerance).item()
+            or torch.any(sample.qd.abs() - dt * sample.qdd_max > sample.qd_max + tolerance).item()):
+        return False
+    q, qd = sample.q, sample.qd
+    braking_feasible = True
+    for _ in range(cfg.horizon_steps):
+        acceleration = torch.clamp(-qd / dt, -sample.qdd_max, sample.qdd_max)
+        q = q + dt * qd + .5 * dt**2 * acceleration
+        qd = qd + dt * acceleration
+        if (torch.any(q < sample.q_min - tolerance).item()
+                or torch.any(q > sample.q_max + tolerance).item()
+                or torch.any(qd.abs() > sample.qd_max + tolerance).item()):
+            braking_feasible = False
+            break
+    if braking_feasible:
+        return True
+    dynamics = condense_arm_dynamics(sample.q, sample.qd, horizon_steps=cfg.horizon_steps, dt=dt)
+    n = cfg.horizon_steps * ARM_DOF
+    problem = DenseQpProblem(
+        hessian=torch.eye(n, dtype=torch.float64),
+        gradient=torch.zeros(n, dtype=torch.float64),
+        equality_matrix=torch.empty((0, n), dtype=torch.float64),
+        equality_rhs=torch.empty(0, dtype=torch.float64),
+        inequality_matrix=torch.cat((dynamics.q_from_qdd, -dynamics.q_from_qdd,
+                                     dynamics.qd_from_qdd, -dynamics.qd_from_qdd)),
+        inequality_upper=torch.cat((sample.q_max.repeat(cfg.horizon_steps) - dynamics.q_offset,
+                                    dynamics.q_offset - sample.q_min.repeat(cfg.horizon_steps),
+                                    sample.qd_max.repeat(cfg.horizon_steps) - dynamics.qd_offset,
+                                    sample.qd_max.repeat(cfg.horizon_steps) + dynamics.qd_offset)),
+        lower_bound=-sample.qdd_max.repeat(cfg.horizon_steps),
+        upper_bound=sample.qdd_max.repeat(cfg.horizon_steps),
+    )
+    result = solve_reference_qp(problem, tolerance=tolerance, max_iterations=cfg.qp_max_iterations)
+    return bool(result.success and torch.isfinite(result.solution).all().item())
+
+
 def _block_diagonal(matrix: torch.Tensor, count: int) -> torch.Tensor:
     result = torch.zeros(
         (count * matrix.shape[0], count * matrix.shape[1]), dtype=torch.float64
