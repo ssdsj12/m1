@@ -27,6 +27,31 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _accepted_info(**overrides):
+    info = {
+        "success": True,
+        "failure_reason": None,
+        "stage": "approval",
+        "phase": "hold",
+        "terminated": True,
+        "truncated": False,
+        "safety_failure": False,
+        "contacts_left": 2,
+        "contacts_right": 2,
+        "contact_forces_left": [0.21, 0.3],
+        "contact_forces_right": [0.4, 0.5],
+        "lift_height": 0.05,
+        "hold_time": 1.0,
+        "slip": 0.02,
+        "diagnostics": {
+            "feasibility": {"safety": True},
+            "rejection_reason": None,
+        },
+    }
+    info.update(overrides)
+    return info
+
+
 def _approval_run(tmp_path: Path, module):
     tmp_path.mkdir(parents=True, exist_ok=True)
     checkpoint = tmp_path / "best.pt"
@@ -35,14 +60,7 @@ def _approval_run(tmp_path: Path, module):
     accepted = {
         "episode_index": 0,
         "terminal_reason": "accepted",
-        "success": True,
-        "contacts_left": 2,
-        "contacts_right": 2,
-        "contact_forces_left": [0.21, 0.3],
-        "contact_forces_right": [0.4, 0.5],
-        "lift_height": 0.05,
-        "hold_time": 1.0,
-        "slip": 0.02,
+        **_accepted_info(),
     }
     episodes.write_text(json.dumps(accepted) + "\n", encoding="utf-8")
     body = {
@@ -187,6 +205,72 @@ def test_action_rejects_accepted_row_that_does_not_meet_fixed_physical_gate(tmp_
         module.validate_approval_resume(checkpoint)
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"safety_failure": True},
+        {"failure_reason": "arm_mpc_recoverability"},
+        {"diagnostics": {"feasibility": {"safety": False}}},
+        {"diagnostics": {"feasibility": {"safety": True}, "rejection_reason": "safety_rejected"}},
+        {"diagnostics": {"feasibility": {"safety": True}, "contact_failure_reason": "slip"}},
+        {"diagnostics": {}},
+        {"stage": "action"},
+        {"terminated": False, "truncated": True},
+        {"terminated": True, "truncated": True},
+    ],
+)
+def test_formal_approval_rejects_unsafe_or_inconsistent_terminal_evidence(overrides):
+    module = _load_module()
+    assert module.formal_approval_episode(_accepted_info(**overrides)) is False
+
+
+def test_action_recorder_uses_same_terminal_safety_gate_without_claiming_stage_a(tmp_path):
+    module = _load_module()
+    recorder = module.EpisodeRecorder(
+        tmp_path / "action.jsonl", expected_stage="action"
+    )
+    accepted = recorder.record(_accepted_info(stage="action"))
+    assert accepted["success"] is True
+    assert recorder.acceptance_counts == {"accepted": 1, "rejected": 0}
+
+    mismatch = module.EpisodeRecorder(
+        tmp_path / "mismatch.jsonl", expected_stage="action"
+    )
+    rejected = mismatch.record(_accepted_info(stage="approval"))
+    assert rejected["success"] is False
+    assert mismatch.acceptance_counts == {"accepted": 0, "rejected": 1}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"safety_failure": True},
+        {"failure_reason": "safety_projection"},
+        {"diagnostics": {"feasibility": {"safety": False}}},
+        {"diagnostics": {"feasibility": {"safety": True}, "rejection_reason": "safety_rejected"}},
+        {"diagnostics": {}},
+        {"stage": "action"},
+        {"terminated": False, "truncated": True},
+    ],
+)
+def test_action_resume_replays_each_accepted_row_through_full_safety_gate(
+    tmp_path, overrides
+):
+    module = _load_module()
+    checkpoint = _approval_run(tmp_path, module)
+    episodes = tmp_path / "episodes.jsonl"
+    row = json.loads(episodes.read_text(encoding="utf-8"))
+    row.update(overrides)
+    episodes.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    manifest_path = tmp_path / "training.manifest.json"
+    body = json.loads(manifest_path.read_text(encoding="utf-8"))
+    body["episodes_jsonl_sha256"] = _sha(episodes)
+    body["manifest_sha256"] = module.manifest_body_sha256(body)
+    manifest_path.write_text(json.dumps(body), encoding="utf-8")
+    with pytest.raises(ValueError, match="physical acceptance|terminal safety evidence"):
+        module.validate_approval_resume(checkpoint)
+
+
 def test_runtime_environment_pins_gpu0_and_one_cpu_helper_thread(monkeypatch):
     module = _load_module()
     for name in module.RUNTIME_ENVIRONMENT:
@@ -247,34 +331,76 @@ def test_best_checkpoint_is_published_atomically(tmp_path):
     assert not list(tmp_path.glob(".best.pt.*.tmp"))
 
 
-def test_best_checkpoint_is_policy_that_generated_new_accepted_rollout(tmp_path):
+def test_best_checkpoint_combines_preupdate_policy_with_rollout_end_normalizer(tmp_path):
+    torch = pytest.importorskip("torch")
     module = _load_module()
+    from rsl_rl.runners import OnPolicyRunner
+
+    class AcceptedWireEnv:
+        max_episode_steps = 2
+        device = torch.device("cpu")
+        stage = SimpleNamespace(value="approval")
+
+        def __init__(self):
+            self.steps = 0
+
+        @property
+        def unwrapped(self):
+            return self
+
+        def reset(self, seed=None):
+            self.steps = 0
+            return torch.zeros(6), {}
+
+        def step(self, action):
+            self.steps += 1
+            terminated = self.steps == self.max_episode_steps
+            info = _accepted_info(terminated=terminated) if terminated else {
+                "success": False,
+                "failure_reason": None,
+                "stage": "approval",
+                "phase": "approach",
+                "terminated": False,
+                "truncated": False,
+                "safety_failure": False,
+                "diagnostics": {"feasibility": {"safety": True}},
+            }
+            return torch.full((6,), float(self.steps)), float(self.steps), terminated, False, info
+
+        def close(self):
+            pass
+
     recorder = module.EpisodeRecorder(tmp_path / "episodes.jsonl")
-
-    class StatefulRunner:
-        state = b"rollout-policy"
-
-        def save(self, path):
-            Path(path).write_bytes(self.state)
-
-    runner = StatefulRunner()
+    env = module.WireRslRlEnv(AcceptedWireEnv(), recorder, seed=42, torch_module=torch)
+    cfg = deepcopy(module.load_train_config(CONFIG)["runner"])
+    cfg.update(num_steps_per_env=2, save_interval=100, empirical_normalization=True)
+    cfg["policy"].update(actor_hidden_dims=[8], critic_hidden_dims=[8], init_noise_std=0.1)
+    cfg["algorithm"].update(num_learning_epochs=1, num_mini_batches=1, schedule="fixed")
+    runner = OnPolicyRunner(env, cfg, log_dir=None, device="cpu")
+    rollout_policy = {
+        key: value.detach().clone()
+        for key, value in runner.alg.actor_critic.state_dict().items()
+    }
     tracker = module.RolloutBestCheckpointTracker(runner, recorder, tmp_path)
-    tracker.capture_rollout_policy()
-    recorder.record({
-        "success": True,
-        "contacts_left": 2,
-        "contacts_right": 2,
-        "contact_forces_left": [0.21, 0.22],
-        "contact_forces_right": [0.3, 0.4],
-        "lift_height": 0.05,
-        "hold_time": 1.0,
-        "slip": 0.02,
-    })
-    runner.state = b"updated-policy"
-    published = tracker.after_update()
-    assert (tmp_path / "best.pt").read_bytes() == b"rollout-policy"
+    tracker.install()
+    try:
+        result = runner.learn(num_learning_iterations=1)
+        published = tracker.after_update()
+    finally:
+        tracker.close()
+
+    assert result.completed_iterations == 1
+    assert recorder.acceptance_counts == {"accepted": 1, "rejected": 0}
     assert published == {"path": "best.pt", "sha256": _sha(tmp_path / "best.pt")}
-    assert tracker.rollout_checkpoint.read_bytes() == b"updated-policy"
+    checkpoint = torch.load(tmp_path / "best.pt", map_location="cpu", weights_only=False)
+    assert checkpoint["obs_norm_state_dict"]["_count"].item() == 3
+    assert checkpoint["obs_norm_state_dict"]["_count"].item() == runner.obs_normalizer.count
+    assert all(
+        torch.equal(checkpoint["model_state_dict"][key], value)
+        for key, value in rollout_policy.items()
+    )
+    assert checkpoint["optimizer_state_dict"]["state"] == {}
+    assert runner.alg.optimizer.state_dict()["state"]
 
 
 def test_episode_jsonl_and_manifest_include_reproducibility_and_outcomes(tmp_path):
@@ -282,23 +408,28 @@ def test_episode_jsonl_and_manifest_include_reproducibility_and_outcomes(tmp_pat
     recorder = module.EpisodeRecorder(tmp_path / "episodes.jsonl")
     assert recorder.path.is_file()
     assert recorder.path.read_bytes() == b""
+    recorder.record(_accepted_info(reward=2.0))
     recorder.record({
-        "success": True,
-        "failure_reason": None,
-        "reward": 2.0,
-        "contacts_left": 2,
-        "contacts_right": 2,
-        "contact_forces_left": [0.21, 0.22],
-        "contact_forces_right": [0.3, 0.4],
-        "lift_height": 0.05,
-        "hold_time": 1.0,
-        "slip": 0.02,
+        "success": False,
+        "failure_reason": "safety_projection",
+        "reward": -1.0,
+        "stage": "approval",
+        "phase": "failed",
+        "terminated": True,
+        "truncated": False,
+        "safety_failure": True,
+        "diagnostics": {"feasibility": {"safety": False}},
     })
-    recorder.record({"success": False, "failure_reason": "safety_projection", "reward": -1.0})
     assert recorder.acceptance_counts == {"accepted": 1, "rejected": 1}
     assert recorder.terminal_reason_counts == {"accepted": 1, "safety_projection": 1}
     rows = [json.loads(line) for line in (tmp_path / "episodes.jsonl").read_text().splitlines()]
     assert [row["episode_index"] for row in rows] == [0, 1]
+    assert rows[0]["safety_failure"] is False
+    assert rows[0]["diagnostics"] == {
+        "feasibility": {"safety": True},
+        "rejection_reason": None,
+    }
+    assert rows[1]["safety_failure"] is True
 
     manifest = module.build_training_manifest(
         stage="approval",
@@ -331,16 +462,15 @@ def test_formal_acceptance_is_fixed_and_does_not_follow_reward_shaping_config(tm
     })
     assert module.validate_reward_config(config) is None
     recorder = module.EpisodeRecorder(tmp_path / "episodes.jsonl")
-    row = recorder.record({
-        "success": True,
-        "contacts_left": 1,
-        "contacts_right": 1,
-        "contact_forces_left": [1.0],
-        "contact_forces_right": [1.0],
-        "lift_height": 1.0,
-        "hold_time": 2.0,
-        "slip": 0.0,
-    })
+    row = recorder.record(_accepted_info(
+        contacts_left=1,
+        contacts_right=1,
+        contact_forces_left=[1.0],
+        contact_forces_right=[1.0],
+        lift_height=1.0,
+        hold_time=2.0,
+        slip=0.0,
+    ))
     assert row["success"] is False
     assert recorder.acceptance_counts == {"accepted": 0, "rejected": 1}
 
@@ -348,14 +478,11 @@ def test_formal_acceptance_is_fixed_and_does_not_follow_reward_shaping_config(tm
 def test_recorder_materializes_contact_forces_from_production_diagnostics(tmp_path):
     module = _load_module()
     recorder = module.EpisodeRecorder(tmp_path / "episodes.jsonl")
-    row = recorder.record({
-        "success": True,
-        "contacts_left": 2,
-        "contacts_right": 2,
-        "lift_height": 0.05,
-        "hold_time": 1.0,
-        "slip": 0.02,
-        "diagnostics": {
+    row = recorder.record(_accepted_info(
+        contact_forces_left=None,
+        contact_forces_right=None,
+        diagnostics={
+            "feasibility": {"safety": True},
             "left_contact_mask": [True, False, True, False, False],
             "right_contact_mask": [False, True, False, True, False],
             "left_fingertip_forces_b": [
@@ -367,7 +494,7 @@ def test_recorder_materializes_contact_forces_from_production_diagnostics(tmp_pa
                 [0.0, 0.4, 0.0], [0.0, 0.0, 0.0],
             ],
         },
-    })
+    ))
     assert row["success"] is True
     assert row["contact_forces_left"] == pytest.approx([0.21, 0.22])
     assert row["contact_forces_right"] == pytest.approx([0.3, 0.4])
@@ -419,6 +546,64 @@ def test_wire_adapter_exposes_unwrapped_and_real_runner_completes_one_cpu_iterat
     assert recorder.acceptance_counts == {"accepted": 0, "rejected": 1}
 
 
+def test_stage_b_load_restores_learned_action_std(tmp_path):
+    torch = pytest.importorskip("torch")
+    module = _load_module()
+    from rsl_rl.runners import OnPolicyRunner
+
+    class StaticEnv:
+        max_episode_steps = 2
+        device = torch.device("cpu")
+        stage = SimpleNamespace(value="action")
+
+        @property
+        def unwrapped(self):
+            return self
+
+        def reset(self, seed=None):
+            return torch.zeros(6), {}
+
+        def step(self, action):
+            return torch.zeros(6), 0.0, False, False, {}
+
+        def close(self):
+            pass
+
+    cfg = deepcopy(module.load_train_config(CONFIG)["runner"])
+    cfg.update(num_steps_per_env=2, save_interval=100, empirical_normalization=False)
+    cfg["policy"].update(actor_hidden_dims=[8], critic_hidden_dims=[8], init_noise_std=0.1)
+    cfg["algorithm"].update(num_learning_epochs=1, num_mini_batches=1, schedule="fixed")
+    source_env = module.WireRslRlEnv(
+        StaticEnv(), module.EpisodeRecorder(tmp_path / "source.jsonl"),
+        seed=1, torch_module=torch,
+    )
+    source = OnPolicyRunner(source_env, deepcopy(cfg), log_dir=None, device="cpu")
+    with torch.no_grad():
+        source.alg.actor_critic.std.fill_(0.73)
+    for parameter in source.alg.actor_critic.parameters():
+        parameter.grad = torch.ones_like(parameter)
+    source.alg.optimizer.step()
+    source.alg.optimizer.zero_grad()
+    checkpoint = tmp_path / "approval.pt"
+    source.save(checkpoint)
+    saved = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    assert saved["optimizer_state_dict"]["state"]
+    saved_std = saved["model_state_dict"]["std"].tolist()
+
+    target_env = module.WireRslRlEnv(
+        StaticEnv(), module.EpisodeRecorder(tmp_path / "target.jsonl"),
+        seed=2, torch_module=torch,
+    )
+    target = OnPolicyRunner(target_env, deepcopy(cfg), log_dir=None, device="cpu")
+    with torch.no_grad():
+        target.alg.actor_critic.std.fill_(0.11)
+    module.load_stage_b_checkpoint(target, checkpoint)
+    assert target.alg.actor_critic.std.tolist() == pytest.approx(saved_std)
+    assert len(target.alg.optimizer.state_dict()["state"]) == len(
+        saved["optimizer_state_dict"]["state"]
+    )
+
+
 def test_truncated_transition_is_exposed_as_rsl_rl_timeout(tmp_path):
     torch = pytest.importorskip("torch")
     module = _load_module()
@@ -445,6 +630,109 @@ def test_truncated_transition_is_exposed_as_rsl_rl_timeout(tmp_path):
     assert dones.tolist() == [True]
     assert infos["time_outs"].dtype is torch.bool
     assert infos["time_outs"].tolist() == [True]
+
+
+def test_timeout_bootstrap_reaches_real_ppo_rollout_storage(tmp_path):
+    torch = pytest.importorskip("torch")
+    module = _load_module()
+    from rsl_rl.runners import OnPolicyRunner
+
+    class TruncatingEnv:
+        max_episode_steps = 1
+        device = torch.device("cpu")
+        stage = SimpleNamespace(value="approval")
+
+        @property
+        def unwrapped(self):
+            return self
+
+        def reset(self, seed=None):
+            return torch.zeros(3), {}
+
+        def step(self, action):
+            return torch.ones(3), 1.25, False, True, {
+                "success": False,
+                "failure_reason": "timeout",
+                "stage": "approval",
+                "phase": "approach",
+                "safety_failure": False,
+                "diagnostics": {"feasibility": {"safety": True}},
+            }
+
+        def close(self):
+            pass
+
+    env = module.WireRslRlEnv(
+        TruncatingEnv(), module.EpisodeRecorder(tmp_path / "episodes.jsonl"),
+        seed=0, torch_module=torch,
+    )
+    cfg = deepcopy(module.load_train_config(CONFIG)["runner"])
+    cfg.update(num_steps_per_env=1, save_interval=100, empirical_normalization=False)
+    cfg["policy"].update(actor_hidden_dims=[8], critic_hidden_dims=[8], init_noise_std=0.1)
+    cfg["algorithm"].update(num_learning_epochs=1, num_mini_batches=1, schedule="fixed")
+    runner = OnPolicyRunner(env, cfg, log_dir=None, device="cpu")
+    with torch.no_grad():
+        for parameter in runner.alg.actor_critic.critic.parameters():
+            parameter.zero_()
+        runner.alg.actor_critic.critic[-1].bias.fill_(2.0)
+    observations, extras = env.get_observations()
+    actions = runner.alg.act(observations, extras["observations"].get("critic", observations), env=env)
+    expected_value = runner.alg.transition.values.detach().clone().reshape(-1)
+    _, rewards, dones, infos = env.step(actions)
+    runner.alg.process_env_step(rewards, dones, infos)
+    stored_reward = runner.alg.storage.rewards[0].reshape(-1)
+    assert expected_value.tolist() == pytest.approx([2.0])
+    assert stored_reward.tolist() == pytest.approx(
+        (rewards + runner.alg.gamma * expected_value).tolist()
+    )
+    assert stored_reward.item() > rewards.item()
+
+
+def test_completed_and_failed_manifest_paths_pin_episode_ledger_sha(tmp_path):
+    module = _load_module()
+
+    def new_run(name):
+        run_dir = tmp_path / name
+        recorder = module.EpisodeRecorder(run_dir / "episodes.jsonl")
+        recorder.record({
+            "success": False,
+            "failure_reason": "timeout",
+            "reward": -1.0,
+            "stage": "approval",
+            "phase": "approach",
+            "terminated": False,
+            "truncated": True,
+            "safety_failure": False,
+            "diagnostics": {"feasibility": {"safety": True}},
+        })
+        manifest = module.build_training_manifest(
+            stage="approval", seed=42, num_envs=1, max_iterations=2,
+            device="cuda:0", run_dir=run_dir, config_path=CONFIG,
+        )
+        return run_dir, recorder, manifest
+
+    completed_dir, completed_recorder, completed = new_run("completed")
+    completed_path = completed_dir / "training.manifest.json"
+    module.publish_completed_manifest(
+        completed_path, completed, completed_recorder,
+        completed_iterations=2, stop_reason="max_iterations",
+    )
+    completed_doc = json.loads(completed_path.read_text(encoding="utf-8"))
+    assert completed_doc["status"] == "completed"
+    assert completed_doc["episodes_jsonl_sha256"] == _sha(completed_recorder.path)
+    assert completed_doc["manifest_sha256"] == module.manifest_body_sha256(completed_doc)
+
+    failed_dir, failed_recorder, failed = new_run("failed")
+    failed_path = failed_dir / "training.manifest.json"
+    module.publish_failed_manifest(
+        failed_path, failed, failed_recorder,
+        error=RuntimeError("boom"), traceback_text="traceback text",
+    )
+    failed_doc = json.loads(failed_path.read_text(encoding="utf-8"))
+    assert failed_doc["status"] == "failed"
+    assert failed_doc["error_type"] == "RuntimeError"
+    assert failed_doc["episodes_jsonl_sha256"] == _sha(failed_recorder.path)
+    assert failed_doc["manifest_sha256"] == module.manifest_body_sha256(failed_doc)
 
 
 def test_manifest_atomic_writer_embeds_verifiable_body_sha(tmp_path):

@@ -258,10 +258,28 @@ def _contact_forces(info: dict[str, object], side: str) -> tuple[float, ...]:
     return tuple(forces)
 
 
-def formal_approval_episode(info: dict[str, object]) -> bool:
-    """Apply the immutable physical promotion gate, independent of reward shaping."""
-
+def _formal_success_episode(info: dict[str, object], *, expected_stage: str) -> bool:
     try:
+        if info.get("stage") != expected_stage:
+            return False
+        if info.get("terminated") is not True or info.get("truncated") is not False:
+            return False
+        if info.get("safety_failure") is True:
+            return False
+        failure_reason = info.get("failure_reason")
+        if failure_reason not in (None, ""):
+            return False
+        diagnostics = info.get("diagnostics")
+        if not isinstance(diagnostics, dict):
+            return False
+        feasibility = diagnostics.get("feasibility")
+        if not isinstance(feasibility, dict) or feasibility.get("safety") is not True:
+            return False
+        if diagnostics.get("safety_failure") is True:
+            return False
+        for name in ("rejection_reason", "contact_failure_reason"):
+            if diagnostics.get(name) not in (None, ""):
+                return False
         left = info.get("contacts_left")
         right = info.get("contacts_right")
         if isinstance(left, bool) or not isinstance(left, int) or isinstance(right, bool) or not isinstance(right, int):
@@ -278,6 +296,38 @@ def formal_approval_episode(info: dict[str, object]) -> bool:
         )
     except ValueError:
         return False
+
+
+def formal_approval_episode(info: dict[str, object]) -> bool:
+    """Apply the immutable Stage-A promotion gate, independent of shaping."""
+
+    return _formal_success_episode(info, expected_stage="approval")
+
+
+def _diagnostics_summary(info: dict[str, object]) -> dict[str, object]:
+    """Materialize only the safety evidence required to replay promotion."""
+
+    diagnostics = info.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        return {}
+    summary: dict[str, object] = {}
+    feasibility = diagnostics.get("feasibility")
+    if isinstance(feasibility, dict) and "safety" in feasibility:
+        summary["feasibility"] = {"safety": _json_scalar(feasibility["safety"])}
+    for name in ("safety_failure", "rejection_reason", "contact_failure_reason"):
+        if name in diagnostics:
+            summary[name] = _json_scalar(diagnostics[name])
+    return summary
+
+
+def _materialized_safety_failure(info: dict[str, object]) -> bool:
+    diagnostics = info.get("diagnostics")
+    feasibility = diagnostics.get("feasibility") if isinstance(diagnostics, dict) else None
+    return bool(
+        info.get("safety_failure") is True
+        or (isinstance(diagnostics, dict) and diagnostics.get("safety_failure") is True)
+        or (isinstance(feasibility, dict) and feasibility.get("safety") is False)
+    )
 
 
 def _load_episode_ledger(path: Path) -> list[dict[str, object]]:
@@ -316,6 +366,15 @@ def _validate_episode_evidence(document: dict[str, object], manifest_path: Path)
         reason = row.get("terminal_reason")
         if not isinstance(success, bool) or not isinstance(reason, str) or not reason:
             raise ValueError("approval episode ledger outcome is malformed")
+        if (
+            row.get("stage") != "approval"
+            or not isinstance(row.get("safety_failure"), bool)
+            or not isinstance(row.get("diagnostics"), dict)
+            or not isinstance(row.get("terminated"), bool)
+            or not isinstance(row.get("truncated"), bool)
+            or row["terminated"] == row["truncated"]
+        ):
+            raise ValueError("approval episode ledger terminal safety evidence is malformed")
         if success:
             if reason != "accepted" or not formal_approval_episode(row):
                 raise ValueError("accepted ledger row does not meet physical acceptance")
@@ -449,12 +508,15 @@ class EpisodeRecorder:
 
     _FIELDS = (
         "success", "failure_reason", "reward", "terminated", "truncated",
+        "safety_failure", "diagnostics",
         "contacts_left", "contacts_right", "contact_forces_left", "contact_forces_right",
         "lift_height", "hold_time", "slip",
         "phase", "stage",
     )
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, expected_stage: str | None = None) -> None:
+        if expected_stage not in (None, "approval", "action"):
+            raise ValueError("expected_stage must be 'approval', 'action', or None")
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
@@ -463,13 +525,21 @@ class EpisodeRecorder:
         self.acceptance_counts = {"accepted": 0, "rejected": 0}
         self.terminal_reason_counts: Counter[str] = Counter()
         self.episode_count = 0
+        self.expected_stage = expected_stage
 
     def record(self, info: dict[str, object]) -> dict[str, object]:
         normalized = dict(info)
         normalized["contact_forces_left"] = _contact_forces(normalized, "left")
         normalized["contact_forces_right"] = _contact_forces(normalized, "right")
+        normalized["safety_failure"] = _materialized_safety_failure(normalized)
+        normalized["diagnostics"] = _diagnostics_summary(normalized)
         requested_success = normalized.get("success") is True
-        success = requested_success and formal_approval_episode(normalized)
+        expected_stage = self.expected_stage or normalized.get("stage")
+        success = (
+            requested_success
+            and isinstance(expected_stage, str)
+            and _formal_success_episode(normalized, expected_stage=expected_stage)
+        )
         normalized["success"] = success
         if requested_success and not success and not normalized.get("failure_reason"):
             normalized["failure_reason"] = "formal_acceptance_rejected"
@@ -518,10 +588,63 @@ def atomic_publish_checkpoint(runner: object, target: Path) -> str:
         raise
 
 
-def atomic_publish_existing_checkpoint(source: Path, target: Path) -> str:
-    payload = Path(source).read_bytes()
-    _atomic_bytes(Path(target), payload)
-    return hashlib.sha256(payload).hexdigest()
+def _cpu_model_state(module: object) -> dict[str, object]:
+    state_dict = module.state_dict()
+    return {
+        name: value.detach().to(device="cpu").clone()
+        for name, value in state_dict.items()
+    }
+
+
+def _cpu_checkpoint_value(value: object) -> object:
+    if isinstance(value, dict):
+        return {key: _cpu_checkpoint_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_cpu_checkpoint_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_cpu_checkpoint_value(item) for item in value)
+    detach = getattr(value, "detach", None)
+    if callable(detach):
+        return detach().to(device="cpu").clone()
+    return deepcopy(value)
+
+
+def atomic_publish_rollout_checkpoint(
+    runner: object,
+    target: Path,
+    *,
+    model_state_dict: dict[str, object],
+    optimizer_state_dict: dict[str, object],
+) -> str:
+    """Publish pre-update policy weights with the rollout-end normalizers."""
+
+    import torch
+
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        descriptor, name = tempfile.mkstemp(
+            dir=target.parent, prefix=f".{target.name}.", suffix=".tmp"
+        )
+        os.close(descriptor)
+        temporary = Path(name)
+        runner.save(str(temporary))
+        checkpoint = torch.load(temporary, map_location="cpu", weights_only=False)
+        if not isinstance(checkpoint, dict) or "model_state_dict" not in checkpoint:
+            raise ValueError("runner checkpoint is missing model_state_dict")
+        checkpoint["model_state_dict"] = deepcopy(model_state_dict)
+        checkpoint["optimizer_state_dict"] = deepcopy(optimizer_state_dict)
+        torch.save(checkpoint, temporary)
+        with temporary.open("rb") as stream:
+            os.fsync(stream.fileno())
+        digest = sha256_file(temporary)
+        os.replace(temporary, target)
+        return digest
+    except BaseException:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
 
 
 class RolloutBestCheckpointTracker:
@@ -531,25 +654,72 @@ class RolloutBestCheckpointTracker:
         self.runner = runner
         self.recorder = recorder
         self.run_dir = Path(run_dir)
-        self.rollout_checkpoint = self.run_dir / ".rollout_policy.pt"
         self.best_checkpoint = self.run_dir / "best.pt"
         self.previous_best = 0
+        self._rollout_model_state: dict[str, object] | None = None
+        self._rollout_optimizer_state: dict[str, object] | None = None
+        self._installed = False
+        self._algorithm = getattr(runner, "alg", None)
+        self._had_instance_update = False
+        self._instance_update = None
+        self._original_update = None
 
-    def capture_rollout_policy(self) -> None:
-        atomic_publish_checkpoint(self.runner, self.rollout_checkpoint)
+    def install(self) -> None:
+        """Capture the exact actor/critic state immediately before each PPO update."""
+
+        if self._installed:
+            raise RuntimeError("rollout checkpoint tracker is already installed")
+        actor_critic = getattr(self._algorithm, "actor_critic", None)
+        optimizer = getattr(self._algorithm, "optimizer", None)
+        original_update = getattr(self._algorithm, "update", None)
+        if actor_critic is None or optimizer is None or not callable(original_update):
+            raise TypeError("runner must expose alg.actor_critic, alg.optimizer, and alg.update()")
+        self._had_instance_update = "update" in vars(self._algorithm)
+        self._instance_update = vars(self._algorithm).get("update")
+        self._original_update = original_update
+
+        def tracked_update(*args, **kwargs):
+            self._rollout_model_state = _cpu_model_state(actor_critic)
+            self._rollout_optimizer_state = _cpu_checkpoint_value(
+                optimizer.state_dict()
+            )
+            return original_update(*args, **kwargs)
+
+        self._algorithm.update = tracked_update
+        self._installed = True
 
     def after_update(self) -> dict[str, str] | None:
+        if (
+            not self._installed
+            or self._rollout_model_state is None
+            or self._rollout_optimizer_state is None
+        ):
+            raise RuntimeError("PPO update completed without a captured rollout policy")
         accepted = self.recorder.acceptance_counts["accepted"]
         published = None
         if accepted > self.previous_best:
-            digest = atomic_publish_existing_checkpoint(self.rollout_checkpoint, self.best_checkpoint)
+            digest = atomic_publish_rollout_checkpoint(
+                self.runner,
+                self.best_checkpoint,
+                model_state_dict=self._rollout_model_state,
+                optimizer_state_dict=self._rollout_optimizer_state,
+            )
             published = {"path": self.best_checkpoint.name, "sha256": digest}
             self.previous_best = accepted
-        self.capture_rollout_policy()
+        self._rollout_model_state = None
+        self._rollout_optimizer_state = None
         return published
 
     def close(self) -> None:
-        self.rollout_checkpoint.unlink(missing_ok=True)
+        if not self._installed:
+            return
+        if self._had_instance_update:
+            self._algorithm.update = self._instance_update
+        else:
+            delattr(self._algorithm, "update")
+        self._installed = False
+        self._rollout_model_state = None
+        self._rollout_optimizer_state = None
 
 
 class WireRslRlEnv:
@@ -647,6 +817,63 @@ def _reward_cfg(config: dict[str, Any], stage: str):
     return WirePpoRewardCfg(**value)
 
 
+def load_stage_b_checkpoint(runner: object, checkpoint: Path) -> object:
+    """Restore the complete Stage-A exploration policy for Stage B."""
+
+    return runner.load(
+        str(Path(checkpoint).expanduser().resolve()),
+        load_optimizer=True,
+        keep_std=True,
+    )
+
+
+def _episode_outcome_fields(recorder: EpisodeRecorder) -> dict[str, object]:
+    return {
+        "acceptance_counts": dict(recorder.acceptance_counts),
+        "terminal_reason_counts": dict(sorted(recorder.terminal_reason_counts.items())),
+        "episodes_jsonl_sha256": sha256_file(recorder.path),
+    }
+
+
+def publish_completed_manifest(
+    path: Path,
+    manifest: dict[str, object],
+    recorder: EpisodeRecorder,
+    *,
+    completed_iterations: int,
+    stop_reason: str,
+) -> dict[str, object]:
+    document = deepcopy(manifest)
+    document.update({
+        "status": "completed",
+        "completed_iterations": int(completed_iterations),
+        "stop_reason": str(stop_reason),
+        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+        **_episode_outcome_fields(recorder),
+    })
+    return atomic_write_manifest(path, document)
+
+
+def publish_failed_manifest(
+    path: Path,
+    manifest: dict[str, object],
+    recorder: EpisodeRecorder,
+    *,
+    error: BaseException,
+    traceback_text: str,
+) -> dict[str, object]:
+    document = deepcopy(manifest)
+    document.update({
+        "status": "failed",
+        "failed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "error_type": type(error).__name__,
+        "error": str(error),
+        "traceback": str(traceback_text),
+        **_episode_outcome_fields(recorder),
+    })
+    return atomic_write_manifest(path, document)
+
+
 def main() -> int:
     configure_runtime_environment()
     args = build_arg_parser(include_app_launcher_args=True).parse_args()
@@ -670,7 +897,7 @@ def main() -> int:
     if resume_lineage is not None:
         manifest["approval_lineage"] = resume_lineage
     manifest = atomic_write_manifest(manifest_path, manifest)
-    recorder = EpisodeRecorder(run_dir / "episodes.jsonl")
+    recorder = EpisodeRecorder(run_dir / "episodes.jsonl", expected_stage=args.stage)
     app = None
     physical_env = None
     wrapped_env = None
@@ -721,9 +948,9 @@ def main() -> int:
         runner_cfg = deepcopy(config["runner"])
         runner = OnPolicyRunner(wrapped_env, runner_cfg, log_dir=str(run_dir), device=args.device)
         if resume_lineage is not None:
-            runner.load(str(args.resume_checkpoint), load_optimizer=True)
+            load_stage_b_checkpoint(runner, args.resume_checkpoint)
         checkpoint_tracker = RolloutBestCheckpointTracker(runner, recorder, run_dir)
-        checkpoint_tracker.capture_rollout_policy()
+        checkpoint_tracker.install()
         manifest.update({
             "status": "running",
             "started_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -745,29 +972,22 @@ def main() -> int:
             init_at_random_ep_len=False,
             iteration_callback=on_iteration,
         )
-        manifest.update({
-            "status": "completed",
-            "completed_iterations": int(result.completed_iterations),
-            "stop_reason": result.stop_reason or "max_iterations",
-            "completed_at_utc": datetime.now(timezone.utc).isoformat(),
-            "acceptance_counts": dict(recorder.acceptance_counts),
-            "terminal_reason_counts": dict(sorted(recorder.terminal_reason_counts.items())),
-            "episodes_jsonl_sha256": sha256_file(recorder.path),
-        })
-        atomic_write_manifest(manifest_path, manifest)
+        publish_completed_manifest(
+            manifest_path,
+            manifest,
+            recorder,
+            completed_iterations=result.completed_iterations,
+            stop_reason=result.stop_reason or "max_iterations",
+        )
         return 0
     except BaseException as error:
-        manifest.update({
-            "status": "failed",
-            "failed_at_utc": datetime.now(timezone.utc).isoformat(),
-            "error_type": type(error).__name__,
-            "error": str(error),
-            "traceback": traceback.format_exc(),
-            "acceptance_counts": dict(recorder.acceptance_counts),
-            "terminal_reason_counts": dict(sorted(recorder.terminal_reason_counts.items())),
-            "episodes_jsonl_sha256": sha256_file(recorder.path),
-        })
-        atomic_write_manifest(manifest_path, manifest)
+        publish_failed_manifest(
+            manifest_path,
+            manifest,
+            recorder,
+            error=error,
+            traceback_text=traceback.format_exc(),
+        )
         raise
     finally:
         if checkpoint_tracker is not None:
