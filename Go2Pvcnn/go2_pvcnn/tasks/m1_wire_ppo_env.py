@@ -17,6 +17,11 @@ from typing import Any
 
 import torch
 
+try:  # Gymnasium is present in IsaacLab runs but keep CPU contracts importable.
+    from gymnasium import spaces
+except ModuleNotFoundError:  # pragma: no cover - minimal CPU-only installations
+    spaces = None
+
 from go2_pvcnn.control.m1_bimanual_coordination.wire_ppo_contracts import (
     WIRE_PPO_ACTION_DIM,
     WireLatentCommand,
@@ -161,6 +166,14 @@ class M1WirePpoEnv:
         self.device = torch.device(device)
         self.observation_spec = WirePpoObservationSpec()
         self.action_dim = WIRE_PPO_ACTION_DIM
+        self.action_space = (
+            spaces.Box(-1.0, 1.0, (WIRE_PPO_ACTION_DIM,), dtype="float32")
+            if spaces is not None else (WIRE_PPO_ACTION_DIM, (-1.0, 1.0))
+        )
+        self.observation_space = (
+            spaces.Box(-1.0, 1.0, (self.observation_spec.observation_dim,), dtype="float32")
+            if spaces is not None else (self.observation_spec.observation_dim, (-1.0, 1.0))
+        )
         self._previous_state: WirePpoState | None = None
         self._previous_action = torch.zeros(WIRE_PPO_ACTION_DIM, dtype=torch.float32)
         self._observation = torch.zeros(self.observation_spec.observation_dim, dtype=torch.float32)
@@ -176,16 +189,6 @@ class M1WirePpoEnv:
     @property
     def observation_dim(self) -> int:
         return self.observation_spec.observation_dim
-
-    @property
-    def action_space(self) -> tuple[int, tuple[float, float]]:
-        """Dependency-free equivalent of a Box(-1, 1, (15,))."""
-
-        return (WIRE_PPO_ACTION_DIM, (-1.0, 1.0))
-
-    @property
-    def observation_space(self) -> tuple[int, tuple[float, float]]:
-        return (self.observation_spec.observation_dim, (-1.0, 1.0))
 
     def _wire_state(self, snapshot: object, diag: dict[str, Any]) -> WirePpoState:
         left_forces = _forces(diag, "left")
