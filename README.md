@@ -52,6 +52,25 @@
 - 训练产物、缓存和本机环境不纳入 Git；GitHub 仅保存源码、测试、文档和受 Git LFS
   管理的资产。
 
+## 2026-10-11 更新
+
+- 修正 O6 distal fingertip 的固定几何槽位映射：手状态和 fingertip Jacobian
+  现在使用左右手的 distal fingertip body，而不会被接触诊断的 proximal fallback
+  替换。对应提交：`42c0909`。
+- wire 指尖目标的默认径向偏移恢复为 `fingertip_offset_ratio=1.5`，保留可配置接口。
+  最新 GPU probe 仍未达到双侧各 2 指有效接触的验收门槛（当前最多为左/右 `1/1`，
+  尚未进入 bilateral latch、抬升或保持阶段）；因此不能宣称 wire 抓取已经完成。
+  对应提交：`3f01789`。该结果以 `Go2Pvcnn/artifacts/wire_contact_reduced_cosserat_postfix_seed42.jsonl`
+  为证据，SHA-256 为
+  `63f0ea19587a0836397281f8a1a1d26735ffbe82d533efdb0a36b8827ab91618`。
+- 新增两阶段 15D latent PPO wire 操作设计：Stage A 学习 approval（接近、双手接触、
+  闭指、夹持、抬升），Stage B 在 approval checkpoint 上学习 wire 动作；MPC 保留安全
+  投影、限位和 fallback。设计文档为
+  [`2026-10-11-t500-wire-ppo-action-design.md`](docs/superpowers/specs/2026-10-11-t500-wire-ppo-action-design.md)，
+  提交：`37ff0e5`；实施计划为
+  [`2026-10-11-t500-wire-ppo-action.md`](docs/superpowers/plans/2026-10-11-t500-wire-ppo-action.md)，
+  提交：`906d0f6`。当前仅完成设计与计划，尚未完成正式 PPO 训练验收。
+
 ## 已验证内容
 
 当前功能提交为 `265fbcf`，验证记录提交为 `7c6701d`。
