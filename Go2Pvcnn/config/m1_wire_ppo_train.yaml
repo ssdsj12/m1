@@ -1,0 +1,69 @@
+schema_version: 1
+task_id: Isaac-M1-DualPanda-O6-Bimanual-Lift-v0
+object_id: wire_000
+action_dim: 15
+max_episode_steps: 4000
+
+runner:
+  num_steps_per_env: 64
+  save_interval: 25
+  empirical_normalization: true
+  logger: tensorboard
+  policy:
+    class_name: ActorCritic
+    init_noise_std: 0.35
+    noise_std_type: scalar
+    actor_hidden_dims: [256, 256, 128]
+    critic_hidden_dims: [256, 256, 128]
+    activation: elu
+  algorithm:
+    class_name: PPO
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    clip_param: 0.2
+    gamma: 0.99
+    lam: 0.95
+    value_loss_coef: 1.0
+    entropy_coef: 0.01
+    learning_rate: 0.0003
+    min_learning_rate: 0.00001
+    max_learning_rate: 0.001
+    max_grad_norm: 1.0
+    use_clipped_value_loss: true
+    schedule: adaptive
+    desired_kl: 0.01
+    clip_min_std: 0.02
+    clip_max_std: 1.0
+
+rewards:
+  approval:
+    contact_force_threshold: 0.2
+    minimum_contacts_per_hand: 2
+    minimum_lift_m: 0.05
+    minimum_hold_s: 1.0
+    maximum_slip_m: 0.02
+    approach_weight: 1.0
+    contact_reward: 2.0
+    grasp_weight: 1.0
+    lift_weight: 2.0
+    hold_weight: 1.0
+    safety_failure_penalty: -10.0
+  action:
+    contact_force_threshold: 0.2
+    minimum_contacts_per_hand: 2
+    minimum_lift_m: 0.05
+    minimum_hold_s: 1.0
+    maximum_slip_m: 0.02
+    approach_weight: 1.0
+    contact_reward: 2.0
+    grasp_weight: 1.0
+    lift_weight: 2.0
+    hold_weight: 1.0
+    safety_failure_penalty: -10.0
+    action_centerline_weight: 1.0
+    action_tangent_weight: 0.5
+    action_deformation_weight: 0.5
+    action_synchronization_weight: 0.5
+    action_force_balance_weight: 0.5
+    action_slip_weight: 1.0
+    action_latent_smoothness_weight: 0.25
