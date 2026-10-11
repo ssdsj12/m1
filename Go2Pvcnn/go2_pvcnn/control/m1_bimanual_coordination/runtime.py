@@ -417,6 +417,10 @@ class BimanualRuntime:
             grasp_goal=self._grasp_goal,
         )
         self._step = 0
+        self._ppo_command = None
+        self.last_ppo_requested_phase = None
+        self._ppo_reduced_wire = None
+        self.latest_reduced_wire_update = None
         self._counts = {"object": 0, "arm": 0, "hand": 0, "wbc": 0}
         self._last_snapshot = None
         self._last_object = None
@@ -486,6 +490,13 @@ class BimanualRuntime:
         self, snapshot: BimanualSnapshot, side: str, target: torch.Tensor,
         *, wire_goal=None,
     ) -> HandMpcInput:
+        if getattr(self, "_ppo_command", None) is not None:
+            from .wire_ppo_control import ppo_hand_reference
+            sample = _default_hand_input(snapshot, side, target)
+            reference = ppo_hand_reference(sample.q, self._ppo_command, side)
+            tips = sample.fingertip_positions_b + (sample.contact_jacobian @ (reference - sample.q)).reshape(5, 3)
+            return replace(sample, phase=self.mission.phase,
+                fingertip_target_positions_b=tips, fingertip_target_mask=torch.ones(5, dtype=torch.bool))
         if self._hand_input_provider is not None:
             return self._hand_input_provider(snapshot, side, target)
         sample = _default_hand_input(snapshot, side, target)
@@ -748,11 +759,56 @@ class BimanualRuntime:
             if self.latest_wire_diagnostics is None:
                 self.latest_wire_diagnostics = UNAVAILABLE_WIRE_DIAGNOSTICS
 
+    def set_ppo_command(self, action: torch.Tensor) -> None:
+        from .wire_ppo_contracts import decode_wire_latent
+        from .wire_ppo_control import ppo_phase
+        command = decode_wire_latent(action, device="cpu", dtype=torch.float64)
+        self._ppo_command = command.as_vector
+        self.last_ppo_requested_phase = ppo_phase(self._ppo_command)
+
+    def _update_ppo_reduced_wire(self, snapshot, geometry):
+        """Advance the reduced physics from real measured grasp boundaries.
+
+        This path is independent of the task planner. The staged DeformX
+        backend remains the owner of contact-conditioned fine integration.
+        """
+        from .reduced_wire_runtime import ReducedWireRuntime, ReducedWireUpdate
+        from .reduced_cosserat import ReducedCosseratPredictor
+        if self.wire_coupling_state.phase is not WireCouplingPhase.COSSERAT_BOUND:
+            state = ReducedCosseratPredictor().reset(geometry.centerline)
+            endpoints = torch.tensor(state.endpoint_positions.copy())
+            self.latest_reduced_wire_update = ReducedWireUpdate(
+                state, None, endpoints[None].repeat(25, 1, 1), torch.zeros(25, 2, 3),
+                torch.zeros(2, 6), torch.zeros(25), None)
+            return None
+        reduced = getattr(self, "_ppo_reduced_wire", None)
+        if reduced is None:
+            reduced = ReducedWireRuntime(geometry.centerline,
+                frame_provider=lambda sample: self.wire_frame_provider(sample, self._wire_attachment))
+        frames = self.wire_frame_provider(snapshot, self._wire_attachment)
+        wrenches = []
+        for side in ("left", "right"):
+            hand = getattr(snapshot, f"{side}_hand")
+            forces = hand.fingertip_forces_b[hand.contact_mask].numpy()
+            positions = hand.fingertip_positions_b[hand.contact_mask].numpy()
+            force = forces.sum(axis=0)
+            moment = np.cross(positions - frames[f"{side}_frame"]["position"], forces).sum(axis=0)
+            wrenches.append(np.concatenate((force, moment)))
+        dt = .005 if self._last_snapshot is None else (snapshot.timestamp_ns - self._last_snapshot.timestamp_ns) * 1e-9
+        update = reduced.update(snapshot, wrenches, dt)
+        self.latest_reduced_wire_update = update
+        if update.failure_reason is None:
+            self._ppo_reduced_wire = reduced
+        return update.failure_reason
+
     def compute(self, snapshot: BimanualSnapshot) -> BimanualCommand:
         if not isinstance(snapshot, BimanualSnapshot):
             raise TypeError("snapshot must be BimanualSnapshot")
         if self._last_snapshot is not None:
             validate_monotonic_snapshot(self._last_snapshot, snapshot)
+        ppo_active = getattr(self, "_ppo_command", None) is not None
+        if ppo_active and self.mission.phase is not self.last_ppo_requested_phase:
+            self.mission._transition(self.last_ppo_requested_phase)
         # The active goal may be consumed by this cycle's hand QP, but it is
         # published as latest_wire_goal only after the WBC atomically accepts
         # the complete object/arm/hand command.
@@ -788,7 +844,16 @@ class BimanualRuntime:
         arm_solution = self._last_arm
         left_hand_solution = self._last_left_hand
         right_hand_solution = self._last_right_hand
-        if self._step % self.OBJECT_PERIOD == 0 or object_solution is None:
+        if ppo_active:
+            from .wire_ppo_control import ppo_object_reference
+            object_solution = ppo_object_reference(snapshot, self._ppo_command)
+            # Geometry still drives staged DeformX binding/contact certification;
+            # no object/trajectory planner chooses the policy's references.
+            if scene_geometry is not None and wire_failure is None:
+                from .dlo_wire_goal import build_wire_station_contact_goal
+                active_wire_goal = build_wire_station_contact_goal(scene_geometry.centerline)
+            self._counts["object"] += 1
+        elif self._step % self.OBJECT_PERIOD == 0 or object_solution is None:
             plan_scene_wire = (staged_wire and wire_failure is None
                                and proposal.next_state.phase is not WireCouplingPhase.SAFE_HOLD)
             plan_dlo_wire = (
@@ -836,19 +901,22 @@ class BimanualRuntime:
                 object_solution = wire_plan.object_solution
                 active_wire_goal = wire_plan.contact_goal
             self._counts["object"] += 1
-        if self._step % self.ARM_PERIOD == 0 or arm_solution is None:
+        if ppo_active or self._step % self.ARM_PERIOD == 0 or arm_solution is None:
             left_input, right_input = self._arm_inputs(snapshot)
             arm_solution = self.arm_mpc.plan(
                 DualArmMpcInput(left_input, right_input, object_solution)
             )
             self._counts["arm"] += 1
-        if self._step % self.HAND_PERIOD == 0 or left_hand_solution is None or right_hand_solution is None:
-            left_hand_solution = self.left_hand_mpc.plan(
-                self._hand_input(snapshot, "left", object_solution.left_wrench[0], wire_goal=active_wire_goal)
-            )
-            right_hand_solution = self.right_hand_mpc.plan(
-                self._hand_input(snapshot, "right", object_solution.right_wrench[0], wire_goal=active_wire_goal)
-            )
+        if ppo_active or self._step % self.HAND_PERIOD == 0 or left_hand_solution is None or right_hand_solution is None:
+            left_sample = self._hand_input(snapshot, "left", object_solution.left_wrench[0], wire_goal=active_wire_goal)
+            right_sample = self._hand_input(snapshot, "right", object_solution.right_wrench[0], wire_goal=active_wire_goal)
+            if ppo_active:
+                from .wire_ppo_control import project_ppo_hand_reference
+                left_hand_solution = project_ppo_hand_reference(self.left_hand_mpc, left_sample, self._ppo_command, "left")
+                right_hand_solution = project_ppo_hand_reference(self.right_hand_mpc, right_sample, self._ppo_command, "right")
+            else:
+                left_hand_solution = self.left_hand_mpc.plan(left_sample)
+                right_hand_solution = self.right_hand_mpc.plan(right_sample)
             self._counts["hand"] += 1
         distances, collision_jacobian = self._collision(snapshot)
         request = BimanualWbcRequest(
@@ -872,6 +940,8 @@ class BimanualRuntime:
         }
         if wbc_solution.feasible and staged_wire:
             wire_failure = self._commit_wire(snapshot, scene_geometry, proposal, wire_failure)
+            if ppo_active and wire_failure is None:
+                wire_failure = self._update_ppo_reduced_wire(snapshot, scene_geometry)
         if wbc_solution.feasible and wire_failure is None:
             command = BimanualCommand(
                 timestamp_ns=snapshot.timestamp_ns,

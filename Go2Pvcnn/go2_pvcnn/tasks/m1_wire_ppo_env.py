@@ -11,7 +11,7 @@ the PPO transition contract.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 import math
 from typing import Any
 
@@ -39,46 +39,24 @@ from go2_pvcnn.tasks.m1_wire_ppo_curriculum import (
 )
 
 
-def _flat(value: Any) -> list[float]:
-    """Convert a tensor/dataclass/numeric container into finite scalars."""
-
-    if value is None:
-        return []
-    if isinstance(value, torch.Tensor):
-        if value.numel() == 0:
-            return []
-        return [float(item) for item in value.detach().to(device="cpu", dtype=torch.float64).reshape(-1)]
-    if is_dataclass(value):
-        result: list[float] = []
-        for field_value in asdict(value).values():
-            result.extend(_flat(field_value))
-        return result
-    if isinstance(value, dict):
-        result = []
-        for key in sorted(value):
-            result.extend(_flat(value[key]))
-        return result
-    if isinstance(value, (list, tuple)):
-        result = []
-        for item in value:
-            result.extend(_flat(item))
-        return result
-    if isinstance(value, bool):
-        return [1.0 if value else 0.0]
-    if isinstance(value, (int, float)):
-        return [float(value)]
-    return []
+def _tensor(value: Any) -> torch.Tensor:
+    result = torch.as_tensor(value, dtype=torch.float64, device="cpu").clone()
+    if not torch.isfinite(result).all():
+        raise ValueError("wire PPO measurements must be finite")
+    return result
 
 
-def _finite_clip(values: list[float], size: int) -> torch.Tensor:
-    output = torch.zeros(size, dtype=torch.float32)
-    if values:
-        values = [float(item) if math.isfinite(float(item)) else 0.0 for item in values]
-        count = min(size, len(values))
-        output[:count] = torch.tensor(values[:count], dtype=torch.float32)
-    # Observations are normalized at the policy boundary.  The controller
-    # diagnostics are metric-valued, so clip only here and never in control.
-    return output.clamp_(-1.0, 1.0)
+def _resample(points: Any, count: int = 5) -> torch.Tensor:
+    points = _tensor(points)
+    if points.ndim != 2 or points.shape[1] != 3 or len(points) < 2:
+        raise ValueError("wire centerline must have shape (N>=2, 3)")
+    return torch.nn.functional.interpolate(points.T[None], size=count, mode="linear", align_corners=True)[0].T
+
+
+def _tangents(points: torch.Tensor) -> torch.Tensor:
+    segments = points[1:] - points[:-1]
+    segments = segments / torch.linalg.vector_norm(segments, dim=1, keepdim=True).clamp_min(1e-12)
+    return torch.cat((segments, segments[-1:]))
 
 
 def _diagnostics(wrapper: object) -> dict[str, Any]:
@@ -96,16 +74,11 @@ def _diagnostics(wrapper: object) -> dict[str, Any]:
 
 
 def _forces(diag: dict[str, Any], side: str) -> tuple[float, ...]:
-    raw = diag.get(f"{side}_fingertip_forces_b", ())
-    result: list[float] = []
-    if isinstance(raw, torch.Tensor):
-        raw = raw.detach().cpu().tolist()
-    for force in raw if isinstance(raw, (tuple, list)) else ():
-        if isinstance(force, (tuple, list)):
-            result.append(float(torch.linalg.vector_norm(torch.as_tensor(force, dtype=torch.float64))))
-        elif isinstance(force, (int, float)):
-            result.append(abs(float(force)))
-    return tuple(item for item in result if math.isfinite(item) and item >= 0.0)
+    raw = _tensor(diag.get(f"{side}_fingertip_forces_b", torch.zeros(5, 3)))
+    mask = torch.as_tensor(diag.get(f"{side}_contact_mask", [False] * 5), dtype=torch.bool)
+    if raw.shape != (5, 3) or mask.shape != (5,):
+        raise ValueError("contact forces/mask must have shapes (5,3)/(5,)")
+    return tuple(torch.linalg.vector_norm(raw[mask], dim=1).tolist())
 
 
 def _contact_count(diag: dict[str, Any], side: str) -> int:
@@ -125,11 +98,10 @@ def _contact_count(diag: dict[str, Any], side: str) -> int:
 
 
 def _scalar(diag: dict[str, Any], name: str, default: float = 0.0) -> float:
-    try:
-        value = float(diag.get(name, default) or default)
-    except (TypeError, ValueError, OverflowError):
-        return float(default)
-    return value if math.isfinite(value) else float(default)
+    value = float(diag.get(name, default))
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+    return value
 
 
 class M1WirePpoEnv:
@@ -149,6 +121,7 @@ class M1WirePpoEnv:
         reward_cfg: WirePpoRewardCfg | None = None,
         max_episode_steps: int = 4000,
         device: torch.device | str = "cpu",
+        target_centerline: torch.Tensor | None = None,
     ) -> None:
         if isinstance(stage, str):
             try:
@@ -181,6 +154,19 @@ class M1WirePpoEnv:
         self._initial_wire_height = 0.0
         self._diagnostic_history: list[dict[str, Any]] = []
         self._reset_done = False
+        self._configured_target = None if target_centerline is None else _resample(target_centerline)
+        self._target_centerline = self._configured_target
+        # Fixed v1 layout: wire=5 nodes position/tangent/velocity/target position/
+        # target tangent (75), segment stretch/curvature summary (5).
+        # Each hand=pose6, twist6, q6, qd6, fingertips15, force summaries3 (42).
+        # Each arm=q7, qd7 (14). Phase=6 one-hot, contact masks10, slips2,
+        # minimum joint-limit margins2. Previous action=15.
+        self.observation_layout = {
+            "wire": slice(0, 80), "left_hand": slice(80, 122),
+            "right_hand": slice(122, 164), "left_arm": slice(164, 178),
+            "right_arm": slice(178, 192), "phase": slice(192, 212),
+            "previous_action": slice(212, 227),
+        }
 
     @property
     def stage(self) -> WirePpoStage:
@@ -190,10 +176,33 @@ class M1WirePpoEnv:
     def observation_dim(self) -> int:
         return self.observation_spec.observation_dim
 
+    def _geometry(self, snapshot):
+        runtime = getattr(self.wrapper, "runtime", None)
+        update = getattr(runtime, "latest_reduced_wire_update", None)
+        state = getattr(update, "state", None)
+        if state is None:
+            state = getattr(getattr(runtime, "latest_dlo_step", None), "state", None)
+        if state is None:
+            provider = getattr(self.wrapper, "_wire_geometry_provider", None)
+            if callable(provider):
+                state = provider(snapshot).centerline
+        if state is None:
+            # The selected object's measured pose provides a reset fallback;
+            # no acceptance diagnostic has to exist before the first step.
+            center = _tensor(snapshot.box.pose_b[:3])
+            points = torch.stack((center + center.new_tensor([0., -.1, 0.]),
+                                  center + center.new_tensor([0., .1, 0.])))
+            velocities = _tensor(snapshot.box.twist_b[:3]).repeat(2, 1)
+        else:
+            points = _tensor(state.positions)
+            velocities = _tensor(getattr(state, "endpoint_velocities", torch.zeros(2, 3)))
+        return _resample(points), _resample(velocities)
+
     def _wire_state(self, snapshot: object, diag: dict[str, Any]) -> WirePpoState:
         left_forces = _forces(diag, "left")
         right_forces = _forces(diag, "right")
-        height = _scalar(diag, "wire_center_height_m", self._initial_wire_height)
+        points, velocities = self._geometry(snapshot)
+        height = float(points[:, 2].mean())
         lift = max(0.0, height - self._initial_wire_height)
         approach = max(
             0.0,
@@ -206,46 +215,50 @@ class M1WirePpoEnv:
             or diag.get("rejection_reason") in {"safety_rejected", "terminated", "non_finite_contact_observation"}
             or (isinstance(feasibility, dict) and feasibility.get("safety") is False)
         )
+        target = self._target_centerline if self._target_centerline is not None else points
+        segments, target_segments = points[1:] - points[:-1], target[1:] - target[:-1]
         return WirePpoState(
             approach_error=approach,
-            contacts_left=_contact_count(diag, "left"),
-            contacts_right=_contact_count(diag, "right"),
+            contacts_left=len(left_forces),
+            contacts_right=len(right_forces),
             contact_forces_left=left_forces,
             contact_forces_right=right_forces,
             lift_height=lift,
             hold_time=max(0.0, _scalar(diag, "hold_elapsed_s", _scalar(diag, "hold_time"))),
             slip=max(_scalar(diag, "left_slip_m"), _scalar(diag, "right_slip_m")),
             safety_failure=safety_failure,
-            wire_centerline_error=max(0.0, _scalar(diag, "wire_centerline_error")),
-            tangent_error=max(0.0, _scalar(diag, "tangent_error")),
-            deformation_error=max(0.0, _scalar(diag, "deformation_error")),
-            synchronization_error=max(0.0, _scalar(diag, "synchronization_error")),
-            force_balance_error=max(0.0, _scalar(diag, "force_balance_error")),
-            latent_delta_norm=float(torch.linalg.vector_norm(self._previous_action).item()),
+            wire_centerline_error=float(torch.linalg.vector_norm(points - target, dim=1).mean()),
+            tangent_error=float(torch.linalg.vector_norm(_tangents(points) - _tangents(target), dim=1).mean()),
+            deformation_error=float(torch.linalg.vector_norm(segments - target_segments, dim=1).mean()),
+            synchronization_error=float(torch.linalg.vector_norm(velocities[0] - velocities[-1])),
+            force_balance_error=abs(sum(left_forces) - sum(right_forces)),
         )
 
     def _build_observation(self, snapshot: object, diag: dict[str, Any]) -> torch.Tensor:
-        # Keep group boundaries explicit to make observation changes reviewable.
-        wire_values = _flat(diag)
-        wire_values.extend(_flat(getattr(self.wrapper, "runtime", None) and getattr(self.wrapper.runtime, "latest_wire_diagnostics", None)))
-        wire_values.extend(_flat(getattr(snapshot, "box", None)))
-        wire = _finite_clip(wire_values, self.observation_spec.wire_state_dim)
-
-        bimanual_values = []
-        for side in ("left_arm", "right_arm", "left_hand", "right_hand"):
-            bimanual_values.extend(_flat(getattr(snapshot, side, None)))
-        bimanual = _finite_clip(bimanual_values, self.observation_spec.bimanual_state_dim)
-
-        arm = _finite_clip(_flat(getattr(snapshot, "left_arm", None)) + _flat(getattr(snapshot, "right_arm", None)), self.observation_spec.arm_state_dim)
-        phase_name = str(diag.get("mission_phase", diag.get("acceptance_phase", "approach"))).lower()
-        phase_values = [1.0 if phase_name == phase else 0.0 for phase in ("approach", "contact", "grasp", "lift", "hold", "failed")]
-        phase_values += [float(_contact_count(diag, side)) / 5.0 for side in ("left", "right")]
-        phase_values += [_scalar(diag, "lift_elapsed_s"), _scalar(diag, "hold_elapsed_s")]
-        phase_values += [1.0 if bool(diag.get("success", False)) else 0.0, 1.0 if bool(diag.get("request_reclamp", False)) else 0.0]
-        safety = diag.get("feasibility", {})
-        phase_values += [1.0 if not (isinstance(safety, dict) and safety.get(name) is False) else 0.0 for name in ("safety", "object", "arm", "left_hand", "right_hand", "wbc")]
-        phase = _finite_clip(phase_values, self.observation_spec.safety_phase_dim)
-        result = torch.cat((wire, bimanual, arm, phase, self._previous_action), dim=0)
+        points, velocities = self._geometry(snapshot)
+        target = self._target_centerline if self._target_centerline is not None else points
+        tangents = _tangents(points)
+        curvature = torch.linalg.vector_norm(tangents[1:] - tangents[:-1], dim=1)
+        length = torch.linalg.vector_norm(points[1:] - points[:-1], dim=1).sum().reshape(1)
+        wire = torch.cat((points.flatten() / 2., tangents.flatten(), velocities.flatten(),
+                          target.flatten() / 2., _tangents(target).flatten(), curvature, length))
+        hands, arms, masks, margins = [], [], [], []
+        for side in ("left", "right"):
+            arm, hand = getattr(snapshot, f"{side}_arm"), getattr(snapshot, f"{side}_hand")
+            forces = torch.linalg.vector_norm(_tensor(hand.fingertip_forces_b), dim=1)
+            hands.append(torch.cat((_tensor(arm.palm_pose_b) / 3.2, _tensor(arm.palm_twist_b),
+                                    _tensor(hand.q) / 1.6, _tensor(hand.qd) / 4.,
+                                    _tensor(hand.fingertip_positions_b).flatten() / 2.,
+                                    torch.stack((forces[0], forces[1], forces[2:].sum())) / 10.)))
+            arms.append(torch.cat((_tensor(arm.q) / 3.2, _tensor(arm.qd) / 3.)))
+            masks.extend(_tensor(hand.contact_mask).tolist())
+            lower = _tensor([-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -.0175, -2.8973])
+            upper = _tensor([2.8973, 1.7628, 2.8973, -.0698, 2.8973, 3.7525, 2.8973])
+            margins.append(float(torch.minimum(arm.q - lower, upper - arm.q).min()) / 3.2)
+        phase_name = infer_wire_ppo_phase(self._wire_state(snapshot, diag), self.reward_cfg).value
+        phase_values = [float(phase_name == phase) for phase in ("approach", "contact", "grasp", "lift", "hold", "failed")]
+        phase = _tensor(phase_values + masks + [_scalar(diag, f"{s}_slip_m") / .02 for s in ("left", "right")] + margins)
+        result = torch.cat((wire, *hands, *arms, phase, self._previous_action)).to(torch.float32).clamp(-1., 1.)
         self.observation_spec.validate(result)
         return result.to(device=self.device)
 
@@ -255,7 +268,7 @@ class M1WirePpoEnv:
             "stage": self.stage.value,
             "phase": phase.value,
             "episode_step": self._episode_step,
-            "success": bool(approval_episode(state, self.reward_cfg) or diag.get("success", False)),
+            "success": bool(approval_episode(state, self.reward_cfg)),
             "failure_reason": diag.get("rejection_reason") or diag.get("contact_failure_reason"),
             "terminated": terminated,
             "truncated": truncated,
@@ -280,7 +293,10 @@ class M1WirePpoEnv:
         except TypeError:
             snapshot = reset() if seed is None else reset(int(seed))
         diag = _diagnostics(self.wrapper)
-        self._initial_wire_height = _scalar(diag, "wire_center_height_m")
+        points, _ = self._geometry(snapshot)
+        self._initial_wire_height = float(points[:, 2].mean())
+        self._target_centerline = (self._configured_target.clone() if self._configured_target is not None
+                                   else points + points.new_tensor([0., 0., self.reward_cfg.minimum_lift_m]))
         self._previous_action.zero_()
         self._episode_step = 0
         self._diagnostic_history.clear()
@@ -297,31 +313,22 @@ class M1WirePpoEnv:
         # reach the wrapper or mutate any physical/controller state.
         command: WireLatentCommand = decode_wire_latent(action, device=self.device, dtype=torch.float32)
         step_latent = getattr(self.wrapper, "step_latent", None)
-        if callable(step_latent):
-            step_latent(command.as_vector)
-        else:
-            step = getattr(self.wrapper, "step", None)
-            if not callable(step):
-                raise TypeError("wrapper must expose step_latent() or step()")
-            try:
-                step(command.as_vector)
-            except TypeError:
-                # Existing Isaac wrapper has a no-argument step; it still runs
-                # the approved safety/MPC path, while retaining the latent in
-                # this adapter's transition and diagnostics.
-                step()
+        if not callable(step_latent):
+            raise TypeError("wrapper must expose step_latent(); actions must not be discarded")
+        step_latent(command.as_vector)
         snapshot = getattr(self.wrapper, "last_snapshot", None)
         adapter = getattr(self.wrapper, "adapter", None)
         live_snapshot = getattr(adapter, "snapshot", None)
         if callable(live_snapshot):
             snapshot = live_snapshot()
         diag = _diagnostics(self.wrapper)
-        current = self._wire_state(snapshot, diag)
+        current = replace(self._wire_state(snapshot, diag), latent_delta_norm=float(
+            torch.linalg.vector_norm(command.as_vector.cpu() - self._previous_action)))
         breakdown = compute_wire_ppo_reward(self._previous_state, current, self.stage, self.reward_cfg)
         self._episode_step += 1
-        success = bool(diag.get("success", False) or approval_episode(current, self.reward_cfg))
+        success = bool(approval_episode(current, self.reward_cfg))
         terminal_phase = str(diag.get("acceptance_phase", "")).lower() in {"terminated", "failed"}
-        terminated = bool(success or terminal_phase)
+        terminated = bool(success or terminal_phase or current.safety_failure)
         truncated = bool(not terminated and self._episode_step >= self.max_episode_steps)
         self._previous_action = command.as_vector.detach().to(device="cpu", dtype=torch.float32).clone()
         self._previous_state = current

@@ -1584,6 +1584,21 @@ class M1DualPandaO6BimanualWrapper:
         if lane.wire_acceptance_tracker is not None:
             lane.wire_candidate_projection = None
             lane.wire_terminal_hold_projection = None
+        if getattr(self, "_ppo_latent_action", None) is not None:
+            # PPO owns task references; baseline is the Arm/Hand/WBC tracking
+            # result for those references. The teacher is not queried here.
+            safety_input = self._safety_input(lane, snapshot, dynamics, lane.baseline_command.effort)
+            lane.last_safety_result = lane.safety.project(safety_input)
+            if lane.wire_acceptance_tracker is not None:
+                lane.wire_candidate_projection = self._wire_projection_snapshot(
+                    safety_input, lane.last_safety_result, lane.safety)
+            feasible = lane.baseline_command.feasible and lane.last_safety_result.feasible
+            reasons = lane.baseline_command.fallback_reasons
+            if not lane.last_safety_result.feasible:
+                reasons = (*reasons, lane.last_safety_result.fallback_reason or "safety_infeasible")
+            return self._preserve_wire_runtime_status(lane, BimanualCommand(
+                timestamp_ns=snapshot.timestamp_ns, effort=lane.last_safety_result.effort,
+                feasible=feasible, fallback_reasons=reasons))
         if self.mode == "latent":
             if lane.latent_runtime is None:
                 raise RuntimeError("latent runtime was not initialized")
@@ -1605,7 +1620,6 @@ class M1DualPandaO6BimanualWrapper:
             if teacher_solution.diagnostics.feasible
             else lane.baseline_command.effort
         )
-        candidate = self._apply_ppo_palm_delta(lane, snapshot, candidate)
         safety_input = self._safety_input(lane, snapshot, dynamics, candidate)
         lane.last_safety_result = lane.safety.project(safety_input)
         if lane.wire_acceptance_tracker is not None:
@@ -1635,33 +1649,6 @@ class M1DualPandaO6BimanualWrapper:
                 fallback_reasons=tuple(fallback_reasons),
             ),
         )
-
-    def _apply_ppo_palm_delta(
-        self, lane: BimanualLaneController, snapshot: BimanualSnapshot,
-        candidate: torch.Tensor,
-    ) -> torch.Tensor:
-        """Map the first six PPO latent values to both Panda arm efforts.
-
-        The latent is a normalized task-space twist.  It is deliberately
-        passed through the measured fingertip/palm Jacobians and then through
-        the existing ``SafetyProjection``; PPO never bypasses arm limits or
-        the wire contact gate.  A missing latent leaves legacy behavior
-        bit-for-bit unchanged.
-        """
-        latent = getattr(self, "_ppo_latent_action", None)
-        if latent is None:
-            return candidate
-        twist = latent[:6].to(dtype=torch.float64, device="cpu")
-        # Small, bounded task-space increments keep exploration gentle while
-        # retaining the exact O6 distal/Jacobian mapping used by commit
-        # 42c0909 in the snapshot adapter.
-        twist = twist * torch.tensor(
-            [0.025, 0.025, 0.025, 0.08, 0.08, 0.08], dtype=torch.float64
-        )
-        result = candidate.clone()
-        for output, arm in ((slice(17, 24), snapshot.left_arm), (slice(24, 31), snapshot.right_arm)):
-            result[output] = result[output] + arm.jacobian_b.T @ twist
-        return result
 
     @staticmethod
     def _wire_projection_snapshot(sample, result, safety) -> dict[str, object]:
@@ -1736,6 +1723,16 @@ class M1DualPandaO6BimanualWrapper:
         right_solution = lane.runtime.latest_solutions["right_hand"]
         left_target = left_solution.q_ref
         right_target = right_solution.q_ref
+        if getattr(self, "_ppo_latent_action", None) is not None:
+            # Hand MPC already tracked the policy's independent left/right
+            # synergies and force targets; clamp the certified references to
+            # the actual articulation limits before servo submission.
+            data = lane.adapter.robot.data
+            targets = []
+            for side, target in (("left", left_target), ("right", right_target)):
+                limits = _cpu64(data.soft_joint_pos_limits[lane.env_index, list(getattr(lane.adapter, f"{side}_hand_ids"))])
+                targets.append(torch.maximum(limits[:, 0], torch.minimum(limits[:, 1], target)))
+            return tuple(targets)
         if lane.runtime.mission.phase is BimanualPhase.APPROACH:
             lane.left_hand_contact_q.fill_(torch.nan)
             lane.right_hand_contact_q.fill_(torch.nan)
@@ -1757,11 +1754,6 @@ class M1DualPandaO6BimanualWrapper:
                 right_target,
                 release_uncontacted=lane.wire_acceptance_tracker is not None,
             )
-        latent = getattr(self, "_ppo_latent_action", None)
-        if latent is not None:
-            hand_delta = latent[6:12].to(dtype=torch.float64, device="cpu")
-            left_target = left_target + 0.05 * hand_delta
-            right_target = right_target + 0.05 * hand_delta
         return left_target, right_target
 
     def step(self):
@@ -1776,19 +1768,19 @@ class M1DualPandaO6BimanualWrapper:
 
         Validation happens before setting any wrapper field, so malformed PPO
         output cannot advance Isaac, alter latches, or poison the last-safe
-        command.  ``phase_force`` remains available in ``last_ppo_latent``
-        for diagnostics; phase transitions and force limits stay authoritative
-        in the existing mission/WBC/safety layers.
+        command. All three groups become runtime goals before low-level
+        tracking, safety projection, and physical acceptance gates.
         """
         from go2_pvcnn.control.m1_bimanual_coordination.wire_ppo_contracts import decode_wire_latent
 
         command = decode_wire_latent(action, device="cpu", dtype=torch.float64)
         self._ppo_latent_action = command.as_vector.clone()
-        try:
-            return self.step()
-        finally:
-            # Keep the last command for episode diagnostics; reset() clears it.
-            pass
+        return self.step()
+
+    @property
+    def last_ppo_latent(self):
+        value = getattr(self, "_ppo_latent_action", None)
+        return None if value is None else value.clone()
 
     def _step_impl(self):
         if not self.startup_complete:
@@ -1800,9 +1792,13 @@ class M1DualPandaO6BimanualWrapper:
             snapshot = lane.adapter.snapshot()
             dynamics = lane.adapter.dynamics()
             self._prepare_wire_reclamp(lane, snapshot)
-            lane.baseline_command = self._stabilize_preload_arms(
-                lane, snapshot, lane.runtime.compute(snapshot)
-            )
+            ppo_action = getattr(self, "_ppo_latent_action", None)
+            if ppo_action is not None:
+                lane.runtime.set_ppo_command(ppo_action)
+                lane.baseline_command = lane.runtime.compute(snapshot)
+            else:
+                lane.baseline_command = self._stabilize_preload_arms(
+                    lane, snapshot, lane.runtime.compute(snapshot))
             teacher_input = build_teacher_input(
                 snapshot=snapshot,
                 dynamics=dynamics,

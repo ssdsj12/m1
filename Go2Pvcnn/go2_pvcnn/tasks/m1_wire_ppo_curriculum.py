@@ -281,7 +281,7 @@ def compute_wire_ppo_reward(
         synchronization=cfg.action_synchronization_weight * _progress(previous_state.synchronization_error, current_state.synchronization_error),
         force_balance=cfg.action_force_balance_weight * _progress(previous_state.force_balance_error, current_state.force_balance_error),
         slip=cfg.action_slip_weight * max(0.0, previous_state.slip - current_state.slip),
-        latent_smoothness=cfg.action_latent_smoothness_weight * max(0.0, previous_state.latent_delta_norm - current_state.latent_delta_norm),
+        latent_smoothness=-cfg.action_latent_smoothness_weight * current_state.latent_delta_norm,
     )
     return RewardBreakdown(total=sum(action.action_terms().values()), **{name: getattr(action, name) for name in action.__dataclass_fields__ if name != "total"})
 

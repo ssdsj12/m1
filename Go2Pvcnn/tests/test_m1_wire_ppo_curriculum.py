@@ -82,7 +82,7 @@ def test_stage_b_adds_wire_action_terms_and_latent_smoothness():
     assert breakdown.synchronization > 0
     assert breakdown.force_balance > 0
     assert breakdown.slip >= 0
-    assert breakdown.latent_smoothness > 0
+    assert breakdown.latent_smoothness == pytest.approx(-.25 * .1)
     assert breakdown.total == pytest.approx(sum(breakdown.action_terms().values()))
 
 
