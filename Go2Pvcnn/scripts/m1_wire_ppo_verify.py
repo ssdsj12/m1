@@ -695,12 +695,28 @@ def verify_aggregate_manifest(path: Path) -> dict[str, object]:
     stage = document.get("stage")
     requested = document.get("requested_episodes")
     if (
-        stage not in {"approval", "action"}
+        document.get("schema_version") != 1
+        or document.get("status") != "completed"
+        or stage not in {"approval", "action"}
         or isinstance(requested, bool)
         or not isinstance(requested, int)
         or requested <= 0
     ):
         raise ValueError("aggregate stage or requested episode count is invalid")
+    if (
+        document.get("source") != str(THIS_FILE)
+        or document.get("source_sha256") != sha256_file(THIS_FILE)
+    ):
+        raise ValueError("aggregate source lineage does not match verifier")
+    expected_thresholds = {
+        "minimum_contacts_per_hand": 2,
+        "contact_force_strictly_greater_than_n": 0.2,
+        "minimum_lift_m": 0.05,
+        "minimum_hold_s": 1.0,
+        "maximum_slip_m": 0.02,
+    }
+    if document.get("formal_thresholds") != expected_thresholds:
+        raise ValueError("aggregate formal thresholds were modified")
     training_manifest, reward_cfg = _pinned_training_context(
         document.get("checkpoint_lineage"), checkpoint=checkpoint_path, stage=stage
     )
