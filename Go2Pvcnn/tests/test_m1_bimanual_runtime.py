@@ -869,6 +869,44 @@ def test_catalog_diagnostics_project_current_fingertip_forces_on_goal_normals():
     )
 
 
+def test_preload_without_bilateral_contact_clamps_antiparallel_alignment_to_zero():
+    goal = generate_bimanual_grasp_goal(
+        (0.0, 0.0, 0.5),
+        dimensions=(0.30, 0.21, 0.035),
+        grasp_profile="thin_two_hand",
+        object_class="book",
+    )
+    runtime = BimanualRuntime(grasp_goal=goal)
+    runtime.mission.phase = BimanualPhase.PRELOAD
+    snapshot = _snapshot()
+    left_normal = torch.tensor(goal.left_contact_targets[0].normal, dtype=torch.float64)
+    snapshot = replace(
+        snapshot,
+        left_hand=replace(
+            snapshot.left_hand,
+            fingertip_forces_b=torch.cat(
+                ((-left_normal).reshape(1, 3), torch.zeros((4, 3), dtype=torch.float64))
+            ),
+            contact_mask=torch.tensor([True, False, False, False, False]),
+        ),
+        right_hand=replace(
+            snapshot.right_hand,
+            contact_mask=torch.zeros(5, dtype=torch.bool),
+        ),
+    )
+
+    diagnostics = runtime._mission_diagnostics(
+        snapshot,
+        _object_solution(),
+        _WbcController().solve(None),
+    )
+
+    assert diagnostics.left_normal_alignment == pytest.approx(0.0)
+    assert diagnostics.right_normal_alignment == pytest.approx(0.0)
+    assert not diagnostics.bilateral_contact
+    assert diagnostics.left_normal_alignment < goal.clamp_criteria.min_normal_alignment
+
+
 def test_staged_wire_diagnostics_use_outward_station_normals_not_catalog_obb_normals():
     generic_goal = generate_bimanual_grasp_goal(
         (0.5, 0.0, 1.2),

@@ -112,7 +112,10 @@ def _current_contact_force_metrics(
     projected = (forces * normals).sum(dim=1)
     normal_force = torch.clamp_min(projected, 0.0)
     force_norm = torch.linalg.vector_norm(forces, dim=1)
-    alignment = projected / force_norm.clamp_min(1.0e-12)
+    # Mission diagnostics expose alignment as a nonnegative quality metric.
+    # Keep anti-normal force as zero (rather than taking its absolute value),
+    # so a wrongly directed/noisy contact cannot satisfy a positive clamp gate.
+    alignment = (normal_force / force_norm.clamp_min(1.0e-12)).clamp(0.0, 1.0)
     active = hand.contact_mask[:target_count]
     if bool(active.any()):
         measured_normal_force = float(normal_force[active].sum().item())
