@@ -88,6 +88,19 @@ def _wire_command(wrapper, lane, snapshot):
     return wrapper._apply_wire_acceptance(lane, snapshot, None, lane.baseline_command)
 
 
+def test_wire_acceptance_preserves_the_final_safety_effort_vector(monkeypatch):
+    _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
+    projected = []
+    def project(sample):
+        effort = sample.candidate_effort.clone()
+        projected.append(effort)
+        return SimpleNamespace(effort=effort, feasible=True, fallback_reason=None)
+    lane.safety = SimpleNamespace(project=project)
+    command = _wire_command(wrapper, lane, snapshot)
+    assert projected
+    assert torch.equal(command.effort, projected[-1])
+
+
 def test_wrapper_requires_continuous_real_contact_before_lift(monkeypatch):
     _, wrapper, lane, snapshot = _acceptance_wrapper(monkeypatch)
     for _ in range(4):

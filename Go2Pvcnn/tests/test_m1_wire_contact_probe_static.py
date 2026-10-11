@@ -351,3 +351,146 @@ def test_asset_preflight_failure_preserves_final_json(monkeypatch, tmp_path):
     assert final["success"] is False
     assert final["terminal_reason"] == "preflight_error:FileNotFoundError"
     assert launches == []
+
+
+def _reduced_play_fixture():
+    import numpy as np
+    import torch
+    from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
+    from go2_pvcnn.control.m1_bimanual_coordination.dlo_wire_goal import DloCenterlineState
+    from go2_pvcnn.control.m1_bimanual_coordination.wire_coupling import WireCouplingState
+    from tests.test_m1_bimanual_object_mpc import _input
+    sample = _input(hold_measured_palm_orientation=True)
+    arms = [sample.snapshot.left_arm, sample.snapshot.right_arm]
+    endpoints = np.stack([arm.palm_pose_b[:3].numpy() + [0.01, 0., 0.] for arm in arms])
+    hands = {f'{side}_hand': replace(getattr(sample.snapshot, f'{side}_hand'),
+             fingertip_positions_b=torch.tensor(np.tile(endpoint, (5, 1))),
+             fingertip_forces_b=torch.zeros(5, 3, dtype=torch.float64))
+             for side, endpoint in zip(('left', 'right'), endpoints)}
+    sample = replace(sample, snapshot=replace(sample.snapshot, **hands))
+    geometry = SimpleNamespace(centerline=DloCenterlineState(np.linspace(*endpoints, 5), .004))
+    runtime = BimanualRuntime(wire_geometry_provider=lambda snapshot: geometry)
+    runtime.wire_coupling_state = WireCouplingState.initial()
+    wrapper = SimpleNamespace(runtime=runtime)
+    return wrapper, sample, geometry
+
+
+def test_reduced_play_waits_for_bilateral_latch_then_feeds_same_forecast_to_mpc_and_planner(monkeypatch):
+    import numpy as np
+    import torch
+    wrapper, sample, geometry = _reduced_play_fixture()
+    assert hasattr(play, '_configure_reduced_wire_runtime'), 'Play lacks reduced runtime wiring'
+    original = wrapper.runtime.object_mpc
+    planner = wrapper.runtime.dlo_trajectory_planner
+    inputs, updates = [], []
+    real_plan, real_prediction = original.plan, planner.plan_prediction
+    monkeypatch.setattr(original, 'plan', lambda value: inputs.append(value) or real_plan(value))
+    monkeypatch.setattr(planner, 'plan_prediction', lambda snap, solution, update:
+                        updates.append(update) or real_prediction(snap, solution, update))
+    play._configure_reduced_wire_runtime(wrapper)
+    runtime = wrapper.runtime
+    runtime.object_mpc.plan(sample)
+    assert inputs[-1].wire_prediction is None
+    assert runtime.latest_reduced_wire_status['reason'] == 'awaiting_bilateral_latch'
+    runtime.wire_coupling_state = replace(runtime.wire_coupling_state, left_latched=True)
+    runtime.object_mpc.plan(sample)
+    assert inputs[-1].wire_prediction is None
+    runtime.wire_coupling_state = replace(runtime.wire_coupling_state, left_latched=True, right_latched=True)
+    solution = runtime.object_mpc.plan(sample)
+    assert inputs[-1].wire_prediction is not None
+    update = runtime.latest_reduced_wire_update
+    np.testing.assert_allclose(inputs[-1].wire_prediction.endpoint_positions[:, 0],
+                               update.prediction.endpoint_positions[:, 0] - [0.01, 0., 0.])
+    result = runtime.dlo_trajectory_planner.plan_state(sample.snapshot, solution, geometry.centerline)
+    assert updates[-1] is update
+    # Geometry/contact generation may not replace the constrained QP trajectory.
+    assert result.object_solution is solution
+    assert runtime.latest_reduced_wire_status['active'] is True
+    assert solution.diagnostics.feasible
+    assert torch.isfinite(solution.left_palm_pose).all()
+
+
+def test_reduced_play_leaves_nonwire_runtime_unchanged():
+    from go2_pvcnn.control.m1_bimanual_coordination.runtime import BimanualRuntime
+    runtime = BimanualRuntime()
+    original = runtime.object_mpc
+    assert hasattr(play, '_configure_reduced_wire_runtime'), 'Play lacks reduced runtime wiring'
+    play._configure_reduced_wire_runtime(SimpleNamespace(runtime=runtime))
+    assert runtime.object_mpc is original
+
+
+def test_reduced_play_rejects_failed_prediction_and_records_reason():
+    import torch
+    wrapper, sample, geometry = _reduced_play_fixture()
+    assert hasattr(play, '_configure_reduced_wire_runtime'), 'Play lacks reduced runtime wiring'
+    play._configure_reduced_wire_runtime(wrapper)
+    runtime = wrapper.runtime
+    runtime.wire_coupling_state = replace(runtime.wire_coupling_state, left_latched=True, right_latched=True)
+    runtime.object_mpc.plan(sample)
+    # A large pinch jump violates reduced stretch/slip without mutating accepted state.
+    arm = sample.snapshot.left_arm
+    pose = arm.palm_pose_b.clone()
+    pose[0] += .2
+    bad = replace(sample, snapshot=replace(sample.snapshot, left_arm=replace(arm, palm_pose_b=pose)))
+    result = runtime.object_mpc.plan(bad)
+    assert not result.diagnostics.feasible
+    assert result.diagnostics.fallback_reason.startswith('reduced_wire:infeasible_state:')
+    assert runtime.latest_reduced_wire_status['reason'].startswith('infeasible_state:')
+    assert torch.isfinite(result.left_palm_pose).all()
+
+
+def test_reduced_play_reset_clears_latch_forecast_and_binding():
+    wrapper, sample, _ = _reduced_play_fixture()
+    play._configure_reduced_wire_runtime(wrapper)
+    runtime = wrapper.runtime
+    runtime.wire_coupling_state = replace(runtime.wire_coupling_state, left_latched=True, right_latched=True)
+    runtime.object_mpc.plan(sample)
+    assert runtime.latest_reduced_wire_status['active']
+    runtime.reset()
+    assert runtime.latest_reduced_wire_update is None
+    assert not runtime.latest_reduced_wire_status['active']
+    assert runtime.object_mpc.reduced is None
+
+
+def test_episode_serializes_reduced_runtime_activation_status(monkeypatch):
+    wrapper = _wrapper(_state())
+    status = {'active': False, 'reason': 'awaiting_bilateral_latch', 'prediction_feasible': None}
+    def configure(value):
+        assert value is wrapper
+        value.runtime.latest_reduced_wire_status = status
+    monkeypatch.setattr(play, '_configure_reduced_wire_runtime', configure)
+    recorder = _recorder()
+    args = SimpleNamespace(seed=42, max_steps=1, diagnostics=False)
+    assert play._play_episode(wrapper, _Application(), args, play._WireReportRecorder(), recorder) == 'max_steps'
+    assert recorder.records[0]['reduced_wire'] == status
+
+
+def test_reduced_play_material_matches_selected_object_and_controller():
+    wrapper, sample, _ = _reduced_play_fixture()
+    play._configure_reduced_wire_runtime(wrapper)
+    runtime = wrapper.runtime
+    runtime.wire_coupling_state = replace(runtime.wire_coupling_state, left_latched=True, right_latched=True)
+    runtime.object_mpc.plan(sample)
+    predictor = runtime.object_mpc.reduced._predictor
+    assert predictor.effective_mass_kg == float(sample.snapshot.box.mass)
+    assert predictor.friction_coefficient == runtime.object_mpc.cfg.friction_coefficient
+
+
+def test_reduced_play_forecasts_bounded_requested_lift_from_stationary_grasp():
+    import numpy as np
+    from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualPhase
+    wrapper, sample, _ = _reduced_play_fixture()
+    target = sample.target_box_pose_b.clone()
+    target[:, 2] += .05
+    sample = replace(sample, phase=BimanualPhase.LIFT,
+                     target_box_pose_b=target, target_object_pose_b=target)
+    play._configure_reduced_wire_runtime(wrapper)
+    runtime = wrapper.runtime
+    runtime.wire_coupling_state = replace(runtime.wire_coupling_state, left_latched=True, right_latched=True)
+    result = runtime.object_mpc.plan(sample)
+    update = runtime.latest_reduced_wire_update
+    assert update.failure_reason is None
+    assert np.all(update.prediction.endpoint_velocities[:, :, 2] > 0.)
+    assert float(update.lift_velocity.max()) <= runtime.dlo_trajectory_planner.palm_speed_m_s
+    assert result.diagnostics.feasible
+    assert float(result.box_twist[:, 2].max()) > 0.

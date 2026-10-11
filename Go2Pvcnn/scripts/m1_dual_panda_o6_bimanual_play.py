@@ -461,8 +461,146 @@ def main(parser: argparse.ArgumentParser | None = None) -> int:
             binding.close()
 
 
+class _ReducedWirePlayMpc:
+    """Attach reduced forecasts at the existing wire object-planning boundary."""
+
+    def __init__(self, runtime):
+        self.runtime = runtime
+        self.upstream = runtime.object_mpc
+        self.reduced = None
+        self.attachment = None
+        self.requested_lift = None
+        self.reset_status()
+
+    def __getattr__(self, name):
+        return getattr(self.upstream, name)
+
+    def reset_status(self):
+        self.runtime.latest_reduced_wire_update = None
+        self.runtime.latest_reduced_wire_status = {
+            "active": False, "reason": "awaiting_bilateral_latch",
+            "prediction_feasible": None,
+        }
+
+    def reset(self):
+        self.upstream.reset()
+        self.reduced = None
+        self.attachment = None
+        self.requested_lift = None
+        self.reset_status()
+
+    def boundary_frames(self, snapshot):
+        from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import dual_palm_attached_grasp_frames
+        frames = dual_palm_attached_grasp_frames(snapshot, self.attachment)
+        if self.requested_lift is not None:
+            for side in ("left", "right"):
+                # Boundary twist is a requested control, while pose remains
+                # measured. Keep rigid-offset angular velocity in pinch space.
+                arm = getattr(snapshot, f"{side}_arm")
+                frames[f"{side}_frame"]["velocity"][2] += self.requested_lift - float(arm.palm_twist_b[2])
+        return frames
+
+    def plan(self, sample):
+        import numpy as np
+        from go2_pvcnn.control.m1_bimanual_coordination.dlo_frame_provider import (
+            capture_palm_grasp_attachment, dual_palm_attached_grasp_frames,
+        )
+        from go2_pvcnn.control.m1_bimanual_coordination.reduced_wire_runtime import ReducedWireRuntime
+        from go2_pvcnn.control.m1_bimanual_coordination.contracts import BimanualPhase
+
+        coupling = self.runtime.wire_coupling_state
+        if self.reduced is None and not (coupling.left_latched and coupling.right_latched):
+            self.reset_status()
+            return self.upstream.plan(sample)
+        snapshot = sample.snapshot
+        self.requested_lift = None
+        if sample.phase is BimanualPhase.LIFT:
+            height_error = float(sample.target_box_pose_b[-1, 2] - snapshot.box.pose_b[2])
+            self.requested_lift = min(self.runtime.dlo_trajectory_planner.palm_speed_m_s,
+                                      max(0., height_error / self.upstream.cfg.horizon_seconds))
+        if self.reduced is None:
+            geometry = self.runtime.wire_geometry_provider(snapshot)
+            self.attachment = capture_palm_grasp_attachment(snapshot)
+            self.reduced = ReducedWireRuntime(
+                geometry.centerline,
+                frame_provider=self.boundary_frames,
+                material={"mass_kg": float(snapshot.box.mass),
+                          "friction_coefficient": self.upstream.cfg.friction_coefficient},
+            )
+        # Forces are selected-target sensor measurements. Do not also consume
+        # DeformX impulses here: the staged runtime owns that backend's stepping.
+        wrenches = []
+        frames = dual_palm_attached_grasp_frames(snapshot, self.attachment)
+        goal = self.runtime.latest_wire_goal
+        for side in ("left", "right"):
+            hand = getattr(snapshot, f"{side}_hand")
+            forces = hand.fingertip_forces_b[hand.contact_mask].numpy()
+            positions = hand.fingertip_positions_b[hand.contact_mask].numpy()
+            force = forces.sum(axis=0)
+            moment = np.cross(positions - frames[f"{side}_frame"]["position"], forces).sum(axis=0)
+            normal = (getattr(goal, f"{side}_palm_approach_normal") if goal is not None
+                      else (0., -1. if side == "left" else 1., 0.))
+            wrenches.append({"wrench": np.concatenate((force, moment)), "normal": normal})
+        # The forecast grid must match the 25-node object MPC (40 ms).
+        update = self.reduced.update(snapshot, wrenches, self.upstream.cfg.dt)
+        self.runtime.latest_reduced_wire_update = update
+        self.runtime.latest_reduced_wire_status = {
+            "active": True, "reason": update.failure_reason,
+            "prediction_feasible": update.prediction is not None,
+            "requested_lift_m_s": self.requested_lift,
+            "stretch": update.state.axial_stretch,
+            "bending": update.state.bending_proxy,
+            "left_normal_force_n": update.state.left_normal_force_n,
+            "right_normal_force_n": update.state.right_normal_force_n,
+        }
+        if update.failure_reason is not None:
+            return self.upstream._fallback(sample, f"reduced_wire:{update.failure_reason}")
+        # Task 3's optimizer uses palm positions; retain physical geometry and
+        # material diagnostics while translating endpoint references to palms.
+        prediction = update.prediction
+        positions = prediction.endpoint_positions.copy()
+        velocities = prediction.endpoint_velocities.copy()
+        for index, side in enumerate(("left", "right")):
+            arm = getattr(snapshot, f"{side}_arm")
+            frame = frames[f"{side}_frame"]
+            positions[:, index] += arm.palm_pose_b[:3].numpy() - frame["position"]
+            velocities[:, index] += arm.palm_twist_b[:3].numpy() - frame["velocity"]
+        palm_prediction = replace(prediction, endpoint_positions=positions,
+                                  endpoint_velocities=velocities,
+                                  endpoint_separation_m=np.linalg.norm(positions[:, 0] - positions[:, 1], axis=1))
+        return self.upstream.plan(replace(sample, wire_prediction=palm_prediction,
+                                          hold_measured_palm_orientation=True))
+
+
+class _ReducedWirePlayTrajectory:
+    def __init__(self, runtime, upstream):
+        self.runtime, self.upstream = runtime, upstream
+
+    def __getattr__(self, name):
+        return getattr(self.upstream, name)
+
+    def plan_state(self, snapshot, solution, state):
+        update = self.runtime.latest_reduced_wire_update
+        if update is None:
+            return self.upstream.plan_state(snapshot, solution, state)
+        plan = self.upstream.plan_prediction(snapshot, solution, update)
+        # Keep the QP's position/velocity/slip-constrained output authoritative.
+        return replace(plan, object_solution=solution)
+
+
+def _configure_reduced_wire_runtime(wrapper):
+    runtime = wrapper.runtime
+    if getattr(runtime, "wire_geometry_provider", None) is None:
+        return
+    if isinstance(runtime.object_mpc, _ReducedWirePlayMpc):
+        return
+    runtime.object_mpc = _ReducedWirePlayMpc(runtime)
+    runtime.dlo_trajectory_planner = _ReducedWirePlayTrajectory(runtime, runtime.dlo_trajectory_planner)
+
+
 def _play_episode(wrapper, simulation_app, args, wire_report, contact_report) -> str:
     reset_snapshot = wrapper.reset(seed=args.seed)
+    _configure_reduced_wire_runtime(wrapper)
     if contact_report is not None:
         contact_report.reset(
             wire_center_height_m=float(reset_snapshot.box.pose_b[2]),
@@ -481,6 +619,7 @@ def _play_episode(wrapper, simulation_app, args, wire_report, contact_report) ->
             diagnostics = wrapper.wire_acceptance_diagnostics
             if state is None or diagnostics is None:
                 raise RuntimeError("selected wire acceptance diagnostics are unavailable")
+            diagnostics["reduced_wire"] = getattr(wrapper.runtime, "latest_reduced_wire_status", None)
             contact_report.record(step=step + 1, diagnostics=diagnostics,
                                   acceptance_state=state, wire_coupling=wire_diagnostics)
         phase = wrapper.runtime.mission.phase.name

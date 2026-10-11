@@ -163,14 +163,15 @@ class SafetyProjection:
         self.base_kp = float(base_kp)
         self.qp_tolerance = float(qp_tolerance)
 
-    @staticmethod
-    def _fallback(sample: SafetyInput, reason: str) -> SafetyResult:
+    def _fallback(self, sample: SafetyInput, reason: str) -> SafetyResult:
         safe = torch.clamp(
             sample.safe_effort,
             min=-sample.effort_limits,
             max=sample.effort_limits,
         )
         safe[12:16] = 0.0
+        if self.externally_servoed_hand:
+            safe[31:43] = 0.0
         return SafetyResult(
             effort=safe,
             feasible=False,
@@ -241,10 +242,15 @@ class SafetyProjection:
         upper = sample.effort_limits.clone()
         lower[12:16] = 0.0
         upper[12:16] = 0.0
+        if self.externally_servoed_hand:
+            lower[31:43] = 0.0
+            upper[31:43] = 0.0
         inequality_matrix = torch.cat(inequality_rows)
         inequality_upper_vector = torch.cat(inequality_upper)
         locked_candidate = sample.candidate_effort.clone()
         locked_candidate[12:16] = 0.0
+        if self.externally_servoed_hand:
+            locked_candidate[31:43] = 0.0
         candidate_is_feasible = bool(
             torch.all(locked_candidate >= lower - self.qp_tolerance).item()
             and torch.all(locked_candidate <= upper + self.qp_tolerance).item()
@@ -302,6 +308,8 @@ class SafetyProjection:
             return self._fallback(sample, "safety_qp_infeasible")
         effort = result.solution.clone()
         effort[12:16] = 0.0
+        if self.externally_servoed_hand:
+            effort[31:43] = 0.0
         qdd = reduced.qdd_offset + reduced.qdd_from_effort @ effort
         contact_force = reduced.contact_offset + reduced.contact_from_effort @ effort
         residual = sample.dynamics.mass_matrix @ qdd + sample.dynamics.bias - sample.dynamics.actuation_matrix @ effort - sample.dynamics.wheel_contact_jacobian.T @ contact_force

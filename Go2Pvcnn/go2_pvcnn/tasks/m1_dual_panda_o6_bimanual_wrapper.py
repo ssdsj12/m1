@@ -1212,7 +1212,9 @@ class M1DualPandaO6BimanualWrapper:
         if rejected:
             reason = state.terminal_reason or "safety_rejected"
             reasons = (*reasons, reason)
-        effort[31:43] = 0.0  # O6 position servos remain the hand command authority.
+        # SafetyProjection already locks externally servoed O6 effort to zero.
+        # Preserve its exact vector: changing hand effort here invalidates the
+        # coupled arm acceleration and recoverability certificate.
         result = BimanualCommand(command.timestamp_ns, effort, not rejected, reasons)
         if result.feasible:
             lane.wire_last_safe_command = result

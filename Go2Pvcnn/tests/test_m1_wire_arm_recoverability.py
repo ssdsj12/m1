@@ -138,3 +138,21 @@ def test_wrapper_passes_actual_arm_context_to_final_safety_boundary(monkeypatch)
     result = SafetyProjection().project(actual)
     assert not result.feasible
     assert result.fallback_reason == "arm_mpc_recoverability"
+
+
+@pytest.mark.parametrize('path', ['candidate', 'projected', 'fallback'])
+def test_external_hand_servo_cannot_change_effort_after_safety_certificate(path):
+    # Seed42 step2320 projected nonzero O6 efforts, then the wrapper discarded
+    # them. The certified Panda braking acceleration consequently changed sign.
+    sample = _input()
+    candidate = sample.candidate_effort.clone()
+    candidate[31:43] = 3.
+    if path == 'projected':
+        candidate[17] = 1.e6
+    elif path == 'fallback':
+        candidate[0] = torch.nan
+    sample = replace(sample, candidate_effort=candidate,
+                     safe_effort=torch.full((43,), .25, dtype=torch.float64))
+    result = SafetyProjection(externally_servoed_hand=True).project(sample)
+    assert result.feasible is (path != 'fallback')
+    assert torch.equal(result.effort[31:43], torch.zeros(12, dtype=torch.float64))
