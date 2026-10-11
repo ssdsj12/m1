@@ -71,6 +71,20 @@
   [`2026-10-11-t500-wire-ppo-action.md`](docs/superpowers/plans/2026-10-11-t500-wire-ppo-action.md)，
   提交：`906d0f6`。当前仅完成设计与计划，尚未完成正式 PPO 训练验收。
 
+### PPO 实现状态（2026-10-11）
+
+- Wire PPO 实施计划 Task 1–5 已实现并完成审查：固定 15D latent action、Stage A
+  approval / Stage B wire-action 入口、训练与验证 manifest，以及严格的 approval
+  lineage（Stage B 必须从可验证的 Stage A approval checkpoint 继续）。
+- 当前累计通过 `389` 项 wire/PPO CPU 测试；关键实现收束提交为 `ad3164a`
+  （固定 aggregate verifier schema 字段）。
+- 尚未启动正式 GPU 训练：当前没有可用的 `best.pt` 与 `training.manifest` 训练产物，
+  因此 verify 会按设计 fail closed，不会把缺失或未经验证的 checkpoint 当作可用模型。
+- 相关文档：
+  [`2026-10-08-t500-wire-real-contact-mpc-readiness-design.md`](docs/superpowers/specs/2026-10-08-t500-wire-real-contact-mpc-readiness-design.md)、
+  [`2026-10-11-t500-wire-ppo-action-design.md`](docs/superpowers/specs/2026-10-11-t500-wire-ppo-action-design.md)、
+  [`2026-10-11-t500-wire-ppo-action.md`](docs/superpowers/plans/2026-10-11-t500-wire-ppo-action.md)。
+
 ## 已验证内容
 
 当前功能提交为 `265fbcf`，验证记录提交为 `7c6701d`。
