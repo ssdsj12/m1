@@ -54,7 +54,7 @@ def test_station_goal_centers_each_opposed_pinch_on_its_endpoint():
             outward = np.array(target.position) - station
             np.testing.assert_allclose(target.normal, outward / np.linalg.norm(outward))
         assert np.isclose(np.linalg.norm(np.array(targets[0].position) - station),
-                          np.hypot(0.007, 0.003))
+                          np.hypot(0.007, 0.004))
     np.testing.assert_allclose(goal.center, state.midpoint)
     np.testing.assert_allclose(goal.left_palm_approach_normal, [0., -1., 0.])
     np.testing.assert_allclose(goal.right_palm_approach_normal, [0., 1., 0.])
@@ -83,7 +83,7 @@ def test_o6_station_targets_straddle_the_5mm_wire_with_positive_normal_alignment
         for target in targets:
             radial = np.asarray(target.position) - station
             radial_distance = np.linalg.norm(radial)
-            assert 0.008 < radial_distance < 0.010
+            assert 0.009 < radial_distance < 0.011
             radial /= radial_distance
             # Force alignment is positive and sufficiently normal to the wire;
             # this is a geometry invariant, not a relaxed acceptance threshold.
@@ -97,8 +97,34 @@ def test_station_fingertip_offset_is_configurable_but_remains_bounded():
     )
     with pytest.raises(ValueError, match="fingertip_offset_ratio"):
         build_wire_station_contact_goal(state, fingertip_offset_ratio=0.0)
+    explicit_baseline = build_wire_station_contact_goal(state, fingertip_offset_ratio=1.5)
+    assert np.isclose(
+        np.linalg.norm(np.asarray(explicit_baseline.left_contact_targets[0].position)),
+        np.hypot(0.008, 0.0075),
+    )
     with pytest.raises(ValueError, match="fingertip_offset_ratio"):
-        build_wire_station_contact_goal(state, fingertip_offset_ratio=1.1)
+        build_wire_station_contact_goal(state, fingertip_offset_ratio=1.51)
+
+
+def test_default_station_targets_preserve_endpoint_reachability_with_intermediate_radial_offset():
+    """The tuned default keeps each station reachable while restoring O6 radial placement."""
+    state = DloCenterlineState(
+        np.array([[0.4, 0.0, 1.2], [0.5, 0.0, 1.2], [0.6, 0.0, 1.2]]),
+        radius_m=0.005,
+    )
+    goal = build_wire_station_contact_goal(state)
+    expected_radial = np.hypot(0.008, 0.005)
+    for targets, station in (
+        (goal.left_contact_targets, state.positions[0]),
+        (goal.right_contact_targets, state.positions[-1]),
+    ):
+        np.testing.assert_allclose(
+            np.mean([target.position for target in targets], axis=0), station
+        )
+        assert np.isclose(
+            np.linalg.norm(np.asarray(targets[0].position) - station),
+            expected_radial,
+        )
 
 
 @pytest.mark.parametrize("clearance", [0., -0.1, np.nan, np.inf])
