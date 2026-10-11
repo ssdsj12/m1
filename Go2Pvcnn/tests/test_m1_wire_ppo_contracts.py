@@ -84,4 +84,3 @@ def test_transition_validation_accepts_valid_cpu_transition():
 def test_transition_rejects_invalid_inputs_atomically(observation, action, reward, done):
     with pytest.raises((TypeError, ValueError)):
         validate_wire_ppo_transition(observation, action, reward, done)
-
