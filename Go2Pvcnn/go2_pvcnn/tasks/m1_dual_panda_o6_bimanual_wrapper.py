@@ -451,6 +451,7 @@ class M1DualPandaO6SnapshotAdapter:
         self,
         side: str,
         joint_ids: tuple[int, ...],
+        fingertip_body_ids: tuple[int, ...],
         contact_body_id_candidates: tuple[tuple[int, ...], ...],
         contact_sensor_id_candidates: tuple[tuple[int, ...], ...],
         sensor_name: str,
@@ -490,13 +491,9 @@ class M1DualPandaO6SnapshotAdapter:
             raw_forces_w=_cpu64(raw_sensor_forces_w[list(flat_sensor_ids)]),
         )
         self.contact_summaries[side] = summary
-        body_names = tuple(self.robot.body_names)
-        selected_body_ids = [
-            _exact_body_id(body_names, name) for name in summary.selected_names
-        ]
         positions = vectors_in_base(
             base_quaternion,
-            _cpu64(data.body_pos_w[env, selected_body_ids]) - base_position,
+            _cpu64(data.body_pos_w[env, list(fingertip_body_ids)]) - base_position,
         )
         forces = vectors_in_base(
             base_quaternion,
@@ -519,7 +516,7 @@ class M1DualPandaO6SnapshotAdapter:
                         ]
                     ),
                 )
-                for body_id in selected_body_ids
+                for body_id in fingertip_body_ids
             )
         )
         fingertip_jacobian = fold_o6_fingertip_jacobians(
@@ -602,6 +599,7 @@ class M1DualPandaO6SnapshotAdapter:
             left_hand=self._hand_state(
                 "left",
                 self.left_hand_ids,
+                self.left_tip_ids,
                 self.left_contact_body_id_candidates,
                 self.left_contact_sensor_id_candidates,
                 "o6_contacts",
@@ -612,6 +610,7 @@ class M1DualPandaO6SnapshotAdapter:
             right_hand=self._hand_state(
                 "right",
                 self.right_hand_ids,
+                self.right_tip_ids,
                 self.right_contact_body_id_candidates,
                 self.right_contact_sensor_id_candidates,
                 "right_o6_contacts",

@@ -83,3 +83,20 @@ def test_target_filter_uses_one_sensor_body_per_contact_sensor() -> None:
     assert "right_pinky_distal_target_contact" in env_source
     assert "filter_prim_paths_expr=[]" in env_source
     assert "filtered_target_sensor_names" in wrapper_source
+
+
+def test_isaac_adapter_uses_fixed_distal_fingertip_geometry_for_hand_state() -> None:
+    """Contact force selection must not replace the distal FK slots.
+
+    A proximal fallback is valid for diagnosing a sensor, but feeding that
+    fallback body into the five-slot hand state shifts the O6 fingertip/Jacobian
+    mapping and makes the index target impossible to reach consistently.
+    """
+    wrapper_source = (
+        ROOT / "go2_pvcnn/tasks/m1_dual_panda_o6_bimanual_wrapper.py"
+    ).read_text()
+    assert "fingertip_body_ids" in wrapper_source
+    assert "data.body_pos_w[env, list(fingertip_body_ids)]" in wrapper_source
+    assert "body_id, body_count, all_jacobians.shape[1]" in wrapper_source
+    assert "self.left_tip_ids," in wrapper_source
+    assert "self.right_tip_ids," in wrapper_source
