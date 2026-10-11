@@ -142,3 +142,37 @@ def test_staged_wire_palm_translation_aligns_measured_pinch_centers():
         predicted_pinch = pinch + pose[-1, :3] - arm.palm_pose_b[:3]
         np.testing.assert_allclose(predicted_pinch, station, atol=1e-12)
         torch.testing.assert_close(pose[:, 3:], arm.palm_pose_b[3:].repeat(25, 1))
+
+
+def test_staged_wire_palm_target_uses_actual_o6_thumb_index_offsets():
+    """The palm reference is derived from the measured O6 fingertip layout."""
+    snapshot = _snapshot()
+    # Measured initial O6 palm-local offsets from the identity-geometry
+    # artifact (thumb, index, then the remaining fingertips).
+    offsets = {
+        "left": ((0.088278055, 0.011744365, 0.022792578),
+                  (0.091163635, 0.016176015, -0.042143941)),
+        "right": ((0.044979000, -0.070304650, -0.038530200),
+                   (0.072326870, -0.019518450, -0.068821910)),
+    }
+    for side, (thumb_offset, index_offset) in offsets.items():
+        palm = getattr(snapshot, f"{side}_arm").palm_pose_b[:3]
+        tips = palm + torch.tensor(
+            [thumb_offset, index_offset, thumb_offset, index_offset, thumb_offset],
+            dtype=torch.float64,
+        )
+        snapshot = replace(snapshot, **{f"{side}_hand": replace(
+            getattr(snapshot, f"{side}_hand"), fingertip_positions_b=tips,
+        )})
+
+    planner = DloWireTrajectoryPlanner(
+        palm_speed_m_s=10.0, track_pinch_center=True
+    )
+    state = _step().state
+    plan = planner.plan_state(snapshot, _object_solution(), state)
+    for side, station in (("left", state.positions[0]), ("right", state.positions[-1])):
+        arm = getattr(snapshot, f"{side}_arm")
+        pinch = getattr(snapshot, f"{side}_hand").fingertip_positions_b[:2].mean(0)
+        final_palm = getattr(plan.object_solution, f"{side}_palm_pose")[-1, :3]
+        expected = arm.palm_pose_b[:3] + torch.tensor(station) - pinch
+        torch.testing.assert_close(final_palm, expected, atol=1e-12, rtol=0.0)

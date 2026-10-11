@@ -73,10 +73,18 @@ def _orthogonal_frame(tangent: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return normal, binormal
 
 
+def _fingertip_offset(radius_m: float, ratio: float) -> float:
+    """Return the thumb/index cross-section offset for the O6 pinch."""
+    if not np.isfinite(ratio) or ratio <= 0.0 or ratio > 1.0:
+        raise ValueError("fingertip_offset_ratio must be in (0, 1]")
+    return float(radius_m) * float(ratio)
+
+
 def build_wire_line_contact_goal(
     state: DloCenterlineState,
     *,
     clearance_m: float = 0.003,
+    fingertip_offset_ratio: float = 0.75,
 ) -> WireLineContactGoal:
     """Create opposed thumb/index targets around the DLO midpoint.
 
@@ -93,7 +101,7 @@ def build_wire_line_contact_goal(
     normal, binormal = _orthogonal_frame(tangent)
     center = state.midpoint
     gap = state.radius_m + float(clearance_m)
-    finger_offset = state.radius_m * 1.5
+    finger_offset = _fingertip_offset(state.radius_m, fingertip_offset_ratio)
 
     def make_side(sign: float) -> tuple[ContactTarget, ...]:
         inward = -sign * normal
@@ -124,6 +132,7 @@ def build_wire_station_contact_goal(
     state: DloCenterlineState,
     *,
     clearance_m: float = 0.003,
+    fingertip_offset_ratio: float = 0.75,
 ) -> WireLineContactGoal:
     """Place opposed thumb/index pinches at the held-span endpoints.
 
@@ -137,7 +146,7 @@ def build_wire_station_contact_goal(
     tangent = state.midpoint_tangent
     normal, binormal = _orthogonal_frame(tangent)
     gap = state.radius_m + float(clearance_m)
-    finger_offset = state.radius_m * 1.5
+    finger_offset = _fingertip_offset(state.radius_m, fingertip_offset_ratio)
 
     def make_side(center, sign):
         offset = sign * gap * normal + finger_offset * binormal
