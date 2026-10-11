@@ -55,6 +55,46 @@ def _accepted_episode(*, stage: str = "approval") -> dict[str, object]:
     }
 
 
+def _pinned_approval_lineage(module, tmp_path: Path):
+    """Create a minimal, fully pinned Stage-A training artifact for verifier tests."""
+    checkpoint = tmp_path / "best.pt"
+    checkpoint.write_bytes(b"policy")
+    row = {
+        "episode_index": 0,
+        "terminal_reason": "accepted",
+        **_accepted_episode(stage="approval"),
+    }
+    episodes = tmp_path / "training-episodes.jsonl"
+    episodes.write_text(json.dumps(row, sort_keys=True) + "\n", encoding="utf-8")
+    training_manifest = tmp_path / "training.manifest.json"
+    module.write_sha_manifest(
+        training_manifest,
+        {
+            "schema_version": 1,
+            "status": "completed",
+            "stage": "approval",
+            "action_dim": 15,
+            "source": str(module.TRAIN_SCRIPT),
+            "source_sha256": _sha(module.TRAIN_SCRIPT),
+            "config": str(module.DEFAULT_CONFIG.resolve()),
+            "config_sha256": _sha(module.DEFAULT_CONFIG),
+            "episodes_jsonl": episodes.name,
+            "episodes_jsonl_sha256": _sha(episodes),
+            "acceptance_counts": {"accepted": 1, "rejected": 0},
+            "terminal_reason_counts": {"accepted": 1},
+            "best_checkpoint": {"path": checkpoint.name, "sha256": _sha(checkpoint)},
+        },
+    )
+    return checkpoint, training_manifest, {
+        "checkpoint": str(checkpoint.resolve()),
+        "checkpoint_sha256": _sha(checkpoint),
+        "training_manifest": str(training_manifest.resolve()),
+        "training_manifest_sha256": _sha(training_manifest),
+        "training_episodes_jsonl_sha256": _sha(episodes),
+        "approval_lineage": None,
+    }
+
+
 def test_cli_is_gpu0_single_lane_and_requires_checkpoint_stage_and_positive_episodes():
     module = _load_module()
     parser = module.build_arg_parser(include_app_launcher_args=False)
@@ -192,8 +232,7 @@ def test_checkpoint_manifest_and_episode_sha_tampering_is_rejected(tmp_path):
 
 def test_aggregate_manifest_pins_ledger_checkpoint_and_summary(tmp_path):
     module = _load_module()
-    checkpoint = tmp_path / "best.pt"
-    checkpoint.write_bytes(b"policy")
+    checkpoint, _training_manifest, lineage = _pinned_approval_lineage(module, tmp_path)
     rows = [
         module.build_episode_record(
             _accepted_episode(stage="approval"),
@@ -222,7 +261,7 @@ def test_aggregate_manifest_pins_ledger_checkpoint_and_summary(tmp_path):
         seed=42,
         requested_episodes=2,
         checkpoint=checkpoint,
-        checkpoint_lineage={"training_manifest_sha256": "a" * 64},
+        checkpoint_lineage=lineage,
         ledger=ledger,
         rows=rows,
     )
@@ -246,8 +285,7 @@ def test_aggregate_manifest_pins_ledger_checkpoint_and_summary(tmp_path):
 
 def test_aggregate_verifier_replays_counts_and_formal_gates(tmp_path):
     module = _load_module()
-    checkpoint = tmp_path / "best.pt"
-    checkpoint.write_bytes(b"policy")
+    checkpoint, _training_manifest, lineage = _pinned_approval_lineage(module, tmp_path)
     row = module.build_episode_record(
         _accepted_episode(stage="approval"),
         episode_index=0,
@@ -263,7 +301,7 @@ def test_aggregate_verifier_replays_counts_and_formal_gates(tmp_path):
         seed=42,
         requested_episodes=1,
         checkpoint=checkpoint,
-        checkpoint_lineage={"training_manifest_sha256": "a" * 64},
+        checkpoint_lineage=lineage,
         ledger=ledger,
         rows=[row],
     )
@@ -274,6 +312,151 @@ def test_aggregate_verifier_replays_counts_and_formal_gates(tmp_path):
 
     with pytest.raises(ValueError, match="aggregate counts"):
         module.verify_aggregate_manifest(manifest_path)
+
+
+def test_aggregate_rejects_rehashed_manifest_with_tampered_training_lineage(tmp_path):
+    module = _load_module()
+    checkpoint, training_manifest, lineage = _pinned_approval_lineage(module, tmp_path)
+    row = module.build_episode_record(
+        _accepted_episode(stage="approval"),
+        episode_index=0,
+        stage="approval",
+        checkpoint_sha256=_sha(checkpoint),
+    )
+    ledger = tmp_path / "episodes.jsonl"
+    module.write_episode_ledger(ledger, [row])
+    aggregate_path = tmp_path / "aggregate.manifest.json"
+    manifest = module.publish_aggregate_manifest(
+        aggregate_path,
+        stage="approval",
+        seed=42,
+        requested_episodes=1,
+        checkpoint=checkpoint,
+        checkpoint_lineage=lineage,
+        ledger=ledger,
+        rows=[row],
+    )
+
+    # Recompute the aggregate self-hash after replacing the lineage.  The
+    # verifier must still follow the pinned training manifest and reject it.
+    manifest["checkpoint_lineage"]["training_manifest"] = str(
+        (tmp_path / "missing-training.manifest.json").resolve()
+    )
+    module.write_sha_manifest(aggregate_path, manifest)
+    with pytest.raises(ValueError, match="training manifest"):
+        module.verify_aggregate_manifest(aggregate_path)
+
+    # Even a real alternate manifest is rejected when its actual file SHA is
+    # not the SHA recorded by the checkpoint lineage.
+    manifest["checkpoint_lineage"]["training_manifest"] = str(training_manifest.resolve())
+    manifest["checkpoint_lineage"]["training_manifest_sha256"] = "0" * 64
+    module.write_sha_manifest(aggregate_path, manifest)
+    with pytest.raises(ValueError, match="training manifest SHA-256"):
+        module.verify_aggregate_manifest(aggregate_path)
+
+    # A threshold/config substitution cannot be authorized by recomputing the
+    # training and aggregate self-hashes: the formal verifier pins the config
+    # path as well as its content SHA.
+    altered_config = tmp_path / "altered-wire-ppo.yaml"
+    altered_config.write_text(
+        module.DEFAULT_CONFIG.read_text(encoding="utf-8").replace(
+            "action_centerline_weight: 1.0", "action_centerline_weight: 9.0"
+        ),
+        encoding="utf-8",
+    )
+    training_doc = json.loads(training_manifest.read_text(encoding="utf-8"))
+    training_doc["config"] = str(altered_config.resolve())
+    training_doc["config_sha256"] = _sha(altered_config)
+    module.write_sha_manifest(training_manifest, training_doc)
+    manifest["checkpoint_lineage"]["training_manifest_sha256"] = _sha(training_manifest)
+    module.write_sha_manifest(aggregate_path, manifest)
+    with pytest.raises(ValueError, match="formal wire PPO config"):
+        module.verify_aggregate_manifest(aggregate_path)
+
+
+def test_aggregate_rejects_action_lineage_replay_after_approval_tamper(tmp_path):
+    module = _load_module()
+    checkpoint, training_manifest, _approval_checkpoint_lineage = _pinned_approval_lineage(
+        module, tmp_path
+    )
+    approval_lineage = {
+        "checkpoint": str(checkpoint.resolve()),
+        "checkpoint_sha256": _sha(checkpoint),
+        "manifest": str(training_manifest.resolve()),
+        "manifest_sha256": _sha(training_manifest),
+        "episodes_jsonl_sha256": _sha(tmp_path / "training-episodes.jsonl"),
+        "approval_seed": None,
+    }
+    action_checkpoint = tmp_path / "action-best.pt"
+    action_checkpoint.write_bytes(b"action-policy")
+    action_episodes = tmp_path / "action-training-episodes.jsonl"
+    action_row = {
+        "episode_index": 0,
+        "terminal_reason": "accepted",
+        **_accepted_episode(stage="action"),
+    }
+    action_episodes.write_text(
+        json.dumps(action_row, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    action_manifest = tmp_path / "action-training.manifest.json"
+    # The action manifest itself must have a valid approval lineage.  This
+    # fixture uses the real action entrypoint contract and then tampers only
+    # the aggregate copy below.
+    module.write_sha_manifest(
+        action_manifest,
+        {
+            "schema_version": 1,
+            "status": "completed",
+            "stage": "action",
+            "action_dim": 15,
+            "source": str(module.TRAIN_SCRIPT),
+            "source_sha256": _sha(module.TRAIN_SCRIPT),
+            "config": str(module.DEFAULT_CONFIG.resolve()),
+            "config_sha256": _sha(module.DEFAULT_CONFIG),
+            "episodes_jsonl": action_episodes.name,
+            "episodes_jsonl_sha256": _sha(action_episodes),
+            "acceptance_counts": {"accepted": 1, "rejected": 0},
+            "terminal_reason_counts": {"accepted": 1},
+            "best_checkpoint": {
+                "path": action_checkpoint.name,
+                "sha256": _sha(action_checkpoint),
+            },
+            "approval_lineage": approval_lineage,
+        },
+    )
+    # validate_approval_resume requires the parent checkpoint's manifest to be
+    # named training.manifest.json; the helper already created that artifact.
+    action_lineage = {
+        "checkpoint": str(action_checkpoint.resolve()),
+        "checkpoint_sha256": _sha(action_checkpoint),
+        "training_manifest": str(action_manifest.resolve()),
+        "training_manifest_sha256": _sha(action_manifest),
+        "training_episodes_jsonl_sha256": _sha(action_episodes),
+        "approval_lineage": approval_lineage,
+    }
+    row = module.build_episode_record(
+        _accepted_episode(stage="action"),
+        episode_index=0,
+        stage="action",
+        checkpoint_sha256=_sha(action_checkpoint),
+    )
+    ledger = tmp_path / "action-episodes.jsonl"
+    module.write_episode_ledger(ledger, [row])
+    aggregate_path = tmp_path / "action-aggregate.manifest.json"
+    manifest = module.publish_aggregate_manifest(
+        aggregate_path,
+        stage="action",
+        seed=42,
+        requested_episodes=1,
+        checkpoint=action_checkpoint,
+        checkpoint_lineage=action_lineage,
+        ledger=ledger,
+        rows=[row],
+    )
+    manifest["checkpoint_lineage"]["approval_lineage"]["checkpoint_sha256"] = "0" * 64
+    module.write_sha_manifest(aggregate_path, manifest)
+    with pytest.raises(ValueError, match="approval lineage"):
+        module.verify_aggregate_manifest(aggregate_path)
 
 
 def test_episode_record_reduces_non_json_diagnostics_to_task4_safety_evidence():

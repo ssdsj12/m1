@@ -41,6 +41,35 @@ RUNTIME_ENVIRONMENT = {
 }
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 
+# Immutable formal Stage-B target limits.  Runtime aggregate verification uses
+# the config reconstructed from the training manifest; this fallback exists
+# only for the standalone pure-CPU helpers and is deliberately explicit rather
+# than reading mutable ``WirePpoRewardCfg`` defaults.
+FORMAL_ACTION_TARGET_LIMITS = {
+    "action_maximum_centerline_error_m": 0.03,
+    "action_maximum_tangent_error": 0.25,
+    "action_maximum_deformation_error_m": 0.02,
+    "action_maximum_synchronization_error_m_s": 0.05,
+}
+
+
+class _FormalActionTargetCfg:
+    action_maximum_centerline_error_m = FORMAL_ACTION_TARGET_LIMITS[
+        "action_maximum_centerline_error_m"
+    ]
+    action_maximum_tangent_error = FORMAL_ACTION_TARGET_LIMITS[
+        "action_maximum_tangent_error"
+    ]
+    action_maximum_deformation_error_m = FORMAL_ACTION_TARGET_LIMITS[
+        "action_maximum_deformation_error_m"
+    ]
+    action_maximum_synchronization_error_m_s = FORMAL_ACTION_TARGET_LIMITS[
+        "action_maximum_synchronization_error_m_s"
+    ]
+
+
+FORMAL_ACTION_TARGET_CFG = _FormalActionTargetCfg()
+
 
 def configure_runtime_environment() -> None:
     for name, value in RUNTIME_ENVIRONMENT.items():
@@ -163,38 +192,47 @@ def _physical_gates(row: dict[str, object], *, stage: str) -> bool:
     return train._formal_success_episode(normalized, expected_stage=stage)
 
 
-def _action_target_gate(row: dict[str, object]) -> bool:
-    from go2_pvcnn.tasks.m1_wire_ppo_curriculum import WirePpoRewardCfg
+def _action_target_gate(
+    row: dict[str, object], *, reward_cfg: object
+) -> bool:
+    """Replay the Stage-B target with the pinned training reward config.
 
+    The verifier must never silently instantiate ``WirePpoRewardCfg()`` here:
+    that would make an evaluation artifact depend on whatever defaults happen
+    to be checked out at verification time.  Callers reconstruct ``reward_cfg``
+    from the SHA-pinned training manifest/config (or an explicitly supplied
+    formal config) before invoking this gate.
+    """
     target = row.get("action_target")
     if not isinstance(target, dict) or target.get("reached") is not True:
         return False
-    cfg = WirePpoRewardCfg()
     try:
         return (
             _finite(target.get("wire_centerline_error"), label="wire centerline error")
-            <= cfg.action_maximum_centerline_error_m
+            <= float(reward_cfg.action_maximum_centerline_error_m)
             and _finite(target.get("tangent_error"), label="tangent error")
-            <= cfg.action_maximum_tangent_error
+            <= float(reward_cfg.action_maximum_tangent_error)
             and _finite(target.get("deformation_error"), label="deformation error")
-            <= cfg.action_maximum_deformation_error_m
+            <= float(reward_cfg.action_maximum_deformation_error_m)
             and _finite(target.get("synchronization_error"), label="synchronization error")
-            <= cfg.action_maximum_synchronization_error_m_s
+            <= float(reward_cfg.action_maximum_synchronization_error_m_s)
         )
-    except ValueError:
+    except (AttributeError, TypeError, ValueError):
         return False
 
 
 def successful_episode_rows(
-    rows: Iterable[dict[str, object]], *, stage: str
+    rows: Iterable[dict[str, object]], *, stage: str, reward_cfg: object | None = None
 ) -> list[dict[str, object]]:
     if stage not in {"approval", "action"}:
         raise ValueError("stage must be approval or action")
+    if stage == "action" and reward_cfg is None:
+        reward_cfg = FORMAL_ACTION_TARGET_CFG
     selected: list[dict[str, object]] = []
     for row in rows:
         if row.get("success") is not True or not _physical_gates(row, stage=stage):
             continue
-        if stage == "action" and not _action_target_gate(row):
+        if stage == "action" and not _action_target_gate(row, reward_cfg=reward_cfg):
             continue
         selected.append(row)
     return selected
@@ -383,7 +421,8 @@ def _target_record(info: dict[str, object]) -> dict[str, object]:
 
 
 def build_episode_record(
-    info: dict[str, object], *, episode_index: int, stage: str, checkpoint_sha256: str
+    info: dict[str, object], *, episode_index: int, stage: str, checkpoint_sha256: str,
+    reward_cfg: object | None = None,
 ) -> dict[str, object]:
     from scripts import m1_wire_ppo_train as train
 
@@ -416,10 +455,12 @@ def build_episode_record(
     except ValueError:
         lift_reached = hold_reached = False
     requested_success = row.get("success") is True
+    if stage == "action" and reward_cfg is None:
+        reward_cfg = FORMAL_ACTION_TARGET_CFG
     row["success"] = bool(
         requested_success
         and _physical_gates(row, stage=stage)
-        and (stage == "approval" or _action_target_gate(row))
+        and (stage == "approval" or _action_target_gate(row, reward_cfg=reward_cfg))
     )
     reason = "accepted" if row["success"] else str(
         row.get("failure_reason")
@@ -458,6 +499,122 @@ def write_episode_ledger(path: Path, rows: Iterable[dict[str, object]]) -> None:
     _atomic_bytes(Path(path), payload)
 
 
+def _require_sha(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or _SHA256_RE.fullmatch(value) is None:
+        raise ValueError(f"{label} must be a lowercase SHA-256")
+    return value
+
+
+def _resolve_pinned_file(value: object, *, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} path is missing")
+    path = Path(value).expanduser().resolve()
+    if not path.is_file():
+        raise ValueError(f"{label} does not exist: {path}")
+    return path
+
+
+def _pinned_training_context(
+    checkpoint_lineage: dict[str, object], *, checkpoint: Path, stage: str
+) -> tuple[dict[str, object], object]:
+    """Validate a checkpoint lineage and reconstruct its reward thresholds.
+
+    This intentionally follows the manifest's absolute config path, verifies
+    its on-disk SHA, and then constructs the exact reward dataclass used by
+    training.  Nothing in this path falls back to current Python defaults.
+    """
+    from scripts import m1_wire_ppo_train as train
+
+    expected_keys = {
+        "checkpoint", "checkpoint_sha256", "training_manifest",
+        "training_manifest_sha256", "training_episodes_jsonl_sha256",
+        "approval_lineage",
+    }
+    if not isinstance(checkpoint_lineage, dict) or set(checkpoint_lineage) != expected_keys:
+        raise ValueError("checkpoint_lineage structure is incomplete or has unexpected fields")
+    checkpoint = Path(checkpoint).resolve()
+    if checkpoint_lineage.get("checkpoint") != str(checkpoint):
+        raise ValueError("checkpoint lineage path does not match aggregate checkpoint")
+    checkpoint_sha = _require_sha(checkpoint_lineage.get("checkpoint_sha256"), label="checkpoint lineage SHA-256")
+    if sha256_file(checkpoint) != checkpoint_sha:
+        raise ValueError("checkpoint lineage SHA-256 does not match checkpoint")
+    manifest_path = _resolve_pinned_file(
+        checkpoint_lineage.get("training_manifest"), label="training manifest"
+    )
+    manifest_sha = _require_sha(
+        checkpoint_lineage.get("training_manifest_sha256"),
+        label="training manifest SHA-256",
+    )
+    if sha256_file(manifest_path) != manifest_sha:
+        raise ValueError("training manifest SHA-256 does not match its path")
+    training = _load_sha_manifest(manifest_path, label="training manifest")
+    if (
+        training.get("schema_version") != 1
+        or training.get("status") != "completed"
+        or training.get("stage") != stage
+        or training.get("action_dim") != 15
+    ):
+        raise ValueError("training manifest is incomplete or incompatible with aggregate stage")
+    train._require_compatible_sha(
+        training,
+        label="source",
+        path_key="source",
+        sha_key="source_sha256",
+        expected_path=TRAIN_SCRIPT,
+    )
+    config_path = _resolve_pinned_file(training.get("config"), label="training config")
+    if config_path != DEFAULT_CONFIG.resolve():
+        raise ValueError("training config path is not the formal wire PPO config")
+    train._require_compatible_sha(
+        training,
+        label="config",
+        path_key="config",
+        sha_key="config_sha256",
+        expected_path=config_path,
+    )
+    best = training.get("best_checkpoint")
+    if not isinstance(best, dict):
+        raise ValueError("training manifest has no best checkpoint")
+    best_path = best.get("path")
+    best_sha = _require_sha(best.get("sha256"), label="training best checkpoint SHA-256")
+    if not isinstance(best_path, str) or (manifest_path.parent / best_path).resolve() != checkpoint:
+        raise ValueError("training best checkpoint path does not match aggregate checkpoint")
+    if best_sha != checkpoint_sha:
+        raise ValueError("training best checkpoint SHA-256 does not match aggregate checkpoint")
+    training_ledger = _load_training_ledger(training, manifest_path, stage=stage)
+    training_ledger_sha = _require_sha(
+        training.get("episodes_jsonl_sha256"), label="training episode ledger SHA-256"
+    )
+    if training_ledger_sha != checkpoint_lineage.get("training_episodes_jsonl_sha256"):
+        raise ValueError("checkpoint lineage episode ledger SHA-256 mismatch")
+    if not any(row.get("success") is True for row in training_ledger):
+        raise ValueError("training manifest has no accepted episode")
+    config = train.load_train_config(config_path)
+    reward_cfg = train._reward_cfg(config, stage)
+    if stage == "action":
+        for field, expected in FORMAL_ACTION_TARGET_LIMITS.items():
+            try:
+                actual = float(getattr(reward_cfg, field))
+            except (AttributeError, TypeError, ValueError):
+                raise ValueError(f"action target threshold {field} is not pinned") from None
+            if actual != float(expected):
+                raise ValueError(
+                    f"action target threshold {field} does not match formal wire PPO config"
+                )
+    if stage == "action":
+        expected_approval = checkpoint_lineage.get("approval_lineage")
+        if not isinstance(expected_approval, dict):
+            raise ValueError("action checkpoint lineage has no approval lineage")
+        if training.get("approval_lineage") != expected_approval:
+            raise ValueError("action training manifest approval lineage does not match checkpoint lineage")
+        replayed = train.validate_approval_resume(checkpoint_lineage["approval_lineage"]["checkpoint"], config_path=config_path)
+        if expected_approval != replayed:
+            raise ValueError("action checkpoint approval lineage does not replay exactly")
+    elif checkpoint_lineage.get("approval_lineage") is not None:
+        raise ValueError("approval checkpoint lineage must not contain approval lineage")
+    return training, reward_cfg
+
+
 def publish_aggregate_manifest(
     path: Path,
     *,
@@ -469,7 +626,10 @@ def publish_aggregate_manifest(
     ledger: Path,
     rows: list[dict[str, object]],
 ) -> dict[str, object]:
-    accepted = len(successful_episode_rows(rows, stage=stage))
+    _, reward_cfg = _pinned_training_context(
+        checkpoint_lineage, checkpoint=checkpoint, stage=stage
+    )
+    accepted = len(successful_episode_rows(rows, stage=stage, reward_cfg=reward_cfg))
     body = {
         "schema_version": 1,
         "status": "completed",
@@ -531,6 +691,7 @@ def verify_aggregate_manifest(path: Path) -> dict[str, object]:
         or sha256_file(Path(checkpoint)) != checkpoint_sha
     ):
         raise ValueError("checkpoint SHA-256 mismatch")
+    checkpoint_path = Path(checkpoint).resolve()
     stage = document.get("stage")
     requested = document.get("requested_episodes")
     if (
@@ -540,6 +701,9 @@ def verify_aggregate_manifest(path: Path) -> dict[str, object]:
         or requested <= 0
     ):
         raise ValueError("aggregate stage or requested episode count is invalid")
+    training_manifest, reward_cfg = _pinned_training_context(
+        document.get("checkpoint_lineage"), checkpoint=checkpoint_path, stage=stage
+    )
     rows: list[dict[str, object]] = []
     for index, line in enumerate(ledger.read_text(encoding="utf-8").splitlines()):
         try:
@@ -556,7 +720,7 @@ def verify_aggregate_manifest(path: Path) -> dict[str, object]:
         ):
             raise ValueError("aggregate episode ledger is malformed")
         rows.append(row)
-    accepted = len(successful_episode_rows(rows, stage=stage))
+    accepted = len(successful_episode_rows(rows, stage=stage, reward_cfg=reward_cfg))
     outcomes = {
         "bilateral_contact": sum(row.get("bilateral_contact") is True for row in rows),
         "lift": sum(row.get("lift_reached") is True for row in rows),
@@ -714,6 +878,7 @@ def main() -> int:
                                 episode_index=episode_index,
                                 stage=args.stage,
                                 checkpoint_sha256=checkpoint_sha,
+                                reward_cfg=reward_cfg,
                             )
                         )
                         break
