@@ -54,7 +54,7 @@ def test_station_goal_centers_each_opposed_pinch_on_its_endpoint():
             outward = np.array(target.position) - station
             np.testing.assert_allclose(target.normal, outward / np.linalg.norm(outward))
         assert np.isclose(np.linalg.norm(np.array(targets[0].position) - station),
-                          np.hypot(0.007, 0.004))
+                          np.hypot(0.007, 0.006))
     np.testing.assert_allclose(goal.center, state.midpoint)
     np.testing.assert_allclose(goal.left_palm_approach_normal, [0., -1., 0.])
     np.testing.assert_allclose(goal.right_palm_approach_normal, [0., 1., 0.])
@@ -83,12 +83,14 @@ def test_o6_station_targets_straddle_the_5mm_wire_with_positive_normal_alignment
         for target in targets:
             radial = np.asarray(target.position) - station
             radial_distance = np.linalg.norm(radial)
-            assert 0.009 < radial_distance < 0.011
+            assert 0.010 < radial_distance < 0.012
             radial /= radial_distance
             # Force alignment is positive and sufficiently normal to the wire;
             # this is a geometry invariant, not a relaxed acceptance threshold.
             assert float(np.dot(np.asarray(target.normal), radial)) > 0.99
-            assert abs(float(np.dot(np.asarray(target.normal), np.asarray(palm_normal)))) > 0.8
+            # With the known 1.5-radius O6 offset, the radial contact normal
+            # remains positively aligned with the palm approach axis.
+            assert abs(float(np.dot(np.asarray(target.normal), np.asarray(palm_normal)))) > 0.7
 
 
 def test_station_fingertip_offset_is_configurable_but_remains_bounded():
@@ -106,14 +108,14 @@ def test_station_fingertip_offset_is_configurable_but_remains_bounded():
         build_wire_station_contact_goal(state, fingertip_offset_ratio=1.51)
 
 
-def test_default_station_targets_preserve_endpoint_reachability_with_intermediate_radial_offset():
-    """The tuned default keeps each station reachable while restoring O6 radial placement."""
+def test_default_station_targets_preserve_endpoint_reachability_with_o6_radial_offset():
+    """The default restores the known reachable O6 radial placement."""
     state = DloCenterlineState(
         np.array([[0.4, 0.0, 1.2], [0.5, 0.0, 1.2], [0.6, 0.0, 1.2]]),
         radius_m=0.005,
     )
     goal = build_wire_station_contact_goal(state)
-    expected_radial = np.hypot(0.008, 0.005)
+    expected_radial = np.hypot(0.008, 0.0075)
     for targets, station in (
         (goal.left_contact_targets, state.positions[0]),
         (goal.right_contact_targets, state.positions[-1]),

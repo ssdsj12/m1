@@ -84,7 +84,7 @@ def build_wire_line_contact_goal(
     state: DloCenterlineState,
     *,
     clearance_m: float = 0.003,
-    fingertip_offset_ratio: float = 1.0,
+    fingertip_offset_ratio: float = 1.5,
 ) -> WireLineContactGoal:
     """Create opposed thumb/index targets around the DLO midpoint.
 
@@ -132,7 +132,7 @@ def build_wire_station_contact_goal(
     state: DloCenterlineState,
     *,
     clearance_m: float = 0.003,
-    fingertip_offset_ratio: float = 1.0,
+    fingertip_offset_ratio: float = 1.5,
 ) -> WireLineContactGoal:
     """Place opposed thumb/index pinches at the held-span endpoints.
 
