@@ -52,10 +52,17 @@ class WirePpoRewardCfg:
     action_force_balance_weight: float = 0.5
     action_slip_weight: float = 1.0
     action_latent_smoothness_weight: float = 0.25
+    action_maximum_centerline_error_m: float = 0.03
+    action_maximum_tangent_error: float = 0.25
+    action_maximum_deformation_error_m: float = 0.02
+    action_maximum_synchronization_error_m_s: float = 0.05
 
     def __post_init__(self) -> None:
         threshold_names = {
-            "contact_force_threshold", "minimum_lift_m", "minimum_hold_s", "maximum_slip_m"
+            "contact_force_threshold", "minimum_lift_m", "minimum_hold_s", "maximum_slip_m",
+            "action_maximum_centerline_error_m", "action_maximum_tangent_error",
+            "action_maximum_deformation_error_m",
+            "action_maximum_synchronization_error_m_s",
         }
         for field in fields(self):
             value = getattr(self, field.name)
@@ -209,6 +216,24 @@ def approval_episode(
     )
 
 
+def action_episode(
+    current: WirePpoState | Mapping[str, Any], cfg: WirePpoRewardCfg | None = None
+) -> bool:
+    """Require physical approval and the Stage-B wire-shape target together."""
+
+    cfg = cfg or WirePpoRewardCfg()
+    state = _state(current)
+    if not approval_episode(state, cfg):
+        return False
+    return (
+        state.wire_centerline_error <= cfg.action_maximum_centerline_error_m
+        and state.tangent_error <= cfg.action_maximum_tangent_error
+        and state.deformation_error <= cfg.action_maximum_deformation_error_m
+        and state.synchronization_error
+        <= cfg.action_maximum_synchronization_error_m_s
+    )
+
+
 def infer_wire_ppo_phase(
     current: WirePpoState | Mapping[str, Any], cfg: WirePpoRewardCfg | None = None
 ) -> WirePpoPhase:
@@ -288,5 +313,5 @@ def compute_wire_ppo_reward(
 
 __all__ = [
     "RewardBreakdown", "WirePpoPhase", "WirePpoRewardCfg", "WirePpoStage", "WirePpoState",
-    "approval_episode", "compute_wire_ppo_reward", "infer_wire_ppo_phase",
+    "action_episode", "approval_episode", "compute_wire_ppo_reward", "infer_wire_ppo_phase",
 ]

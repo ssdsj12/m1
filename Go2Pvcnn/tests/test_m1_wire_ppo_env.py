@@ -195,3 +195,79 @@ def test_nonfinite_slip_is_rejected_instead_of_becoming_zero():
     wrapper.wire_acceptance_diagnostics["left_slip_m"] = float("nan")
     with pytest.raises(ValueError, match="finite"):
         env.step(torch.zeros(15))
+
+
+def test_stage_b_approval_without_wire_goal_does_not_succeed_or_terminate():
+    wrapper = _FakeWrapper()
+    measured = torch.tensor(
+        [[0.0, 0.0, 0.75], [0.0, 0.2, 0.75], [0.0, 0.4, 0.75]],
+        dtype=torch.float64,
+    )
+    target = measured + torch.tensor([0.51923, 0.0, 0.0], dtype=torch.float64)
+    reset_positions = measured - torch.tensor([0.0, 0.0, 0.05], dtype=torch.float64)
+    runtime_state = SimpleNamespace(
+        positions=reset_positions,
+        endpoint_velocities=torch.zeros(2, 3, dtype=torch.float64),
+    )
+    wrapper.runtime = SimpleNamespace(
+        latest_reduced_wire_update=SimpleNamespace(state=runtime_state)
+    )
+    env = M1WirePpoEnv(wrapper, stage="action", target_centerline=target)
+    env.reset()
+    runtime_state.positions = measured
+    wrapper.wire_acceptance_diagnostics.update(
+        {
+            "acceptance_phase": "hold",
+            "left_contact_mask": [True, True, False, False, False],
+            "right_contact_mask": [True, True, False, False, False],
+            "left_fingertip_forces_b": [[0.0, 0.0, 0.3]] * 2
+            + [[0.0, 0.0, 0.0]] * 3,
+            "right_fingertip_forces_b": [[0.0, 0.0, 0.3]] * 2
+            + [[0.0, 0.0, 0.0]] * 3,
+            "hold_elapsed_s": 1.0,
+        }
+    )
+
+    _, _, terminated, truncated, info = env.step(torch.zeros(15))
+
+    assert env._previous_state.wire_centerline_error == pytest.approx(0.51923)
+    assert info["success"] is False
+    assert terminated is False
+    assert truncated is False
+
+
+def test_stage_a_approach_uses_measured_hand_geometry_to_wire_stations():
+    wrapper = _FakeWrapper()
+    stations = torch.tensor(
+        [[0.4, 0.1, 1.2], [0.6, -0.1, 1.2]], dtype=torch.float64
+    )
+    wrapper.runtime = SimpleNamespace(
+        latest_reduced_wire_update=SimpleNamespace(
+            state=SimpleNamespace(
+                positions=stations,
+                endpoint_velocities=torch.zeros(2, 3, dtype=torch.float64),
+            )
+        )
+    )
+    env = M1WirePpoEnv(wrapper, stage="approval")
+    env.reset()
+    far_error = env._previous_state.approach_error
+
+    snapshot = wrapper.last_snapshot
+    updates = {}
+    for side, station in zip(("left", "right"), stations):
+        arm = getattr(snapshot, f"{side}_arm")
+        hand = getattr(snapshot, f"{side}_hand")
+        palm_pose = arm.palm_pose_b.clone()
+        palm_pose[:3] = station
+        fingertips = hand.fingertip_positions_b.clone()
+        fingertips[:2] = station
+        updates[f"{side}_arm"] = replace(arm, palm_pose_b=palm_pose)
+        updates[f"{side}_hand"] = replace(hand, fingertip_positions_b=fingertips)
+    wrapper.last_snapshot = replace(snapshot, **updates)
+
+    _, _, _, _, info = env.step(torch.zeros(15))
+
+    assert far_error > 0.0
+    assert env._previous_state.approach_error < far_error
+    assert info["reward_terms"]["approach"] > 0.0

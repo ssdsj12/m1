@@ -7,6 +7,7 @@ from go2_pvcnn.tasks.m1_wire_ppo_curriculum import (
     WirePpoPhase,
     WirePpoStage,
     WirePpoState,
+    action_episode,
     approval_episode,
     compute_wire_ppo_reward,
     infer_wire_ppo_phase,
@@ -37,6 +38,30 @@ def test_approval_requires_all_acceptance_thresholds_and_strict_force():
     assert not approval_episode(accepted_state(hold_time=0.999999))
     assert not approval_episode(accepted_state(slip=0.020001))
     assert not approval_episode(accepted_state(safety_failure=True))
+
+
+def test_action_success_requires_approval_and_wire_action_goal_thresholds():
+    cfg = WirePpoRewardCfg()
+    assert action_episode(accepted_state(), cfg)
+    assert not action_episode(accepted_state(wire_centerline_error=0.51923), cfg)
+    assert not action_episode(
+        accepted_state(tangent_error=cfg.action_maximum_tangent_error + 1.0e-6), cfg
+    )
+    assert not action_episode(
+        accepted_state(
+            deformation_error=cfg.action_maximum_deformation_error_m + 1.0e-6
+        ),
+        cfg,
+    )
+    assert not action_episode(
+        accepted_state(
+            synchronization_error=(
+                cfg.action_maximum_synchronization_error_m_s + 1.0e-6
+            )
+        ),
+        cfg,
+    )
+    assert not action_episode(accepted_state(contacts_left=1), cfg)
 
 
 def test_approval_rejects_nonfinite_state_without_exception_or_success():
@@ -118,6 +143,10 @@ def test_reward_config_is_positive_and_customizable():
         ("approach_weight", math.nan),
         ("action_centerline_weight", -1.0),
         ("action_latent_smoothness_weight", math.inf),
+        ("action_maximum_centerline_error_m", -0.01),
+        ("action_maximum_tangent_error", math.nan),
+        ("action_maximum_deformation_error_m", math.inf),
+        ("action_maximum_synchronization_error_m_s", -0.01),
         ("safety_failure_penalty", math.nan),
     ],
 )

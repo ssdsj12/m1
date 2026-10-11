@@ -33,6 +33,7 @@ from go2_pvcnn.tasks.m1_wire_ppo_curriculum import (
     WirePpoRewardCfg,
     WirePpoStage,
     WirePpoState,
+    action_episode,
     approval_episode,
     compute_wire_ppo_reward,
     infer_wire_ppo_phase,
@@ -102,6 +103,31 @@ def _scalar(diag: dict[str, Any], name: str, default: float = 0.0) -> float:
     if not math.isfinite(value):
         raise ValueError(f"{name} must be finite")
     return value
+
+
+def _measured_approach_error(snapshot: object, points: torch.Tensor) -> float:
+    """Measure palms and thumb/index geometry against live grasp stations."""
+
+    stations = (points[0], points[-1])
+    side_errors: list[float] = []
+    for side, station in zip(("left", "right"), stations):
+        arm = getattr(snapshot, f"{side}_arm")
+        hand = getattr(snapshot, f"{side}_hand")
+        fingertips = _tensor(hand.fingertip_positions_b)
+        palm = _tensor(arm.palm_pose_b[:3])
+        if fingertips.shape != (5, 3) or palm.shape != (3,):
+            raise ValueError("measured hand geometry must have fingertip (5,3) and palm (3,) shapes")
+        pinch_tips = fingertips[:2]
+        pinch_center = pinch_tips.mean(dim=0)
+        distances = torch.cat(
+            (
+                torch.linalg.vector_norm(pinch_tips - station, dim=1),
+                torch.linalg.vector_norm(pinch_center - station).reshape(1),
+                torch.linalg.vector_norm(palm - station).reshape(1),
+            )
+        )
+        side_errors.append(float(distances.mean()))
+    return max(side_errors)
 
 
 class M1WirePpoEnv:
@@ -204,11 +230,7 @@ class M1WirePpoEnv:
         points, velocities = self._geometry(snapshot)
         height = float(points[:, 2].mean())
         lift = max(0.0, height - self._initial_wire_height)
-        approach = max(
-            0.0,
-            _scalar(diag, "left_palm_error_m", _scalar(diag, "left_pinch_error_m")),
-            _scalar(diag, "right_palm_error_m", _scalar(diag, "right_pinch_error_m")),
-        )
+        approach = _measured_approach_error(snapshot, points)
         feasibility = diag.get("feasibility", {})
         safety_failure = bool(
             diag.get("safety_failure", False)
@@ -264,11 +286,16 @@ class M1WirePpoEnv:
 
     def _info(self, state: WirePpoState, diag: dict[str, Any], *, terminated: bool, truncated: bool) -> dict[str, Any]:
         phase = infer_wire_ppo_phase(state, self.reward_cfg)
+        success = (
+            action_episode(state, self.reward_cfg)
+            if self.stage is WirePpoStage.ACTION
+            else approval_episode(state, self.reward_cfg)
+        )
         info = {
             "stage": self.stage.value,
             "phase": phase.value,
             "episode_step": self._episode_step,
-            "success": bool(approval_episode(state, self.reward_cfg)),
+            "success": bool(success),
             "failure_reason": diag.get("rejection_reason") or diag.get("contact_failure_reason"),
             "terminated": terminated,
             "truncated": truncated,
@@ -326,7 +353,11 @@ class M1WirePpoEnv:
             torch.linalg.vector_norm(command.as_vector.cpu() - self._previous_action)))
         breakdown = compute_wire_ppo_reward(self._previous_state, current, self.stage, self.reward_cfg)
         self._episode_step += 1
-        success = bool(approval_episode(current, self.reward_cfg))
+        success = bool(
+            action_episode(current, self.reward_cfg)
+            if self.stage is WirePpoStage.ACTION
+            else approval_episode(current, self.reward_cfg)
+        )
         terminal_phase = str(diag.get("acceptance_phase", "")).lower() in {"terminated", "failed"}
         terminated = bool(success or terminal_phase or current.safety_failure)
         truncated = bool(not terminated and self._episode_step >= self.max_episode_steps)
