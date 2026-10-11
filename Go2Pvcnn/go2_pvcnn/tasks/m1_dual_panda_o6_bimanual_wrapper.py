@@ -830,6 +830,10 @@ class M1DualPandaO6BimanualWrapper:
                     )
             self.startup_complete = False
             self.last_actions: torch.Tensor | None = None
+            # Optional PPO boundary.  ``step()`` remains the historical
+            # teacher/latent API; ``step_latent()`` supplies a validated 15D
+            # command to the same safety projection and hand-target path.
+            self._ppo_latent_action: torch.Tensor | None = None
             self._step = 0
             self._sync_legacy_aliases()
         except BaseException:
@@ -1380,6 +1384,7 @@ class M1DualPandaO6BimanualWrapper:
         """Reset, physically synchronize once, then expose an exact zero-velocity state."""
 
         self.startup_complete = False
+        self._ppo_latent_action = None
         self.env.reset(seed=int(seed))
         raw = self.env.unwrapped
         self._write_default_physics_state()
@@ -1427,6 +1432,7 @@ class M1DualPandaO6BimanualWrapper:
         self.startup_complete = True
         self._step = 0
         self.last_actions = None
+        self._ppo_latent_action = None
         self._sync_legacy_aliases()
         return self.lanes[0].last_snapshot
 
@@ -1599,6 +1605,7 @@ class M1DualPandaO6BimanualWrapper:
             if teacher_solution.diagnostics.feasible
             else lane.baseline_command.effort
         )
+        candidate = self._apply_ppo_palm_delta(lane, snapshot, candidate)
         safety_input = self._safety_input(lane, snapshot, dynamics, candidate)
         lane.last_safety_result = lane.safety.project(safety_input)
         if lane.wire_acceptance_tracker is not None:
@@ -1628,6 +1635,33 @@ class M1DualPandaO6BimanualWrapper:
                 fallback_reasons=tuple(fallback_reasons),
             ),
         )
+
+    def _apply_ppo_palm_delta(
+        self, lane: BimanualLaneController, snapshot: BimanualSnapshot,
+        candidate: torch.Tensor,
+    ) -> torch.Tensor:
+        """Map the first six PPO latent values to both Panda arm efforts.
+
+        The latent is a normalized task-space twist.  It is deliberately
+        passed through the measured fingertip/palm Jacobians and then through
+        the existing ``SafetyProjection``; PPO never bypasses arm limits or
+        the wire contact gate.  A missing latent leaves legacy behavior
+        bit-for-bit unchanged.
+        """
+        latent = getattr(self, "_ppo_latent_action", None)
+        if latent is None:
+            return candidate
+        twist = latent[:6].to(dtype=torch.float64, device="cpu")
+        # Small, bounded task-space increments keep exploration gentle while
+        # retaining the exact O6 distal/Jacobian mapping used by commit
+        # 42c0909 in the snapshot adapter.
+        twist = twist * torch.tensor(
+            [0.025, 0.025, 0.025, 0.08, 0.08, 0.08], dtype=torch.float64
+        )
+        result = candidate.clone()
+        for output, arm in ((slice(17, 24), snapshot.left_arm), (slice(24, 31), snapshot.right_arm)):
+            result[output] = result[output] + arm.jacobian_b.T @ twist
+        return result
 
     @staticmethod
     def _wire_projection_snapshot(sample, result, safety) -> dict[str, object]:
@@ -1723,6 +1757,11 @@ class M1DualPandaO6BimanualWrapper:
                 right_target,
                 release_uncontacted=lane.wire_acceptance_tracker is not None,
             )
+        latent = getattr(self, "_ppo_latent_action", None)
+        if latent is not None:
+            hand_delta = latent[6:12].to(dtype=torch.float64, device="cpu")
+            left_target = left_target + 0.05 * hand_delta
+            right_target = right_target + 0.05 * hand_delta
         return left_target, right_target
 
     def step(self):
@@ -1731,6 +1770,25 @@ class M1DualPandaO6BimanualWrapper:
         except BaseException:
             self._close_partial_resources()
             raise
+
+    def step_latent(self, action: torch.Tensor):
+        """Apply one validated 15D PPO latent through the normal wrapper step.
+
+        Validation happens before setting any wrapper field, so malformed PPO
+        output cannot advance Isaac, alter latches, or poison the last-safe
+        command.  ``phase_force`` remains available in ``last_ppo_latent``
+        for diagnostics; phase transitions and force limits stay authoritative
+        in the existing mission/WBC/safety layers.
+        """
+        from go2_pvcnn.control.m1_bimanual_coordination.wire_ppo_contracts import decode_wire_latent
+
+        command = decode_wire_latent(action, device="cpu", dtype=torch.float64)
+        self._ppo_latent_action = command.as_vector.clone()
+        try:
+            return self.step()
+        finally:
+            # Keep the last command for episode diagnostics; reset() clears it.
+            pass
 
     def _step_impl(self):
         if not self.startup_complete:
