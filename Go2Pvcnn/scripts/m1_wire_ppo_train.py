@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import random
+import re
 import sys
 import tempfile
 import traceback
@@ -39,12 +40,37 @@ RUNTIME_ENVIRONMENT = {
     "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
 }
 
+FORMAL_MINIMUM_CONTACTS_PER_HAND = 2
+FORMAL_CONTACT_FORCE_THRESHOLD_N = 0.2
+FORMAL_MINIMUM_LIFT_M = 0.05
+FORMAL_MINIMUM_HOLD_S = 1.0
+FORMAL_MAXIMUM_SLIP_M = 0.02
+_SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+_TORCH_INTEROP_CONFIGURED = False
+
 
 def configure_runtime_environment() -> None:
     """Pin rollout/training to GPU0 and prevent CPU helper oversubscription."""
 
     for name, value in RUNTIME_ENVIRONMENT.items():
         os.environ[name] = value
+
+
+def configure_torch_threads(torch_module) -> None:
+    """Apply the one-thread contract after torch import, idempotently."""
+
+    global _TORCH_INTEROP_CONFIGURED
+    torch_module.set_num_threads(1)
+    if not _TORCH_INTEROP_CONFIGURED:
+        if int(torch_module.get_num_interop_threads()) != 1:
+            try:
+                torch_module.set_num_interop_threads(1)
+            except RuntimeError:
+                if int(torch_module.get_num_interop_threads()) != 1:
+                    raise
+        _TORCH_INTEROP_CONFIGURED = True
+    if int(torch_module.get_num_threads()) != 1 or int(torch_module.get_num_interop_threads()) != 1:
+        raise RuntimeError("torch intra-op and inter-op thread counts must both be one")
 
 
 def sha256_file(path: Path) -> str:
@@ -111,7 +137,23 @@ def load_train_config(path: Path) -> dict[str, Any]:
         raise ValueError("training config requires runner and rewards mappings")
     if set(rewards) != {"approval", "action"}:
         raise ValueError("training config rewards must define approval and action")
+    validate_reward_config(document)
     return document
+
+
+def validate_reward_config(config: dict[str, Any]) -> None:
+    """Validate shaping configuration without making it the formal acceptance gate."""
+
+    from go2_pvcnn.tasks.m1_wire_ppo_curriculum import WirePpoRewardCfg
+
+    rewards = config.get("rewards")
+    if not isinstance(rewards, dict) or set(rewards) != {"approval", "action"}:
+        raise ValueError("training config rewards must define approval and action")
+    for stage in ("approval", "action"):
+        value = rewards[stage]
+        if not isinstance(value, dict):
+            raise ValueError(f"rewards.{stage} must be a mapping")
+        WirePpoRewardCfg(**value)
 
 
 def build_arg_parser(*, include_app_launcher_args: bool = True) -> argparse.ArgumentParser:
@@ -172,7 +214,142 @@ def _load_manifest(path: Path) -> dict[str, object]:
     return document
 
 
-def validate_approval_resume(checkpoint: Path) -> dict[str, object]:
+def _require_compatible_sha(
+    document: dict[str, object], *, label: str, path_key: str, sha_key: str, expected_path: Path
+) -> None:
+    declared_path = document.get(path_key)
+    declared_sha = document.get(sha_key)
+    if not isinstance(declared_sha, str) or _SHA256_RE.fullmatch(declared_sha) is None:
+        raise ValueError(f"approval {label} SHA-256 must be 64 lowercase hex characters")
+    if not isinstance(declared_path, str):
+        raise ValueError(f"approval {label} path is missing")
+    expected_path = Path(expected_path).expanduser().resolve()
+    if Path(declared_path).expanduser().resolve() != expected_path or declared_sha != sha256_file(expected_path):
+        raise ValueError(f"approval {label} is incompatible with this training entrypoint")
+
+
+def _finite_float(value: object, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be finite")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{label} must be finite")
+    return result
+
+
+def _contact_forces(info: dict[str, object], side: str) -> tuple[float, ...]:
+    direct = info.get(f"contact_forces_{side}")
+    if isinstance(direct, (list, tuple)):
+        return tuple(_finite_float(value, label=f"{side} contact force") for value in direct)
+    diagnostics = info.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        return ()
+    raw = diagnostics.get(f"{side}_fingertip_forces_b")
+    mask = diagnostics.get(f"{side}_contact_mask")
+    if not isinstance(raw, (list, tuple)) or not isinstance(mask, (list, tuple)) or len(raw) != len(mask):
+        return ()
+    forces: list[float] = []
+    for selected, vector in zip(mask, raw):
+        if not isinstance(selected, bool) or not isinstance(vector, (list, tuple)) or len(vector) != 3:
+            return ()
+        components = tuple(_finite_float(value, label=f"{side} contact force") for value in vector)
+        if selected:
+            forces.append(math.sqrt(sum(value * value for value in components)))
+    return tuple(forces)
+
+
+def formal_approval_episode(info: dict[str, object]) -> bool:
+    """Apply the immutable physical promotion gate, independent of reward shaping."""
+
+    try:
+        left = info.get("contacts_left")
+        right = info.get("contacts_right")
+        if isinstance(left, bool) or not isinstance(left, int) or isinstance(right, bool) or not isinstance(right, int):
+            return False
+        if left < FORMAL_MINIMUM_CONTACTS_PER_HAND or right < FORMAL_MINIMUM_CONTACTS_PER_HAND:
+            return False
+        for count, forces in ((left, _contact_forces(info, "left")), (right, _contact_forces(info, "right"))):
+            if len(forces) < count or any(force <= FORMAL_CONTACT_FORCE_THRESHOLD_N for force in forces[:count]):
+                return False
+        return (
+            _finite_float(info.get("lift_height"), label="lift height") >= FORMAL_MINIMUM_LIFT_M
+            and _finite_float(info.get("hold_time"), label="hold time") >= FORMAL_MINIMUM_HOLD_S
+            and 0.0 <= _finite_float(info.get("slip"), label="slip") <= FORMAL_MAXIMUM_SLIP_M
+        )
+    except ValueError:
+        return False
+
+
+def _load_episode_ledger(path: Path) -> list[dict[str, object]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"approval episode ledger does not exist: {path}")
+    rows: list[dict[str, object]] = []
+    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"approval episode ledger row {index} is invalid JSON") from error
+        if not isinstance(row, dict) or row.get("episode_index") != index:
+            raise ValueError("approval episode ledger indices must be contiguous")
+        rows.append(row)
+    return rows
+
+
+def _validate_episode_evidence(document: dict[str, object], manifest_path: Path) -> str:
+    relative = document.get("episodes_jsonl")
+    declared_sha = document.get("episodes_jsonl_sha256")
+    if not isinstance(relative, str):
+        raise ValueError("approval manifest has no episode ledger")
+    ledger = (manifest_path.parent / relative).resolve()
+    if ledger.parent != manifest_path.parent.resolve():
+        raise ValueError("approval episode ledger must be inside the run directory")
+    if not ledger.is_file():
+        raise FileNotFoundError(f"approval episode ledger does not exist: {ledger}")
+    actual_sha = sha256_file(ledger)
+    if not isinstance(declared_sha, str) or _SHA256_RE.fullmatch(declared_sha) is None or declared_sha != actual_sha:
+        raise ValueError("approval episode ledger SHA-256 mismatch")
+    rows = _load_episode_ledger(ledger)
+    counts = {"accepted": 0, "rejected": 0}
+    reasons: Counter[str] = Counter()
+    for row in rows:
+        success = row.get("success")
+        reason = row.get("terminal_reason")
+        if not isinstance(success, bool) or not isinstance(reason, str) or not reason:
+            raise ValueError("approval episode ledger outcome is malformed")
+        if success:
+            if reason != "accepted" or not formal_approval_episode(row):
+                raise ValueError("accepted ledger row does not meet physical acceptance")
+            counts["accepted"] += 1
+        else:
+            if reason == "accepted":
+                raise ValueError("rejected ledger row cannot use accepted terminal reason")
+            counts["rejected"] += 1
+        reasons[reason] += 1
+    declared_counts = document.get("acceptance_counts")
+    if (
+        not isinstance(declared_counts, dict)
+        or set(declared_counts) != {"accepted", "rejected"}
+        or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in declared_counts.values())
+        or declared_counts != counts
+    ):
+        raise ValueError("approval manifest acceptance counts do not match episode ledger")
+    declared_reasons = document.get("terminal_reason_counts")
+    if (
+        not isinstance(declared_reasons, dict)
+        or any(
+            not isinstance(key, str) or not key or isinstance(value, bool)
+            or not isinstance(value, int) or value < 0
+            for key, value in declared_reasons.items()
+        )
+        or declared_reasons != dict(sorted(reasons.items()))
+    ):
+        raise ValueError("approval manifest terminal reason counts do not match episode ledger")
+    return actual_sha
+
+
+def validate_approval_resume(
+    checkpoint: Path, *, config_path: Path = DEFAULT_CONFIG
+) -> dict[str, object]:
     checkpoint = Path(checkpoint).expanduser().resolve()
     if not checkpoint.is_file():
         raise FileNotFoundError(f"approval checkpoint does not exist: {checkpoint}")
@@ -184,6 +361,13 @@ def validate_approval_resume(checkpoint: Path) -> dict[str, object]:
         raise ValueError("resume artifact is not a Stage A approval manifest")
     if document.get("status") != "completed" or document.get("action_dim") != 15:
         raise ValueError("Stage A approval manifest is incomplete or incompatible")
+    _require_compatible_sha(
+        document, label="source", path_key="source", sha_key="source_sha256", expected_path=THIS_FILE
+    )
+    _require_compatible_sha(
+        document, label="config", path_key="config", sha_key="config_sha256", expected_path=config_path
+    )
+    episodes_sha = _validate_episode_evidence(document, manifest_path)
     counts = document.get("acceptance_counts")
     if not isinstance(counts, dict) or not isinstance(counts.get("accepted"), int) or counts["accepted"] < 1:
         raise ValueError("Stage A approval manifest has no accepted episode")
@@ -205,6 +389,7 @@ def validate_approval_resume(checkpoint: Path) -> dict[str, object]:
         "checkpoint_sha256": actual_sha,
         "manifest": str(manifest_path.resolve()),
         "manifest_sha256": sha256_file(manifest_path),
+        "episodes_jsonl_sha256": episodes_sha,
         "approval_seed": document.get("seed"),
     }
 
@@ -248,6 +433,10 @@ def _json_scalar(value: object) -> object:
         if not math.isfinite(value):
             raise ValueError("episode diagnostics must be finite")
         return value
+    if isinstance(value, (list, tuple)):
+        return [_json_scalar(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_scalar(item) for key, item in value.items()}
     try:
         item = value.item()  # torch/numpy scalar without importing either here
     except (AttributeError, ValueError, RuntimeError):
@@ -260,7 +449,8 @@ class EpisodeRecorder:
 
     _FIELDS = (
         "success", "failure_reason", "reward", "terminated", "truncated",
-        "contacts_left", "contacts_right", "lift_height", "hold_time", "slip",
+        "contacts_left", "contacts_right", "contact_forces_left", "contact_forces_right",
+        "lift_height", "hold_time", "slip",
         "phase", "stage",
     )
 
@@ -275,14 +465,25 @@ class EpisodeRecorder:
         self.episode_count = 0
 
     def record(self, info: dict[str, object]) -> dict[str, object]:
-        success = info.get("success") is True
-        reason = "accepted" if success else str(info.get("failure_reason") or (
-            "truncated" if info.get("truncated") else "terminated"
-        ))
+        normalized = dict(info)
+        normalized["contact_forces_left"] = _contact_forces(normalized, "left")
+        normalized["contact_forces_right"] = _contact_forces(normalized, "right")
+        requested_success = normalized.get("success") is True
+        success = requested_success and formal_approval_episode(normalized)
+        normalized["success"] = success
+        if requested_success and not success and not normalized.get("failure_reason"):
+            normalized["failure_reason"] = "formal_acceptance_rejected"
+        if success:
+            reason = "accepted"
+        else:
+            reason = str(
+                normalized.get("failure_reason")
+                or ("truncated" if normalized.get("truncated") else "terminated")
+            )
         row = {"episode_index": self.episode_count, "terminal_reason": reason}
         for name in self._FIELDS:
-            if name in info:
-                row[name] = _json_scalar(info[name])
+            if name in normalized:
+                row[name] = _json_scalar(normalized[name])
         payload = _canonical_json(row)
         with self.path.open("ab") as stream:
             stream.write(payload)
@@ -317,6 +518,40 @@ def atomic_publish_checkpoint(runner: object, target: Path) -> str:
         raise
 
 
+def atomic_publish_existing_checkpoint(source: Path, target: Path) -> str:
+    payload = Path(source).read_bytes()
+    _atomic_bytes(Path(target), payload)
+    return hashlib.sha256(payload).hexdigest()
+
+
+class RolloutBestCheckpointTracker:
+    """Bind accepted episodes to the policy snapshot that generated their rollout."""
+
+    def __init__(self, runner: object, recorder: EpisodeRecorder, run_dir: Path) -> None:
+        self.runner = runner
+        self.recorder = recorder
+        self.run_dir = Path(run_dir)
+        self.rollout_checkpoint = self.run_dir / ".rollout_policy.pt"
+        self.best_checkpoint = self.run_dir / "best.pt"
+        self.previous_best = 0
+
+    def capture_rollout_policy(self) -> None:
+        atomic_publish_checkpoint(self.runner, self.rollout_checkpoint)
+
+    def after_update(self) -> dict[str, str] | None:
+        accepted = self.recorder.acceptance_counts["accepted"]
+        published = None
+        if accepted > self.previous_best:
+            digest = atomic_publish_existing_checkpoint(self.rollout_checkpoint, self.best_checkpoint)
+            published = {"path": self.best_checkpoint.name, "sha256": digest}
+            self.previous_best = accepted
+        self.capture_rollout_policy()
+        return published
+
+    def close(self) -> None:
+        self.rollout_checkpoint.unlink(missing_ok=True)
+
+
 class WireRslRlEnv:
     """One-lane adapter from Gymnasium-style ``M1WirePpoEnv`` to RSL-RL."""
 
@@ -334,6 +569,10 @@ class WireRslRlEnv:
         self._episode_index = 0
         observation, _ = env.reset(seed=self.seed)
         self._observation = observation.reshape(1, -1)
+
+    @property
+    def unwrapped(self):
+        return getattr(self.env, "unwrapped", self.env)
 
     def get_observations(self):
         return self._observation.clone(), {"observations": {}}
@@ -357,7 +596,10 @@ class WireRslRlEnv:
         action = actions[0].to(device=self.env.device, dtype=torch.float32).clamp(-1.0, 1.0)
         observation, reward, terminated, truncated, info = self.env.step(action)
         done = bool(terminated or truncated)
-        infos: dict[str, object] = {"observations": {}}
+        infos: dict[str, object] = {
+            "observations": {},
+            "time_outs": torch.tensor([bool(truncated)], dtype=torch.bool, device=self.env.device),
+        }
         if done:
             terminal = dict(info)
             terminal.update({"reward": float(reward), "terminated": bool(terminated), "truncated": bool(truncated)})
@@ -388,6 +630,7 @@ class WireRslRlEnv:
 def _seed_everything(seed: int, torch) -> None:
     import numpy as np
 
+    configure_torch_threads(torch)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -411,7 +654,7 @@ def main() -> int:
     config_path = args.config.expanduser().resolve()
     config = load_train_config(config_path)
     resume_lineage = (
-        validate_approval_resume(args.resume_checkpoint)
+        validate_approval_resume(args.resume_checkpoint, config_path=config_path)
         if args.stage == "action" else None
     )
     run_dir = args.run_dir.expanduser().resolve()
@@ -431,6 +674,7 @@ def main() -> int:
     app = None
     physical_env = None
     wrapped_env = None
+    checkpoint_tracker = None
     try:
         import torch
         from isaaclab.app import AppLauncher
@@ -478,22 +722,19 @@ def main() -> int:
         runner = OnPolicyRunner(wrapped_env, runner_cfg, log_dir=str(run_dir), device=args.device)
         if resume_lineage is not None:
             runner.load(str(args.resume_checkpoint), load_optimizer=True)
+        checkpoint_tracker = RolloutBestCheckpointTracker(runner, recorder, run_dir)
+        checkpoint_tracker.capture_rollout_policy()
         manifest.update({
             "status": "running",
             "started_at_utc": datetime.now(timezone.utc).isoformat(),
             "observation_dim": int(ppo_env.observation_dim),
         })
         manifest = atomic_write_manifest(manifest_path, manifest)
-        previous_best = 0
-
         def on_iteration(_summary):
-            nonlocal manifest, previous_best
-            accepted = recorder.acceptance_counts["accepted"]
-            if accepted > previous_best:
-                target = run_dir / "best.pt"
-                digest = atomic_publish_checkpoint(runner, target)
-                manifest["best_checkpoint"] = {"path": target.name, "sha256": digest}
-                previous_best = accepted
+            nonlocal manifest
+            published = checkpoint_tracker.after_update()
+            if published is not None:
+                manifest["best_checkpoint"] = published
             manifest["acceptance_counts"] = dict(recorder.acceptance_counts)
             manifest["terminal_reason_counts"] = dict(sorted(recorder.terminal_reason_counts.items()))
             manifest = atomic_write_manifest(manifest_path, manifest)
@@ -524,10 +765,13 @@ def main() -> int:
             "traceback": traceback.format_exc(),
             "acceptance_counts": dict(recorder.acceptance_counts),
             "terminal_reason_counts": dict(sorted(recorder.terminal_reason_counts.items())),
+            "episodes_jsonl_sha256": sha256_file(recorder.path),
         })
         atomic_write_manifest(manifest_path, manifest)
         raise
     finally:
+        if checkpoint_tracker is not None:
+            checkpoint_tracker.close()
         if wrapped_env is not None:
             wrapped_env.close()
         elif physical_env is not None:
