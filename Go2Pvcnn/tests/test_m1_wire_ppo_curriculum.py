@@ -4,10 +4,12 @@ import pytest
 
 from go2_pvcnn.tasks.m1_wire_ppo_curriculum import (
     WirePpoRewardCfg,
+    WirePpoPhase,
     WirePpoStage,
     WirePpoState,
     approval_episode,
     compute_wire_ppo_reward,
+    infer_wire_ppo_phase,
 )
 
 
@@ -104,3 +106,36 @@ def test_reward_config_is_positive_and_customizable():
     assert cfg.safety_failure_penalty < 0
     assert cfg.contact_reward > 0
     assert cfg.action_centerline_weight > 0
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("contact_force_threshold", math.nan),
+        ("minimum_lift_m", -0.01),
+        ("minimum_hold_s", math.inf),
+        ("maximum_slip_m", -0.01),
+        ("approach_weight", math.nan),
+        ("action_centerline_weight", -1.0),
+        ("action_latent_smoothness_weight", math.inf),
+        ("safety_failure_penalty", math.nan),
+    ],
+)
+def test_reward_config_rejects_nonfinite_or_invalid_thresholds_and_weights(field, value):
+    with pytest.raises(ValueError):
+        WirePpoRewardCfg(**{field: value})
+
+
+def test_approval_rejects_negative_slip_and_force_magnitudes():
+    assert not approval_episode(accepted_state(slip=-0.001))
+    assert not approval_episode(accepted_state(contact_forces_left=(-0.3, 0.4)))
+    assert not approval_episode(accepted_state(approach_error=-0.1))
+
+
+def test_phase_progression_is_explicit_and_deterministic():
+    assert infer_wire_ppo_phase(accepted_state(contacts_left=0, contacts_right=0)) is WirePpoPhase.APPROACH
+    assert infer_wire_ppo_phase(accepted_state(contacts_left=1, contacts_right=0)) is WirePpoPhase.CONTACT
+    assert infer_wire_ppo_phase(accepted_state(lift_height=0.0, hold_time=0.0)) is WirePpoPhase.GRASP
+    assert infer_wire_ppo_phase(accepted_state(lift_height=0.05, hold_time=0.0)) is WirePpoPhase.LIFT
+    assert infer_wire_ppo_phase(accepted_state()) is WirePpoPhase.HOLD
+    assert infer_wire_ppo_phase(accepted_state(safety_failure=True)) is WirePpoPhase.FAILED

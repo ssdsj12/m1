@@ -7,7 +7,7 @@ GPU environment share exactly the same acceptance gate.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import Enum
 import math
 from collections.abc import Mapping, Sequence
@@ -17,6 +17,17 @@ from typing import Any
 class WirePpoStage(str, Enum):
     APPROVAL = "approval"
     ACTION = "action"
+
+
+class WirePpoPhase(str, Enum):
+    """Deterministic approval curriculum phases exposed to rollout logging."""
+
+    APPROACH = "approach"
+    CONTACT = "contact"
+    GRASP = "grasp"
+    LIFT = "lift"
+    HOLD = "hold"
+    FAILED = "failed"
 
 
 @dataclass(frozen=True)
@@ -43,12 +54,21 @@ class WirePpoRewardCfg:
     action_latent_smoothness_weight: float = 0.25
 
     def __post_init__(self) -> None:
+        threshold_names = {
+            "contact_force_threshold", "minimum_lift_m", "minimum_hold_s", "maximum_slip_m"
+        }
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ValueError(f"{field.name} must be finite")
+            if field.name in threshold_names and value < 0:
+                raise ValueError(f"{field.name} must be non-negative")
+            if field.name not in threshold_names and field.name != "safety_failure_penalty" and value < 0:
+                raise ValueError(f"{field.name} must be non-negative")
         if self.contact_force_threshold <= 0:
             raise ValueError("contact_force_threshold must be positive")
-        if self.minimum_contacts_per_hand < 1:
+        if isinstance(self.minimum_contacts_per_hand, bool) or not isinstance(self.minimum_contacts_per_hand, int) or self.minimum_contacts_per_hand < 1:
             raise ValueError("minimum_contacts_per_hand must be positive")
-        if self.minimum_lift_m < 0 or self.minimum_hold_s < 0 or self.maximum_slip_m < 0:
-            raise ValueError("acceptance distances and durations must be non-negative")
         if self.safety_failure_penalty >= 0:
             raise ValueError("safety_failure_penalty must be negative")
 
@@ -154,8 +174,11 @@ def _finite_state(state: WirePpoState) -> None:
         forces = getattr(state, name)
         if not isinstance(forces, Sequence) or isinstance(forces, (str, bytes)):
             raise TypeError(f"{name} must be a sequence")
-        if any(not isinstance(force, (int, float)) or not math.isfinite(float(force)) for force in forces):
+        if any(not isinstance(force, (int, float)) or not math.isfinite(float(force)) or force < 0 for force in forces):
             raise ValueError(f"{name} must contain only finite forces")
+    for name in scalar_names:
+        if getattr(state, name) < 0:
+            raise ValueError(f"{name} must be non-negative")
 
 
 def approval_episode(
@@ -184,6 +207,35 @@ def approval_episode(
         and state.hold_time >= cfg.minimum_hold_s
         and state.slip <= cfg.maximum_slip_m
     )
+
+
+def infer_wire_ppo_phase(
+    current: WirePpoState | Mapping[str, Any], cfg: WirePpoRewardCfg | None = None
+) -> WirePpoPhase:
+    """Map diagnostics to the explicit APPROACH→CONTACT→GRASP→LIFT→HOLD curriculum."""
+
+    cfg = cfg or WirePpoRewardCfg()
+    state = _state(current)
+    try:
+        _finite_state(state)
+    except (TypeError, ValueError):
+        return WirePpoPhase.FAILED
+    if state.safety_failure:
+        return WirePpoPhase.FAILED
+    if state.contacts_left == 0 and state.contacts_right == 0:
+        return WirePpoPhase.APPROACH
+    bilateral = state.contacts_left >= cfg.minimum_contacts_per_hand and state.contacts_right >= cfg.minimum_contacts_per_hand
+    strong = bilateral and all(
+        len(forces) >= count and all(force > cfg.contact_force_threshold for force in forces[:count])
+        for count, forces in ((state.contacts_left, state.contact_forces_left), (state.contacts_right, state.contact_forces_right))
+    )
+    if not strong:
+        return WirePpoPhase.CONTACT
+    if state.lift_height < cfg.minimum_lift_m:
+        return WirePpoPhase.GRASP
+    if state.hold_time < cfg.minimum_hold_s:
+        return WirePpoPhase.LIFT
+    return WirePpoPhase.HOLD
 
 
 def _progress(previous: float, current: float) -> float:
@@ -235,6 +287,6 @@ def compute_wire_ppo_reward(
 
 
 __all__ = [
-    "RewardBreakdown", "WirePpoRewardCfg", "WirePpoStage", "WirePpoState",
-    "approval_episode", "compute_wire_ppo_reward",
+    "RewardBreakdown", "WirePpoPhase", "WirePpoRewardCfg", "WirePpoStage", "WirePpoState",
+    "approval_episode", "compute_wire_ppo_reward", "infer_wire_ppo_phase",
 ]
